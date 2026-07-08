@@ -2,60 +2,72 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/spf13/viper"
 )
 
+// DefaultPath is the default YAML config path used by the server.
+const DefaultPath = "config.yaml"
+
 // Config contains service configuration.
 type Config struct {
-	AppEnv                   string `mapstructure:"app_env" validate:"required,oneof=dev test staging prod"`
-	HTTPAddr                 string `mapstructure:"http_addr" validate:"required"`
-	LogLevel                 string `mapstructure:"log_level" validate:"required"`
-	DBDSN                    string `mapstructure:"db_dsn"`
-	RedisAddr                string `mapstructure:"redis_addr"`
-	WeChatComponentAppSecret string `mapstructure:"wechat_component_app_secret"`
-	WeChatAPIBaseURL         string `mapstructure:"wechat_api_base_url"`
-	WeChatComponentAppID     string `mapstructure:"wechat_component_app_id"`
-	WeChatComponentToken     string `mapstructure:"wechat_component_verify_token"`
-	WeChatComponentAESKey    string `mapstructure:"wechat_component_encoding_aes_key"`
-	WeChatRefreshTokenKey    string `mapstructure:"wechat_refresh_token_encryption_key"`
+	AppEnv                   string `validate:"required,oneof=dev test staging prod"`
+	HTTPAddr                 string `validate:"required"`
+	LogLevel                 string `validate:"required"`
+	DBDSN                    string
+	RedisAddr                string
+	WeChatComponentAppSecret string
+	WeChatAPIBaseURL         string
+	WeChatComponentAppID     string
+	WeChatComponentToken     string
+	WeChatComponentAESKey    string
+	WeChatRefreshTokenKey    string
 }
 
-// Load reads configuration from environment variables and .env when present.
-func Load() (Config, error) {
+// Load reads service configuration from a YAML file.
+func Load(path string) (Config, error) {
+	if strings.TrimSpace(path) == "" {
+		path = DefaultPath
+	}
 	v := viper.New()
-	v.SetConfigFile(".env")
-	v.SetConfigType("env")
-	v.AutomaticEnv()
-	v.SetDefault("APP_ENV", "dev")
-	v.SetDefault("HTTP_ADDR", ":8080")
-	v.SetDefault("LOG_LEVEL", "info")
-	v.SetDefault("DB_DSN", "")
-	v.SetDefault("REDIS_ADDR", "")
-	v.SetDefault("WECHAT_COMPONENT_APP_SECRET", "")
-	v.SetDefault("WECHAT_API_BASE_URL", "")
-	v.SetDefault("WECHAT_COMPONENT_APP_ID", "")
-	v.SetDefault("WECHAT_COMPONENT_VERIFY_TOKEN", "")
-	v.SetDefault("WECHAT_COMPONENT_ENCODING_AES_KEY", "")
-	v.SetDefault("WECHAT_REFRESH_TOKEN_ENCRYPTION_KEY", "")
-	_ = v.ReadInConfig()
+	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
+	setDefaults(v)
+	if err := v.ReadInConfig(); err != nil {
+		return Config{}, fmt.Errorf("read config file %q: %w", path, err)
+	}
 
 	cfg := Config{
-		AppEnv:                   v.GetString("APP_ENV"),
-		HTTPAddr:                 v.GetString("HTTP_ADDR"),
-		LogLevel:                 v.GetString("LOG_LEVEL"),
-		DBDSN:                    v.GetString("DB_DSN"),
-		RedisAddr:                v.GetString("REDIS_ADDR"),
-		WeChatComponentAppSecret: v.GetString("WECHAT_COMPONENT_APP_SECRET"),
-		WeChatAPIBaseURL:         v.GetString("WECHAT_API_BASE_URL"),
-		WeChatComponentAppID:     v.GetString("WECHAT_COMPONENT_APP_ID"),
-		WeChatComponentToken:     v.GetString("WECHAT_COMPONENT_VERIFY_TOKEN"),
-		WeChatComponentAESKey:    v.GetString("WECHAT_COMPONENT_ENCODING_AES_KEY"),
-		WeChatRefreshTokenKey:    v.GetString("WECHAT_REFRESH_TOKEN_ENCRYPTION_KEY"),
+		AppEnv:                   v.GetString("app.env"),
+		HTTPAddr:                 v.GetString("http.addr"),
+		LogLevel:                 v.GetString("log.level"),
+		DBDSN:                    v.GetString("database.dsn"),
+		RedisAddr:                v.GetString("redis.addr"),
+		WeChatComponentAppSecret: v.GetString("wechat.component_app_secret"),
+		WeChatAPIBaseURL:         v.GetString("wechat.api_base_url"),
+		WeChatComponentAppID:     v.GetString("wechat.component_app_id"),
+		WeChatComponentToken:     v.GetString("wechat.component_verify_token"),
+		WeChatComponentAESKey:    v.GetString("wechat.component_encoding_aes_key"),
+		WeChatRefreshTokenKey:    v.GetString("wechat.refresh_token_encryption_key"),
 	}
 	if err := validator.New().Struct(cfg); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
 	return cfg, nil
+}
+
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("app.env", "dev")
+	v.SetDefault("http.addr", ":8080")
+	v.SetDefault("log.level", "info")
+	v.SetDefault("database.dsn", "")
+	v.SetDefault("redis.addr", "")
+	v.SetDefault("wechat.component_app_secret", "")
+	v.SetDefault("wechat.api_base_url", "")
+	v.SetDefault("wechat.component_app_id", "")
+	v.SetDefault("wechat.component_verify_token", "")
+	v.SetDefault("wechat.component_encoding_aes_key", "")
+	v.SetDefault("wechat.refresh_token_encryption_key", "")
 }

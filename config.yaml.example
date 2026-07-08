@@ -1,0 +1,26 @@
+app:
+  env: dev
+
+http:
+  addr: ":8080"
+
+log:
+  level: info
+
+# Empty dsn keeps local `make run` on memory storage.
+database:
+  dsn: ""
+
+# Empty addr disables Redis locks/cache/asynq for local `make run`.
+redis:
+  addr: ""
+
+wechat:
+  # Leave empty to keep real WeChat calls disabled.
+  component_app_id: ""
+  component_app_secret: ""
+  api_base_url: ""
+  component_verify_token: ""
+  component_encoding_aes_key: ""
+  # base64 encoded 32-byte key, e.g. `openssl rand -base64 32`
+  refresh_token_encryption_key: ""

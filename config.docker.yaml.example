@@ -1,0 +1,24 @@
+app:
+  env: dev
+
+http:
+  addr: ":8080"
+
+log:
+  level: info
+
+database:
+  dsn: "postgres://official_account:official_account_password@postgres:5432/official_account?sslmode=disable"
+
+redis:
+  addr: "redis:6379"
+
+wechat:
+  # Fill these before real WeChat integration.
+  component_app_id: ""
+  component_app_secret: ""
+  api_base_url: ""
+  component_verify_token: ""
+  component_encoding_aes_key: ""
+  # base64 encoded 32-byte key, e.g. `openssl rand -base64 32`
+  refresh_token_encryption_key: ""

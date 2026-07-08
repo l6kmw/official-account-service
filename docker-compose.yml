@@ -2,14 +2,10 @@ services:
   app:
     build: .
     image: official-account-service:local
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
-      HTTP_ADDR: :8080
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      DB_DSN: postgres://official_account:${POSTGRES_PASSWORD:-official_account_password}@postgres:5432/official_account?sslmode=disable
-      REDIS_ADDR: redis:6379
     ports:
-      - "${HTTP_PORT:-8080}:8080"
+      - "8080:8080"
+    volumes:
+      - ./config.docker.yaml:/app/config.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -21,10 +17,10 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: official_account
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-official_account_password}
+      POSTGRES_PASSWORD: official_account_password
       POSTGRES_DB: official_account
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
@@ -38,7 +34,7 @@ services:
   redis:
     image: redis:8-alpine
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

@@ -43,7 +43,7 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 		ReceivedAt:     receivedAt,
 	})
 	require.NoError(t, err)
-	require.Equal(t, receivedAt, componentTicket.ReceivedAt)
+	require.True(t, receivedAt.Equal(componentTicket.ReceivedAt))
 	_, err = store.SaveComponentVerifyTicket(ctx, authorization.ComponentVerifyTicket{
 		ComponentAppID: "wx-component",
 		Ticket:         "ticket-2",
@@ -99,7 +99,8 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.Len(t, materials, 1)
 	require.Equal(t, asset.ID, materials[0].ID)
 
-	record, err := store.CreatePublishRecord(ctx, tenantID, publish.Record{AuthorizerID: account.ID, ArticleID: created.ID, WeChatPublishID: "pub-1", Status: publish.StatusPublishing, SubmittedAt: time.Now()})
+	publishID := fmt.Sprintf("pub-%d", time.Now().UnixNano())
+	record, err := store.CreatePublishRecord(ctx, tenantID, publish.Record{AuthorizerID: account.ID, ArticleID: created.ID, WeChatPublishID: publishID, Status: publish.StatusPublishing, SubmittedAt: time.Now()})
 	require.NoError(t, err)
 	record.Status = publish.StatusPublished
 	record.WeChatArticleID = "article-1"
@@ -117,22 +118,22 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	otherTenantRecords, err := store.ListPublishRecords(ctx, tenantID+"-other")
 	require.NoError(t, err)
 	require.Empty(t, otherTenantRecords)
-	byPublishID, err := store.GetPublishRecordByPublishID(ctx, tenantID, "pub-1")
+	byPublishID, err := store.GetPublishRecordByPublishID(ctx, tenantID, publishID)
 	require.NoError(t, err)
 	require.Equal(t, updatedRecord.ID, byPublishID.ID)
 
 	callbackEvent, err := store.SaveCallbackEvent(ctx, wechatcallback.Event{
 		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: "wx123",
-		EventType: wechatcallback.EventTypePublishResult, EventKey: "pub-1", RawBody: "<xml></xml>",
+		EventType: wechatcallback.EventTypePublishResult, EventKey: publishID, RawBody: "<xml></xml>",
 		ReceivedAt: time.Now(), RetainUntil: time.Now().Add(30 * 24 * time.Hour),
 	})
 	require.NoError(t, err)
 	require.NotZero(t, callbackEvent.ID)
-	_, err = store.GetCallbackEventByKey(ctx, tenantID, wechatcallback.EventTypePublishResult, "pub-1")
+	_, err = store.GetCallbackEventByKey(ctx, tenantID, wechatcallback.EventTypePublishResult, publishID)
 	require.NoError(t, err)
 	_, err = store.SaveCallbackEvent(ctx, wechatcallback.Event{
 		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: "wx123",
-		EventType: wechatcallback.EventTypePublishResult, EventKey: "pub-1", RawBody: "<xml></xml>",
+		EventType: wechatcallback.EventTypePublishResult, EventKey: publishID, RawBody: "<xml></xml>",
 		ReceivedAt: time.Now(), RetainUntil: time.Now().Add(30 * 24 * time.Hour),
 	})
 	require.Error(t, err)

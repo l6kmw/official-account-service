@@ -1,15 +1,14 @@
-.git
-.env
 config.yaml
 config.*.yaml
 !config.yaml.example
 !config.docker.yaml.example
+.env
 *.log
 .DS_Store
 /tmp
 /bin
-/vendor
 node_modules/
 dist/
 web/admin/node_modules/
 web/admin/dist/
+.alma-snapshots

@@ -5,7 +5,7 @@
 ## 0. 当前已完成
 
 - 工程骨架：`cmd/server`、`internal/domain`、`internal/application`、`internal/infra`、`internal/interfaces/http`
-- 基础配置：环境变量、zap 日志、HTTP health check
+- 基础配置：YAML 配置文件、zap 日志、HTTP health check
 - Docker：`app`、`postgres`、`redis`
 - 领域模型：授权账号、文章、素材、发布记录
 - memory repository：授权账号、文章、素材、发布记录
@@ -21,6 +21,7 @@
 - 微信回调处理：authorizer callback、发布结果回调、去重、审计落库、日志脱敏
 - Redis/asynq 异步任务：发布状态兜底轮询、token 自调度刷新、归档任务查看与重试
 - P2 能力：Dashboard 统计、agent-api、OpenAPI、wire、HTTP 集成测试
+- 前端管理后台 Phase 8：`web/admin` 独立 React + Vite + TypeScript + Emotion 工程、AppShell、主题、API client、Dashboard 真实数据接入、文章 CRUD 页面、账号列表页、添加公众号授权入口、发布记录页、微信配置检查页、素材上传区和文章发布动作
 - 文章 HTTP CRUD API：`/api/v1/articles`
 - 公众号账号读取 API：`/api/v1/accounts`
 - 初始数据库 migration：文章、素材、发布记录表
@@ -56,7 +57,7 @@
 
 - Postgres connection 初始化：已完成
 - repository 实现：已完成账号与文章 repository
-- app 根据 `DB_DSN` 使用 Postgres，否则 fallback memory：已完成
+- app 根据 YAML `database.dsn` 使用 Postgres，否则 fallback memory：已完成
 - 保持 repository 方法强制 `tenantID`：已完成
 
 验收：
@@ -134,10 +135,10 @@
 - component_access_token 基础获取客户端：已完成 `ComponentClient`
 - 真实 pre_auth_code 微信客户端：已完成，复用 `ComponentClient`
 - 微信授权客户端 HTTP timeout/retry/熔断：已完成基础实现
-- 微信授权客户端配置接入：已完成 `WECHAT_COMPONENT_APP_SECRET` / `WECHAT_API_BASE_URL`
+- 微信授权客户端配置接入：已完成 YAML `wechat.component_app_secret` / `wechat.api_base_url`
 - component_verify_ticket 回调验签/解密：已完成 `ComponentCallbackCrypto`
 - component_verify_ticket 加密回调 HTTP 接入：已完成 `msg_signature` / `timestamp` / `nonce` / `Encrypt`
-- 微信加密回调配置接入：已完成 `WECHAT_COMPONENT_VERIFY_TOKEN` / `WECHAT_COMPONENT_ENCODING_AES_KEY`
+- 微信加密回调配置接入：已完成 YAML `wechat.component_verify_token` / `wechat.component_encoding_aes_key`
 - 授权回调处理：已完成 `GET /api/v1/wechat/authorization-callback`
 - authorizer_refresh_token 加密存储：已完成 AES-GCM 加密后落库
 - authorizer 信息同步：已完成授权回调后调用微信资料接口并保存账号名称/头像
@@ -157,8 +158,8 @@
 - access token 本地缓存：已完成，`TokenService.GetAuthorizerAccessToken` 优先返回有效缓存
 - token 过期主动续期：已完成请求时提前 5 分钟刷新
 - access token 状态查询：已完成 `GET /api/v1/accounts/:id/token-status`
-- Redis 分布式锁：已完成，配置 `REDIS_ADDR` 后刷新 token 使用 Redis SET NX 锁
-- 跨实例共享 token 缓存：已完成，配置 `REDIS_ADDR` 后 Redis 缓存 authorizer access token
+- Redis 分布式锁：已完成，配置 YAML `redis.addr` 后刷新 token 使用 Redis SET NX 锁
+- 跨实例共享 token 缓存：已完成，配置 YAML `redis.addr` 后 Redis 缓存 authorizer access token
 
 缺失：无，P1-2 已完成基础闭环；真实多实例场景仍需在部署环境联调 Redis 可用性和锁等待表现。
 
@@ -202,7 +203,7 @@
 
 已完成：
 
-- asynq client/server：已完成，配置 `REDIS_ADDR` 后发布服务会创建 asynq client，服务启动时会启动 `publish` 队列 worker
+- asynq client/server：已完成，配置 YAML `redis.addr` 后发布服务会创建 asynq client，服务启动时会启动 `publish` 队列 worker
 - 发布状态兜底轮询：已完成，真实发布成功后自动入队 `publish:sync_status` 延迟任务，worker 调用 `PublishService.SyncPublishStatus`；微信仍返回 `publishing` 时任务返回可重试错误继续轮询
 - token 定时刷新：已完成，成功刷新 authorizer access token 后按 `expires_at - refresh_before` 自调度 `token:refresh_authorizer_access_token`，任务携带 tenant/account/component，不做跨 tenant 全库扫描
 - 失败重试和死信处理：已完成基础能力，`publish:sync_status` 与 `token:refresh_authorizer_access_token` 配置 `MaxRetry`，handler 返回错误或发布仍未终态时由 asynq 重试，重试耗尽后归档
@@ -235,8 +236,16 @@
 5. P0-7 发布记录与本地发布状态 API（已完成）
 6. P1 微信真实授权/token/素材/发布/回调（已完成基础闭环，待真实环境联调）
 7. P2 agent-api、后台增强、OpenAPI、wire（已完成）
+8. 前端管理后台 Phase 1B：独立前端工程、AppShell、API client、Dashboard 真实数据接入（已完成）
+9. 前端管理后台 Phase 2：文章列表页、文章读取、删除、loading/empty/error 状态（已完成）
+10. 前端管理后台 Phase 3：文章新建、编辑、HTML textarea、预览、保存校验、未保存离开提示（已完成）
+11. 前端管理后台 Phase 4：账号列表页、账号读取、loading/empty/error 状态、敏感字段不展示（已完成）
+12. 前端管理后台 Phase 5：发布记录页、列表读取、详情读取、发布中手动同步、失败原因展示和复制（已完成）
+13. 前端管理后台 Phase 6：微信配置检查页、开放平台 URL 清单、YAML 配置清单、授权 URL 生成入口（已完成）
+14. 前端管理后台 Phase 7：文章编辑页正文图片 / 封面上传、文章列表发布动作、not_implemented 友好错误提示（已完成）
+15. 前端管理后台 Phase 8：账号管理页添加公众号入口、微信扫码授权链接生成、开放平台配置页定位说明（已完成）
 
-下一步不再是继续补 P0/P1/P2 功能，而是进入真实环境联调、可靠性加固和上线准备。
+后端下一步不再是继续补 P0/P1/P2 功能，而是进入真实环境联调、可靠性加固和上线准备；前端下一步按阶段逐页接入真实 API。
 
 每完成一项必须执行完成度自查：
 
@@ -247,6 +256,7 @@
 - token/secret 是否没有出现在日志或返回体
 - 是否有对应测试
 - `go test ./...` 是否通过
+- 涉及前端时 `npm run build` 是否通过
 
 ## 5. 上线前待补齐 / 联调清单
 
