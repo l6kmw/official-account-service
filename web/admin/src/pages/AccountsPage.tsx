@@ -5,10 +5,9 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
+import { adminConfig, buildAuthorizationEntryURL, normalizePublicBaseURL } from '../config'
 
-const tenantID = 'tenant-1'
-const defaultPublicBaseURL = 'https://example.com'
-const defaultComponentAppID = 'wx0000000000000000'
+const tenantID = adminConfig.tenantID
 
 const svgAttrs = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -47,7 +46,7 @@ export function AccountsPage() {
         <AccountSection>
           <SectionToolbar>
             <Summary>{loading ? '正在加载账号…' : `共 ${accounts.length} 个授权账号`}</Summary>
-            <StatusBadge tone="info">tenant-1</StatusBadge>
+            <StatusBadge tone="info">{tenantID}</StatusBadge>
           </SectionToolbar>
           {loading ? <LoadingGrid /> : <AccountGrid accounts={accounts} />}
         </AccountSection>
@@ -89,8 +88,8 @@ function useAccounts(currentTenantID: string) {
 }
 
 function AuthorizePanel() {
-  const [baseURL, setBaseURL] = useState(defaultPublicBaseURL)
-  const [componentAppID, setComponentAppID] = useState(defaultComponentAppID)
+  const [baseURL, setBaseURL] = useState(adminConfig.publicBaseURL)
+  const [componentAppID, setComponentAppID] = useState(adminConfig.componentAppID)
   const [entryURL, setEntryURL] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -110,7 +109,7 @@ function AuthorizePanel() {
     setEntryURL('')
 
     try {
-      const nextEntryURL = buildAuthorizationEntryURL(publicBaseURL, componentAppID)
+      const nextEntryURL = buildAuthorizationEntryURL({ publicBaseURL, componentAppID, tenantID })
       setEntryURL(nextEntryURL)
       window.open(nextEntryURL, '_blank', 'noopener,noreferrer')
     } catch (err: unknown) {
@@ -130,7 +129,7 @@ function AuthorizePanel() {
         <Field>
           <Label htmlFor="authorize-base-url">公网服务域名</Label>
           <Input id="authorize-base-url" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} />
-          <Meta>当前测试域名：https://example.com</Meta>
+          <Meta>当前测试域名：{adminConfig.publicBaseURL}</Meta>
         </Field>
         <Field>
           <Label htmlFor="authorize-component-appid">Component AppID</Label>
@@ -148,20 +147,6 @@ function AuthorizePanel() {
       ) : null}
     </AuthorizeCard>
   )
-}
-
-function normalizePublicBaseURL(value: string) {
-  const trimmed = value.trim().replace(/\/+$/, '')
-  if (!trimmed) return ''
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
-  return `https://${trimmed}`
-}
-
-function buildAuthorizationEntryURL(baseURL: string, componentAppID: string) {
-  const url = new URL('/wechat-authorize.html', `${baseURL}/`)
-  url.searchParams.set('tenant_id', tenantID)
-  url.searchParams.set('component_appid', componentAppID.trim())
-  return url.toString()
 }
 
 function AccountGrid({ accounts }: { accounts: Account[] }) {

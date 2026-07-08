@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import styled from '@emotion/styled'
+import { adminConfig } from '../config'
 
 export type PageID = 'dashboard' | 'accounts' | 'articles' | 'publishes' | 'wechat-setup'
 
@@ -70,7 +71,7 @@ export function AppShell({ children, currentPage, onNavigate }: { children: Reac
         </NavList>
         <SidebarFooter>
           <TenantDot />
-          <span>tenant-1</span>
+          <span>{adminConfig.tenantID}</span>
         </SidebarFooter>
       </Sidebar>
 
@@ -79,7 +80,7 @@ export function AppShell({ children, currentPage, onNavigate }: { children: Reac
           <Breadcrumb>{pageTitles[currentPage]}</Breadcrumb>
           <TenantBadge>
             <TenantDot />
-            tenant-1
+            {adminConfig.tenantID}
           </TenantBadge>
         </Topbar>
         <Main id="main-content">{children}</Main>

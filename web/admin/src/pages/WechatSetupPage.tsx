@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react'
 import styled from '@emotion/styled'
-import { generateAuthorizationURL } from '../api/wechatSetup'
-import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
+import { adminConfig, buildWechatOpenPlatformURLs, normalizePublicBaseURL } from '../config'
 
-const tenantID = 'tenant-1'
+const tenantID = adminConfig.tenantID
 
 const yamlItems = [
   ['wechat.component_app_id', 'Component AppID', '待确认'],
@@ -28,37 +27,35 @@ function CircleIcon() { return <svg {...svgAttrs} width="20" height="20"><circle
 const STEPS = [
   { num: 1, label: '配置清单', desc: '核对第三方平台密钥' },
   { num: 2, label: '回调地址', desc: '填写到微信开放平台' },
-  { num: 3, label: '授权 URL', desc: '生成授权链接' }
+  { num: 3, label: '授权入口', desc: '打开扫码入口页' }
 ]
 
 export function WechatSetupPage() {
-  const [baseURL, setBaseURL] = useState('https://你的域名')
-  const [componentAppID, setComponentAppID] = useState('')
-  const [authType, setAuthType] = useState(3)
-  const [authorizationURL, setAuthorizationURL] = useState('')
-  const [expiresIn, setExpiresIn] = useState<number | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [baseURL, setBaseURL] = useState(adminConfig.publicBaseURL)
+  const [componentAppID, setComponentAppID] = useState(adminConfig.componentAppID)
+  const [authorizationEntryURL, setAuthorizationEntryURL] = useState('')
   const [error, setError] = useState('')
-  const urls = useMemo(() => buildURLs(baseURL, componentAppID), [baseURL, componentAppID])
+  const urls = useMemo(() => buildWechatOpenPlatformURLs({ publicBaseURL: baseURL, componentAppID, tenantID }), [baseURL, componentAppID])
 
-  async function generate() {
+  function openAuthorizationEntry() {
+    const publicBaseURL = normalizePublicBaseURL(baseURL)
+    if (!publicBaseURL) {
+      setError('请先填写公网服务域名。')
+      return
+    }
     if (!componentAppID.trim()) {
       setError('请先填写 Component AppID。')
       return
     }
-    setLoading(true)
     setError('')
-    setAuthorizationURL('')
-    setExpiresIn(null)
+    setAuthorizationEntryURL('')
 
     try {
-      const result = await generateAuthorizationURL({ componentAppID, redirectURI: urls.authorizationCallback, authType }, tenantID)
-      setAuthorizationURL(result.authorization_url)
-      setExpiresIn(result.pre_auth_code_expires_in_sec)
+      const nextEntryURL = buildWechatOpenPlatformURLs({ publicBaseURL, componentAppID, tenantID }).authorizationEntry
+      setAuthorizationEntryURL(nextEntryURL)
+      window.open(nextEntryURL, '_blank', 'noopener,noreferrer')
     } catch (err: unknown) {
-      setError(getErrorMessage(err))
-    } finally {
-      setLoading(false)
+      setError(err instanceof Error ? err.message : '授权入口地址生成失败，请检查公网服务域名。')
     }
   }
 
@@ -134,7 +131,7 @@ export function WechatSetupPage() {
           <StepBadge>3</StepBadge>
           <StepHeading>
             <PanelTitle>授权 URL 生成</PanelTitle>
-            <PanelDesc>后端会向微信请求 pre_auth_code。未完成微信配置时可能返回 not_implemented。</PanelDesc>
+            <PanelDesc>这里生成公网授权入口页地址，入口页会再向后端请求 pre_auth_code 并跳转微信官方授权页。</PanelDesc>
           </StepHeading>
         </StepHeader>
         <AuthForm>
@@ -143,47 +140,28 @@ export function WechatSetupPage() {
             <Input id="component-appid" value={componentAppID} onChange={(event) => setComponentAppID(event.target.value)} placeholder="wx_component_appid" />
             <Helper>AppID 可展示；不要在这里输入 AppSecret。</Helper>
           </Field>
-          <Field>
-            <Label htmlFor="auth-type">授权类型</Label>
-            <Select id="auth-type" value={authType} onChange={(event) => setAuthType(Number(event.target.value))}>
-              <option value={1}>1 - 公众号</option>
-              <option value={2}>2 - 小程序</option>
-              <option value={3}>3 - 公众号和小程序</option>
-            </Select>
-            <Helper>当前服务面向公众号，通常使用 1 或 3。</Helper>
-          </Field>
           <ActionBox>
-            <Button disabled={loading} onClick={generate}>{loading ? '生成中…' : '生成授权 URL'}</Button>
+            <Button onClick={openAuthorizationEntry}>打开授权入口</Button>
           </ActionBox>
         </AuthForm>
 
         {error ? <Notice $danger role="alert"><NoticeIconWrap $danger><AlertIcon /></NoticeIconWrap><div><PanelTitle>生成失败</PanelTitle><PanelDesc>{error}</PanelDesc></div></Notice> : null}
-        {authorizationURL ? (
+        {authorizationEntryURL ? (
           <ResultBox>
             <ResultHead>
-              <Strong>授权 URL</Strong>
-              <Meta>有效期：{expiresIn ?? 0} 秒</Meta>
+              <Strong>授权入口 URL</Strong>
+              <Meta>与账号管理页使用同一个入口。</Meta>
             </ResultHead>
-            <URLValue>{authorizationURL}</URLValue>
+            <URLValue>{authorizationEntryURL}</URLValue>
             <RowActions>
-              <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(authorizationURL)}><CopyIcon />复制</Button>
-              <Button onClick={() => window.open(authorizationURL, '_blank', 'noopener,noreferrer')}><ExternalIcon />打开授权页</Button>
+              <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(authorizationEntryURL)}><CopyIcon />复制</Button>
+              <Button onClick={() => window.open(authorizationEntryURL, '_blank', 'noopener,noreferrer')}><ExternalIcon />重新打开入口</Button>
             </RowActions>
           </ResultBox>
         ) : null}
       </StepSection>
     </Page>
   )
-}
-
-function buildURLs(baseURL: string, componentAppID: string) {
-  const base = baseURL.replace(/\/+$/, '') || 'https://你的域名'
-  const appid = componentAppID || '你的ComponentAppID'
-  return {
-    componentCallback: `${base}/wechat/component/callback`,
-    authorizerCallback: `${base}/wechat/authorizer/$APPID$/callback`,
-    authorizationCallback: `${base}/api/v1/wechat/authorization-callback?tenant_id=${tenantID}&component_appid=${encodeURIComponent(appid)}`
-  }
 }
 
 function URLItem({ label, value }: { label: string; value: string }) {
@@ -436,16 +414,6 @@ const Input = styled.input`
   }
 `
 
-const Select = styled.select`
-  min-height: 44px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radii.md};
-  padding: 0 ${({ theme }) => theme.space.md};
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font: inherit;
-`
-
 const Helper = styled(Meta)`
   margin-top: 0;
 `
@@ -509,7 +477,7 @@ const AuthForm = styled.div`
   gap: ${({ theme }) => theme.space.lg};
 
   @media (min-width: 768px) {
-    grid-template-columns: minmax(0, 1fr) 240px auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
   }
 `

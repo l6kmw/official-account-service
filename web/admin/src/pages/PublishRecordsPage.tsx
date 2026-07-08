@@ -5,8 +5,9 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
+import { adminConfig } from '../config'
 
-const tenantID = 'tenant-1'
+const tenantID = adminConfig.tenantID
 
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 const toneColor: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'danger', info: 'info', muted: 'textMuted' }
@@ -41,7 +42,7 @@ export function PublishRecordsPage() {
         <ListPanel>
           <Toolbar>
             <Summary>{loading ? '正在加载发布记录…' : `共 ${records.length} 条发布记录`}</Summary>
-            <StatusBadge tone="info">tenant-1</StatusBadge>
+            <StatusBadge tone="info">{tenantID}</StatusBadge>
           </Toolbar>
           {!loading && records.length === 0 ? <EmptyState /> : null}
           {loading ? <LoadingRows /> : <Timeline records={records} selectedID={selected?.id} onSelect={select} onSync={sync} syncingID={syncingID} />}

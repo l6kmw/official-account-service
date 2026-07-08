@@ -1,4 +1,6 @@
-export const DEFAULT_TENANT_ID = 'tenant-1'
+import { adminConfig } from '../config'
+
+export const DEFAULT_TENANT_ID = adminConfig.tenantID
 
 type APIErrorCode = 'invalid_request' | 'not_found' | 'not_implemented' | 'internal_error'
 

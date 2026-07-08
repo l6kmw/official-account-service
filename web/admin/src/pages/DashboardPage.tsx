@@ -5,8 +5,9 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
+import { adminConfig } from '../config'
 
-const tenantID = 'tenant-1'
+const tenantID = adminConfig.tenantID
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 const toneColor: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'danger', info: 'info', muted: 'textMuted' }
 const toneSoft: Record<Tone, string> = { success: 'successSoft', warning: 'warningSoft', danger: 'dangerSoft', info: 'infoSoft', muted: 'surfaceMuted' }

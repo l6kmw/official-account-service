@@ -6,8 +6,9 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
+import { adminConfig } from '../config'
 
-const tenantID = 'tenant-1'
+const tenantID = adminConfig.tenantID
 const emptyForm: ArticleFormInput = {
   authorizer_id: 0,
   title: '',
