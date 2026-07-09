@@ -129,7 +129,7 @@ function AuthorizePanel() {
         <Field>
           <Label htmlFor="authorize-base-url">公网服务域名</Label>
           <Input id="authorize-base-url" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} />
-          <Meta>当前测试域名：{adminConfig.publicBaseURL}</Meta>
+          <Meta>当前配置域名：{adminConfig.publicBaseURL}</Meta>
         </Field>
         <Field>
           <Label htmlFor="authorize-component-appid">Component AppID</Label>

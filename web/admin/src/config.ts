@@ -4,10 +4,30 @@ type AdminConfig = {
   componentAppID: string
 }
 
-export const adminConfig: AdminConfig = {
+declare global {
+  interface Window {
+    __OFFICIAL_ACCOUNT_ADMIN_CONFIG__?: Partial<AdminConfig>
+  }
+}
+
+const defaultAdminConfig: AdminConfig = {
   tenantID: 'tenant-1',
   publicBaseURL: 'https://example.com',
   componentAppID: 'wx0000000000000000'
+}
+
+export const adminConfig: AdminConfig = resolveAdminConfig(window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__)
+
+function resolveAdminConfig(runtimeConfig: Partial<AdminConfig> | undefined): AdminConfig {
+  return {
+    tenantID: nonEmpty(runtimeConfig?.tenantID) || defaultAdminConfig.tenantID,
+    publicBaseURL: normalizePublicBaseURL(runtimeConfig?.publicBaseURL ?? '') || defaultAdminConfig.publicBaseURL,
+    componentAppID: nonEmpty(runtimeConfig?.componentAppID) || defaultAdminConfig.componentAppID
+  }
+}
+
+function nonEmpty(value: string | undefined) {
+  return value?.trim() ?? ''
 }
 
 export function normalizePublicBaseURL(value: string) {

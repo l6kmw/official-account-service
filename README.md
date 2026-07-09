@@ -48,6 +48,24 @@ cd web/admin
 npm run build
 ```
 
+管理后台会在启动时读取 `/admin-config.js` 注入的公开配置。构建产物里会包含 `dist/admin-config.js`，部署到不同服务器或域名时，可以直接修改这个文件，无需重新构建前端：
+
+```js
+window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
+  tenantID: 'tenant-1',
+  publicBaseURL: 'https://oa.example.com',
+  componentAppID: 'wx_component_appid'
+}
+```
+
+字段说明：
+
+- `tenantID`：后台 API 请求使用的租户 ID。
+- `publicBaseURL`：公网 HTTPS 服务域名，用于生成微信开放平台回调地址和授权入口页。
+- `componentAppID`：微信开放平台第三方平台 Component AppID。
+
+前端运行时配置只允许放可公开信息；不要把 AppSecret、Verify Token、EncodingAESKey、refresh token 或加密密钥写入 `admin-config.js`。
+
 当前已完成 Phase 8：前端工程骨架、AppShell、现代 SaaS 控制台风格主题、API client、Dashboard 真实数据接入、文章 CRUD 页面、账号列表页、添加公众号授权入口、发布记录页、微信配置检查页、素材上传区和文章发布动作。
 
 ## Docker 运行
