@@ -62,6 +62,10 @@ func bindMaterialUpload(c *gin.Context) (application.UploadMaterialInput, func()
 	if !ok {
 		return application.UploadMaterialInput{}, func() {}, false
 	}
+	if err := c.Request.ParseMultipartForm(maxRequestBodyBytes); err != nil {
+		writeRequestReadError(c, err)
+		return application.UploadMaterialInput{}, func() {}, false
+	}
 	authorizerID, ok := parsePositiveFormInt(c, "authorizer_id")
 	if !ok {
 		return application.UploadMaterialInput{}, func() {}, false
@@ -72,7 +76,7 @@ func bindMaterialUpload(c *gin.Context) (application.UploadMaterialInput, func()
 	}
 	file, err := c.FormFile("file")
 	if err != nil {
-		writeError(c, http.StatusBadRequest, "invalid_request")
+		writeRequestReadError(c, err)
 		return application.UploadMaterialInput{}, func() {}, false
 	}
 	opened, err := file.Open()

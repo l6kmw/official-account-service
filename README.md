@@ -153,6 +153,8 @@ openssl rand -base64 32
 
 当 `app.env` 为 `prod` 时，必须配置 `security.admin_api_key`。配置后，除健康检查、微信授权 URL/授权回调和微信回调外，管理 API 需要请求头 `X-Admin-API-Key: <admin_api_key>` 或 `Authorization: Bearer <admin_api_key>`。
 
+HTTP 服务会统一限制请求体最大 10 MiB，超限返回 `413 request_too_large`。微信 component/authorizer 回调正文解析仍按 1 MiB 上限处理。
+
 ## 微信授权配置
 
 默认不配置微信密钥时，授权 URL API 会返回 `501 not_implemented`。配置 `wechat.component_app_secret` 后，服务会使用已保存的 `component_verify_ticket` 获取 `component_access_token` 和 `pre_auth_code`。

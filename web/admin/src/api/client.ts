@@ -2,7 +2,7 @@ import { adminConfig } from '../config'
 
 export const DEFAULT_TENANT_ID = adminConfig.tenantID
 
-type APIErrorCode = 'invalid_request' | 'unauthorized' | 'not_found' | 'not_implemented' | 'internal_error'
+type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'not_found' | 'not_implemented' | 'internal_error'
 
 type APIErrorBody = {
   error?: APIErrorCode
@@ -109,6 +109,8 @@ function toUserMessage(code: APIErrorCode): string {
   switch (code) {
     case 'invalid_request':
       return '请求参数不完整，请检查租户和输入内容。'
+    case 'request_too_large':
+      return '请求内容过大，请压缩图片或减少正文内容后重试。'
     case 'unauthorized':
       return '管理 API 未授权，请检查 adminAPIKey 或网关注入的鉴权请求头。'
     case 'not_found':

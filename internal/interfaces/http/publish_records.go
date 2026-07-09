@@ -59,7 +59,7 @@ func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
 		}
 		var body createPublishRecordRequest
 		if err := c.ShouldBindJSON(&body); err != nil {
-			writeError(c, http.StatusBadRequest, "invalid_request")
+			writeRequestReadError(c, err)
 			return
 		}
 		record, err := service.CreatePublishRecord(c.Request.Context(), application.CreatePublishRecordInput{
@@ -118,7 +118,7 @@ func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
 		}
 		var body updatePublishStatusRequest
 		if err := c.ShouldBindJSON(&body); err != nil {
-			writeError(c, http.StatusBadRequest, "invalid_request")
+			writeRequestReadError(c, err)
 			return
 		}
 		record, err := service.UpdatePublishStatus(c.Request.Context(), application.UpdatePublishStatusInput{

@@ -258,6 +258,19 @@ func TestMaterialUploadRoutes(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 }
 
+func TestRoutesRejectOversizedBodies(t *testing.T) {
+	router := testRouter()
+	oversizedJSON := `{"authorizer_id":1,"title":"` + string(bytes.Repeat([]byte("x"), int(maxRequestBodyBytes))) + `"}`
+
+	jsonRecorder := doJSON(t, router, http.MethodPost, "/api/v1/articles", oversizedJSON, "tenant-1")
+	require.Equal(t, http.StatusRequestEntityTooLarge, jsonRecorder.Code)
+	require.JSONEq(t, `{"error":"request_too_large"}`, jsonRecorder.Body.String())
+
+	multipartRecorder := doOversizedMultipart(t, router, "/api/v1/materials/covers", "tenant-1")
+	require.Equal(t, http.StatusRequestEntityTooLarge, multipartRecorder.Code)
+	require.JSONEq(t, `{"error":"request_too_large"}`, multipartRecorder.Body.String())
+}
+
 func TestArticleRoutesValidateInputAndTenantIsolation(t *testing.T) {
 	router := testRouter()
 
@@ -309,6 +322,28 @@ func doMultipart(t *testing.T, router http.Handler, path string, tenantID string
 	part, err := writer.CreateFormFile("file", "image.png")
 	require.NoError(t, err)
 	_, err = part.Write([]byte("image"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if tenantID != "" {
+		req.Header.Set("X-Tenant-ID", tenantID)
+	}
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func doOversizedMultipart(t *testing.T, router http.Handler, path string, tenantID string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("authorizer_id", "1"))
+	require.NoError(t, writer.WriteField("article_id", "2"))
+	part, err := writer.CreateFormFile("file", "large.png")
+	require.NoError(t, err)
+	_, err = part.Write(bytes.Repeat([]byte("x"), int(maxRequestBodyBytes)))
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 

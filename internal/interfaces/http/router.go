@@ -14,6 +14,8 @@ import (
 	"official-account-service/internal/application"
 )
 
+const maxRequestBodyBytes int64 = 10 << 20
+
 // Dependencies contains HTTP adapter dependencies.
 type Dependencies struct {
 	Logger        *zap.Logger
@@ -34,6 +36,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(limitRequestBody(maxRequestBodyBytes))
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -55,6 +58,15 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerTaskQueueRoutes(adminV1, deps.TaskQueues)
 	registerDashboardRoutes(adminV1, deps.Dashboard)
 	return r
+}
+
+func limitRequestBody(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		}
+		c.Next()
+	}
 }
 
 func requireAdminAPIKey(expected string) gin.HandlerFunc {
@@ -252,7 +264,7 @@ func bindTenantAndID(c *gin.Context) (string, int64, bool) {
 
 func bindCreateJSON(c *gin.Context, out *createArticleRequest) bool {
 	if err := c.ShouldBindJSON(out); err != nil {
-		writeError(c, http.StatusBadRequest, "invalid_request")
+		writeRequestReadError(c, err)
 		return false
 	}
 	return true
@@ -260,10 +272,19 @@ func bindCreateJSON(c *gin.Context, out *createArticleRequest) bool {
 
 func bindUpdateJSON(c *gin.Context, out *updateArticleRequest) bool {
 	if err := c.ShouldBindJSON(out); err != nil {
-		writeError(c, http.StatusBadRequest, "invalid_request")
+		writeRequestReadError(c, err)
 		return false
 	}
 	return true
+}
+
+func writeRequestReadError(c *gin.Context, err error) {
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		writeError(c, http.StatusRequestEntityTooLarge, "request_too_large")
+		return
+	}
+	writeError(c, http.StatusBadRequest, "invalid_request")
 }
 
 func writeServiceError(c *gin.Context, err error) bool {

@@ -213,7 +213,7 @@ components:
     ArchivedTaskList: {description: Archived task list, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/ArchivedTask"}}}}}}}
   schemas:
     HealthResponse: {type: object, required: [status], properties: {status: {type: string, example: ok}}}
-    Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, unauthorized, not_found, not_implemented, internal_error]}}}
+    Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, request_too_large, unauthorized, not_found, not_implemented, internal_error]}}}
     AuthorizationURL: {type: object, required: [authorization_url, pre_auth_code_expires_in_sec], properties: {authorization_url: {type: string, format: uri}, pre_auth_code_expires_in_sec: {type: integer}}}
     Account:
       type: object
