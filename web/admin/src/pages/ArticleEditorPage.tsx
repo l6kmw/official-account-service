@@ -28,10 +28,54 @@ function ArrowLeftIcon() { return <svg {...svgAttrs} width="16" height="16"><lin
 function UploadIcon() { return <svg {...svgAttrs} width="22" height="22"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg> }
 function AlertIcon() { return <svg {...svgAttrs} width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg> }
 function CheckIcon() { return <svg {...svgAttrs} width="20" height="20"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg> }
-function PhoneIcon() { return <svg {...svgAttrs} width="16" height="16"><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></svg> }
+function ArticlePreviewIcon() { return <svg {...svgAttrs} width="16" height="16"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="14" y2="17" /></svg> }
 
 type BackOptions = {
   skipDirtyCheck?: boolean
+}
+
+const emptyPreviewContentHTML = `
+<section style="max-width: 677px; margin: 0 auto; padding: 24px 16px; background: #ffffff; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+  <section style="margin: 0; padding: 28px 20px; background: #F6F7F6; border: 1px solid #DDEBDD; border-radius: 16px; box-sizing: border-box; text-align: center;">
+    <p style="margin: 0; color: #7A817A; font-size: 14px; line-height: 1.8;"><span leaf="">正文预览会显示在这里。</span></p>
+  </section>
+</section>
+`
+
+function extractArticleContentHTML(contentHTML: string) {
+  const trimmed = contentHTML.trim()
+  if (!trimmed) return ''
+  if (typeof DOMParser === 'undefined') return trimmed
+
+  const parsed = new DOMParser().parseFromString(trimmed, 'text/html')
+  const wrappedContent = parsed.getElementById('content')
+  const wrappedHTML = wrappedContent?.innerHTML.trim()
+  return wrappedHTML || trimmed
+}
+
+function buildArticlePreviewSrcDoc(contentHTML: string) {
+  const previewContentHTML = extractArticleContentHTML(contentHTML) || emptyPreviewContentHTML
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=760, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data: blob:; style-src 'unsafe-inline'; font-src data:; media-src https: http: data: blob:; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">
+  <style>
+    * { box-sizing: border-box; }
+    html { margin: 0; min-height: 100%; background: #f6f7f6; }
+    body { margin: 0; min-height: 100%; background: #f6f7f6; color: #2f332f; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    .page { padding: 20px 0 28px; }
+    .wrap { width: 760px; max-width: 100%; min-height: calc(100vh - 48px); margin: 0 auto; background: #fff; }
+    img { max-width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div id="content" class="wrap">${previewContentHTML}</div>
+  </main>
+</body>
+</html>`
 }
 
 export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articleID?: number; onBack: (options?: BackOptions) => void; onDirtyChange: (dirty: boolean) => void }) {
@@ -51,6 +95,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   const selectedAccount = accountsByID.get(form.authorizer_id)
   const fieldErrors = useMemo(() => validate(form, editing), [form, editing])
   const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading && !accountsLoading
+  const previewSrcDoc = useMemo(() => buildArticlePreviewSrcDoc(form.content_html), [form.content_html])
 
   useEffect(() => {
     onDirtyChange(dirty)
@@ -296,21 +341,16 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           <SectionLabel>正文 HTML</SectionLabel>
           <Field>
             <Label htmlFor="content-html">HTML 内容</Label>
-            <CodeTextarea id="content-html" rows={16} value={form.content_html} onChange={(event) => update('content_html', event.target.value)} />
-            <Helper>第一版直接编辑 HTML；不要粘贴 token、secret、refresh 等敏感内容。</Helper>
+            <CodeTextarea id="content-html" rows={16} value={form.content_html} onChange={(event) => update('content_html', extractArticleContentHTML(event.target.value))} />
+            <Helper>可粘贴 gzh 正文 section；误粘完整预览页时会提取正文。不要粘贴 token、secret、refresh 等敏感内容。</Helper>
           </Field>
         </FormPanel>
 
         <PreviewColumn>
-          <PreviewHeader><PhoneIcon /><PreviewHeaderTitle>预览</PreviewHeaderTitle></PreviewHeader>
-          <PhoneFrame>
-            <PhoneNotch />
-            <PhoneScreen>
-              <PhoneArticleTitle>{form.title || '未命名文章'}</PhoneArticleTitle>
-              <PhoneArticleMeta>{form.author || '未填写作者'}</PhoneArticleMeta>
-              <PreviewFrame title="文章 HTML 预览" sandbox="" srcDoc={form.content_html || '<p style="color:#999">正文预览会显示在这里。</p>'} />
-            </PhoneScreen>
-          </PhoneFrame>
+          <PreviewHeader><ArticlePreviewIcon /><PreviewHeaderTitle>公众号排版预览</PreviewHeaderTitle></PreviewHeader>
+          <PreviewCanvas>
+            <PreviewFrame title="公众号文章 HTML 预览" sandbox="" srcDoc={previewSrcDoc} />
+          </PreviewCanvas>
         </PreviewColumn>
       </EditorGrid>
     </Page>
@@ -399,7 +439,7 @@ const EditorGrid = styled.div`
   gap: ${({ theme }) => theme.space.xl};
 
   @media (min-width: 1180px) {
-    grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
+    grid-template-columns: minmax(420px, 0.78fr) minmax(620px, 1.22fr);
     align-items: start;
   }
 `
@@ -716,7 +756,8 @@ const PanelDesc = styled.p`
 const PreviewColumn = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.space.lg};
-  justify-items: center;
+  min-width: 0;
+  justify-items: stretch;
 
   @media (min-width: 1180px) {
     position: sticky;
@@ -738,56 +779,20 @@ const PreviewHeader = styled.div`
 
 const PreviewHeaderTitle = styled.span``
 
-const PhoneFrame = styled.div`
-  width: 375px;
-  max-width: 100%;
-  border-radius: 32px;
-  background: ${({ theme }) => theme.colors.surface};
-  box-shadow: ${({ theme }) => theme.shadows.lift};
-  border: 8px solid oklch(20% 0.02 75);
-  overflow: hidden;
-`
-
-const PhoneNotch = styled.div`
-  height: 24px;
-  background: oklch(20% 0.02 75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  &::after {
-    width: 90px;
-    height: 6px;
-    border-radius: ${({ theme }) => theme.radii.pill};
-    background: oklch(30% 0.02 75);
-    content: '';
-  }
-`
-
-const PhoneScreen = styled.div`
-  display: grid;
-  gap: ${({ theme }) => theme.space.md};
-  padding: ${({ theme }) => theme.space.lg} ${({ theme }) => theme.space.xl};
-  background: ${({ theme }) => theme.colors.surface};
-`
-
-const PhoneArticleTitle = styled.h3`
-  margin: ${({ theme }) => theme.space.sm} 0 0;
-  font-size: ${({ theme }) => theme.typeScale.lead};
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: ${({ theme }) => theme.colors.text};
-`
-
-const PhoneArticleMeta = styled.div`
-  color: ${({ theme }) => theme.colors.textMuted};
-  font-size: ${({ theme }) => theme.typeScale.caption};
+const PreviewCanvas = styled.div`
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.lg};
+  background: #f6f7f6;
+  box-shadow: ${({ theme }) => theme.shadows.xs};
 `
 
 const PreviewFrame = styled.iframe`
-  width: 100%;
-  min-height: 380px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radii.md};
-  background: ${({ theme }) => theme.colors.surface};
+  display: block;
+  width: 760px;
+  height: clamp(560px, 72vh, 860px);
+  border: 0;
+  background: #f6f7f6;
 `
