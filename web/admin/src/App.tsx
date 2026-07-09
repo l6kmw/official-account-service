@@ -160,7 +160,11 @@ function viewToHash(view: View) {
 }
 
 function replaceHash(hash: string) {
-  const url = new URL(window.location.href)
-  url.hash = hash
-  window.history.replaceState(null, '', url)
+  try {
+    const url = new URL(window.location.href)
+    url.hash = hash
+    window.history.replaceState(null, '', url)
+  } catch {
+    if (window.location.hash !== hash) window.location.hash = hash
+  }
 }

@@ -40,7 +40,7 @@ export async function deleteJSON(path: string, tenantID = DEFAULT_TENANT_ID): Pr
 }
 
 export async function postForm<T>(path: string, body: FormData, tenantID = DEFAULT_TENANT_ID): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(toRequestURL(path), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -68,7 +68,7 @@ async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' |
     headers['Content-Type'] = 'application/json'
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(toRequestURL(path), {
     method: options.method,
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -79,6 +79,11 @@ async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' |
   }
 
   return response
+}
+
+function toRequestURL(path: string) {
+  if (/^https?:\/\//i.test(path)) return path
+  return new URL(path, `${window.location.protocol}//${window.location.host}`).toString()
 }
 
 function adminAuthHeaders(): Record<string, string> {
