@@ -18,6 +18,7 @@ type Config struct {
 	LogLevel                 string `validate:"required"`
 	DBDSN                    string
 	RedisAddr                string
+	AdminAPIKey              string
 	WeChatComponentAppSecret string
 	WeChatAPIBaseURL         string
 	WeChatComponentAppID     string
@@ -45,6 +46,7 @@ func Load(path string) (Config, error) {
 		LogLevel:                 v.GetString("log.level"),
 		DBDSN:                    v.GetString("database.dsn"),
 		RedisAddr:                v.GetString("redis.addr"),
+		AdminAPIKey:              v.GetString("security.admin_api_key"),
 		WeChatComponentAppSecret: v.GetString("wechat.component_app_secret"),
 		WeChatAPIBaseURL:         v.GetString("wechat.api_base_url"),
 		WeChatComponentAppID:     v.GetString("wechat.component_app_id"),
@@ -55,6 +57,9 @@ func Load(path string) (Config, error) {
 	if err := validator.New().Struct(cfg); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
+	if cfg.AppEnv == "prod" && strings.TrimSpace(cfg.AdminAPIKey) == "" {
+		return Config{}, fmt.Errorf("validate config: security.admin_api_key is required in prod")
+	}
 	return cfg, nil
 }
 
@@ -64,6 +69,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("database.dsn", "")
 	v.SetDefault("redis.addr", "")
+	v.SetDefault("security.admin_api_key", "")
 	v.SetDefault("wechat.component_app_secret", "")
 	v.SetDefault("wechat.api_base_url", "")
 	v.SetDefault("wechat.component_app_id", "")

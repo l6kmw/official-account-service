@@ -13,6 +13,10 @@ database:
 redis:
   addr: "redis:6379"
 
+security:
+  # Required when app.env is prod. For public admin pages, prefer a gateway that injects this header.
+  admin_api_key: ""
+
 wechat:
   # Fill these before real WeChat integration.
   component_app_id: ""

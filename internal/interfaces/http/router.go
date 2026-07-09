@@ -1,8 +1,11 @@
 package http
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +26,7 @@ type Dependencies struct {
 	Callbacks     *application.CallbackService
 	TaskQueues    *application.TaskQueueService
 	Dashboard     *application.DashboardService
+	AdminAPIKey   string
 }
 
 // NewRouter constructs the HTTP router.
@@ -41,14 +45,54 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerWechatCallbackRoutes(r, deps.Callbacks)
 	registerAuthorizationCallbackRoutes(v1, deps.Authorization)
 	registerAuthorizationURLRoutes(v1, deps.Authorization)
-	registerAccountRoutes(v1, deps.Accounts)
-	registerArticleRoutes(v1, deps.Articles)
-	registerMaterialRoutes(v1, deps.Materials)
-	registerPublishRoutes(v1, deps.Publishes)
-	registerTokenRoutes(v1, deps.Tokens)
-	registerTaskQueueRoutes(v1, deps.TaskQueues)
-	registerDashboardRoutes(v1, deps.Dashboard)
+	adminV1 := v1.Group("")
+	adminV1.Use(requireAdminAPIKey(deps.AdminAPIKey))
+	registerAccountRoutes(adminV1, deps.Accounts)
+	registerArticleRoutes(adminV1, deps.Articles)
+	registerMaterialRoutes(adminV1, deps.Materials)
+	registerPublishRoutes(adminV1, deps.Publishes)
+	registerTokenRoutes(adminV1, deps.Tokens)
+	registerTaskQueueRoutes(adminV1, deps.TaskQueues)
+	registerDashboardRoutes(adminV1, deps.Dashboard)
 	return r
+}
+
+func requireAdminAPIKey(expected string) gin.HandlerFunc {
+	expected = strings.TrimSpace(expected)
+	return func(c *gin.Context) {
+		if expected == "" {
+			c.Next()
+			return
+		}
+		actual := strings.TrimSpace(c.GetHeader("X-Admin-API-Key"))
+		if actual == "" {
+			actual = bearerToken(c.GetHeader("Authorization"))
+		}
+		if constantTimeStringEqual(actual, expected) {
+			c.Next()
+			return
+		}
+		writeError(c, http.StatusUnauthorized, "unauthorized")
+		c.Abort()
+	}
+}
+
+func bearerToken(header string) string {
+	const prefix = "Bearer "
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(header, prefix))
+}
+
+func constantTimeStringEqual(actual string, expected string) bool {
+	if actual == "" || expected == "" {
+		return false
+	}
+	actualHash := sha256.Sum256([]byte(actual))
+	expectedHash := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(actualHash[:], expectedHash[:]) == 1
 }
 
 type tenantHeader struct {

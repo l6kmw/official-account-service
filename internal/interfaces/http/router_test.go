@@ -181,6 +181,35 @@ func TestAuthorizationCallbackRoute(t *testing.T) {
 	require.Equal(t, http.StatusNotImplemented, unavailable.Code)
 }
 
+func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
+	store := memory.NewStore(fixedRouteTime)
+	router := NewRouter(Dependencies{
+		Logger:        zap.NewNop(),
+		AdminAPIKey:   "admin-key",
+		Authorization: application.NewAuthorizationService(store, fixedRouteTime),
+		Accounts:      application.NewAccountService(store),
+	})
+
+	health := doJSON(t, router, http.MethodGet, "/api/v1/healthz", ``, "")
+	require.Equal(t, http.StatusOK, health.Code)
+
+	publicAuthorization := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component", ``, "")
+	require.Equal(t, http.StatusBadRequest, publicAuthorization.Code)
+
+	missingKey := doJSON(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1")
+	require.Equal(t, http.StatusUnauthorized, missingKey.Code)
+	require.JSONEq(t, `{"error":"unauthorized"}`, missingKey.Body.String())
+
+	wrongKey := doJSONWithAdminKey(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "wrong-key")
+	require.Equal(t, http.StatusUnauthorized, wrongKey.Code)
+
+	headerKey := doJSONWithAdminKey(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "admin-key")
+	require.Equal(t, http.StatusOK, headerKey.Code)
+
+	bearer := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "admin-key")
+	require.Equal(t, http.StatusOK, bearer.Code)
+}
+
 func TestArticleCRUDRoutes(t *testing.T) {
 	router := testRouter()
 
@@ -353,6 +382,40 @@ func doJSON(t *testing.T, router http.Handler, method string, path string, body 
 	}
 	if tenantID != "" {
 		req.Header.Set("X-Tenant-ID", tenantID)
+	}
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func doJSONWithAdminKey(t *testing.T, router http.Handler, method string, path string, body string, tenantID string, adminAPIKey string) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if tenantID != "" {
+		req.Header.Set("X-Tenant-ID", tenantID)
+	}
+	if adminAPIKey != "" {
+		req.Header.Set("X-Admin-API-Key", adminAPIKey)
+	}
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func doJSONWithBearer(t *testing.T, router http.Handler, method string, path string, body string, tenantID string, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if tenantID != "" {
+		req.Header.Set("X-Tenant-ID", tenantID)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	router.ServeHTTP(recorder, req)
 	return recorder

@@ -54,7 +54,8 @@ npm run build
 window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
   tenantID: 'tenant-1',
   publicBaseURL: 'https://oa.example.com',
-  componentAppID: 'wx_component_appid'
+  componentAppID: 'wx_component_appid',
+  adminAPIKey: ''
 }
 ```
 
@@ -63,6 +64,7 @@ window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
 - `tenantID`：后台 API 请求使用的租户 ID。
 - `publicBaseURL`：公网 HTTPS 服务域名，用于生成微信开放平台回调地址和授权入口页。
 - `componentAppID`：微信开放平台第三方平台 Component AppID。
+- `adminAPIKey`：可选，后台配置 `security.admin_api_key` 后，管理台请求会用 `X-Admin-API-Key` 携带该值。公开站点里不要把它当作强保密手段；生产环境优先用网关/访问控制保护管理台，并由网关注入该请求头。
 
 前端运行时配置只允许放可公开信息；不要把 AppSecret、Verify Token、EncodingAESKey、refresh token 或加密密钥写入 `admin-config.js`。
 
@@ -132,6 +134,8 @@ database:
   dsn: "postgres://user:password@postgres:5432/official_account?sslmode=disable"
 redis:
   addr: "redis:6379"
+security:
+  admin_api_key: "change-me"
 wechat:
   component_app_id: "wx..."
   component_app_secret: "..."
@@ -146,6 +150,8 @@ wechat:
 ```bash
 openssl rand -base64 32
 ```
+
+当 `app.env` 为 `prod` 时，必须配置 `security.admin_api_key`。配置后，除健康检查、微信授权 URL/授权回调和微信回调外，管理 API 需要请求头 `X-Admin-API-Key: <admin_api_key>` 或 `Authorization: Bearer <admin_api_key>`。
 
 ## 微信授权配置
 

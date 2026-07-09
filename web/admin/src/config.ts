@@ -2,6 +2,7 @@ type AdminConfig = {
   tenantID: string
   publicBaseURL: string
   componentAppID: string
+  adminAPIKey: string
 }
 
 declare global {
@@ -13,7 +14,8 @@ declare global {
 const defaultAdminConfig: AdminConfig = {
   tenantID: 'tenant-1',
   publicBaseURL: 'https://example.com',
-  componentAppID: 'wx0000000000000000'
+  componentAppID: 'wx0000000000000000',
+  adminAPIKey: ''
 }
 
 export const adminConfig: AdminConfig = resolveAdminConfig(window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__)
@@ -22,7 +24,8 @@ function resolveAdminConfig(runtimeConfig: Partial<AdminConfig> | undefined): Ad
   return {
     tenantID: nonEmpty(runtimeConfig?.tenantID) || defaultAdminConfig.tenantID,
     publicBaseURL: normalizePublicBaseURL(runtimeConfig?.publicBaseURL ?? '') || defaultAdminConfig.publicBaseURL,
-    componentAppID: nonEmpty(runtimeConfig?.componentAppID) || defaultAdminConfig.componentAppID
+    componentAppID: nonEmpty(runtimeConfig?.componentAppID) || defaultAdminConfig.componentAppID,
+    adminAPIKey: nonEmpty(runtimeConfig?.adminAPIKey)
   }
 }
 

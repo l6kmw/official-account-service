@@ -2,7 +2,7 @@ import { adminConfig } from '../config'
 
 export const DEFAULT_TENANT_ID = adminConfig.tenantID
 
-type APIErrorCode = 'invalid_request' | 'not_found' | 'not_implemented' | 'internal_error'
+type APIErrorCode = 'invalid_request' | 'unauthorized' | 'not_found' | 'not_implemented' | 'internal_error'
 
 type APIErrorBody = {
   error?: APIErrorCode
@@ -44,7 +44,8 @@ export async function postForm<T>(path: string, body: FormData, tenantID = DEFAU
     method: 'POST',
     headers: {
       Accept: 'application/json',
-      'X-Tenant-ID': tenantID
+      'X-Tenant-ID': tenantID,
+      ...adminAuthHeaders()
     },
     body
   })
@@ -59,7 +60,8 @@ export async function postForm<T>(path: string, body: FormData, tenantID = DEFAU
 async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; tenantID: string; body?: unknown }): Promise<Response> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    'X-Tenant-ID': options.tenantID
+    'X-Tenant-ID': options.tenantID,
+    ...adminAuthHeaders()
   }
 
   if (options.body !== undefined) {
@@ -77,6 +79,11 @@ async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' |
   }
 
   return response
+}
+
+function adminAuthHeaders(): Record<string, string> {
+  if (!adminConfig.adminAPIKey) return {}
+  return { 'X-Admin-API-Key': adminConfig.adminAPIKey }
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -102,6 +109,8 @@ function toUserMessage(code: APIErrorCode): string {
   switch (code) {
     case 'invalid_request':
       return '请求参数不完整，请检查租户和输入内容。'
+    case 'unauthorized':
+      return '管理 API 未授权，请检查 adminAPIKey 或网关注入的鉴权请求头。'
     case 'not_found':
       return '资源不存在或无权访问。'
     case 'not_implemented':

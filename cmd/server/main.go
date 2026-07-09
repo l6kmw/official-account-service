@@ -64,7 +64,7 @@ func main() {
 	}
 	defer closeTaskQueueService()
 
-	router := httpapi.NewRouter(buildHTTPDependencies(
+	deps := buildHTTPDependencies(
 		logger,
 		authorizationService,
 		accountService,
@@ -74,7 +74,9 @@ func main() {
 		tokenService,
 		callbackService,
 		taskQueueService,
-	))
+	)
+	deps.AdminAPIKey = cfg.AdminAPIKey
+	router := httpapi.NewRouter(deps)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
