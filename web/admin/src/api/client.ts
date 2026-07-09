@@ -2,7 +2,7 @@ import { adminConfig } from '../config'
 
 export const DEFAULT_TENANT_ID = adminConfig.tenantID
 
-type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'not_found' | 'not_implemented' | 'internal_error'
+export type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'rate_limited' | 'not_found' | 'not_implemented' | 'internal_error'
 
 type APIErrorBody = {
   error?: APIErrorCode
@@ -42,6 +42,7 @@ export async function deleteJSON(path: string, tenantID = DEFAULT_TENANT_ID): Pr
 export async function postForm<T>(path: string, body: FormData, tenantID = DEFAULT_TENANT_ID): Promise<T> {
   const response = await fetch(toRequestURL(path), {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       Accept: 'application/json',
       'X-Tenant-ID': tenantID,
@@ -51,7 +52,11 @@ export async function postForm<T>(path: string, body: FormData, tenantID = DEFAU
   })
 
   if (!response.ok) {
-    throw await toAPIError(response)
+    const error = await toAPIError(response)
+    if (error.status === 401) {
+      window.dispatchEvent(new Event('admin-session-expired'))
+    }
+    throw error
   }
 
   return response.json() as Promise<T>
@@ -70,12 +75,17 @@ async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' |
 
   const response = await fetch(toRequestURL(path), {
     method: options.method,
+    credentials: 'same-origin',
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
   })
 
   if (!response.ok) {
-    throw await toAPIError(response)
+    const error = await toAPIError(response)
+    if (error.status === 401) {
+      window.dispatchEvent(new Event('admin-session-expired'))
+    }
+    throw error
   }
 
   return response
@@ -87,8 +97,16 @@ function toRequestURL(path: string) {
 }
 
 function adminAuthHeaders(): Record<string, string> {
-  if (!adminConfig.adminAPIKey) return {}
-  return { 'X-Admin-API-Key': adminConfig.adminAPIKey }
+  const headers: Record<string, string> = {}
+  if (adminConfig.adminAPIKey) headers['X-Admin-API-Key'] = adminConfig.adminAPIKey
+  if (adminCSRFToken) headers['X-CSRF-Token'] = adminCSRFToken
+  return headers
+}
+
+let adminCSRFToken = ''
+
+export function setAdminCSRFToken(token: string) {
+  adminCSRFToken = token.trim()
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -117,7 +135,9 @@ function toUserMessage(code: APIErrorCode): string {
     case 'request_too_large':
       return '请求内容过大，请压缩图片或减少正文内容后重试。'
     case 'unauthorized':
-      return '管理 API 未授权，请检查 adminAPIKey 或网关注入的鉴权请求头。'
+      return '登录已失效，请重新登录后继续操作。'
+    case 'rate_limited':
+      return '登录尝试过于频繁，请稍后再试。'
     case 'not_found':
       return '资源不存在或无权访问。'
     case 'not_implemented':

@@ -64,9 +64,9 @@ window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
 - `tenantID`：后台 API 请求使用的租户 ID。
 - `publicBaseURL`：公网 HTTPS 服务域名，用于生成微信开放平台回调地址和授权入口页。
 - `componentAppID`：微信开放平台第三方平台 Component AppID。
-- `adminAPIKey`：可选，后台配置 `security.admin_api_key` 后，管理台请求会用 `X-Admin-API-Key` 携带该值。公开站点里不要把它当作强保密手段；生产环境优先用网关/访问控制保护管理台，并由网关注入该请求头。
+- `adminAPIKey`：兼容旧部署的可选字段。公开站点不要把它当作强保密手段；生产环境优先使用管理员登录会话，或由网关注入该请求头。
 
-前端运行时配置只允许放可公开信息；不要把 AppSecret、Verify Token、EncodingAESKey、refresh token 或加密密钥写入 `admin-config.js`。
+前端运行时配置只允许放可公开信息；不要把管理员密码、AppSecret、Verify Token、EncodingAESKey、refresh token 或加密密钥写入 `admin-config.js`。
 
 当前已完成 Phase 8：前端工程骨架、AppShell、现代 SaaS 控制台风格主题、API client、Dashboard 真实数据接入、文章 CRUD 页面、账号列表页、添加公众号授权入口、发布记录页、微信配置检查页、素材上传区和文章发布动作。
 
@@ -136,6 +136,9 @@ redis:
   addr: "redis:6379"
 security:
   admin_api_key: "change-me"
+  admin_username: "admin"
+  admin_password_hash: "$2a$12$..."
+  admin_session_secret: "change-this-long-random-session-secret"
 wechat:
   component_app_id: "wx..."
   component_app_secret: "..."
@@ -151,7 +154,19 @@ wechat:
 openssl rand -base64 32
 ```
 
-当 `app.env` 为 `prod` 时，必须配置 `security.admin_api_key`。配置后，除健康检查、微信授权 URL/授权回调和微信回调外，管理 API 需要请求头 `X-Admin-API-Key: <admin_api_key>` 或 `Authorization: Bearer <admin_api_key>`。
+管理员登录使用服务端会话 cookie，不需要把密码或 API key 写入前端。生成密码 hash 示例：
+
+```bash
+htpasswd -bnBC 12 "" "your-admin-password" | tr -d ':\n'
+```
+
+`security.admin_session_secret` 用于签名登录会话，建议使用至少 32 字节随机值：
+
+```bash
+openssl rand -base64 32
+```
+
+当 `app.env` 为 `prod` 时，必须配置 `security.admin_api_key`，或同时配置 `security.admin_username`、`security.admin_password_hash` 和 `security.admin_session_secret`。配置管理员登录后，管理台会通过 `POST /api/v1/admin/session` 登录，服务端签发 HttpOnly + SameSite cookie；写操作还需要 `X-CSRF-Token`。保留 `security.admin_api_key` 时，管理 API 仍兼容请求头 `X-Admin-API-Key: <admin_api_key>` 或 `Authorization: Bearer <admin_api_key>`，适合网关或脚本调用。
 
 HTTP 服务会统一限制请求体最大 10 MiB，超限返回 `413 request_too_large`。微信 component/authorizer 回调正文解析仍按 1 MiB 上限处理。
 

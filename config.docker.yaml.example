@@ -16,6 +16,12 @@ redis:
 security:
   # Required when app.env is prod. For public admin pages, prefer a gateway that injects this header.
   admin_api_key: ""
+  # Optional administrator login. Configure all three values together to enable the login page.
+  admin_username: ""
+  # bcrypt hash, e.g. `htpasswd -bnBC 12 "" "your-password" | tr -d ':\n'`
+  admin_password_hash: ""
+  # random session signing secret, e.g. `openssl rand -base64 32`
+  admin_session_secret: ""
 
 wechat:
   # Fill these before real WeChat integration.

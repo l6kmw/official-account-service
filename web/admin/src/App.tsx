@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import styled from '@emotion/styled'
+import { getAdminSession, logoutAdmin } from './api/auth'
+import { setAdminCSRFToken } from './api/client'
 import { AppShell, type PageID } from './components/AppShell'
+import { adminConfig } from './config'
 import { AccountsPage } from './pages/AccountsPage'
 import { ArticleEditorPage } from './pages/ArticleEditorPage'
 import { ArticlesPage } from './pages/ArticlesPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { LoginPage } from './pages/LoginPage'
 import { PublishRecordsPage } from './pages/PublishRecordsPage'
 import { WechatSetupPage } from './pages/WechatSetupPage'
 
@@ -20,11 +25,17 @@ type NavigateOptions = {
   skipDirtyCheck?: boolean
 }
 
+type AuthState =
+  | { checking: true }
+  | { checking: false; authenticated: true; loginEnabled: boolean }
+  | { checking: false; authenticated: false; loginEnabled: boolean }
+
 const discardEditorChangesMessage = '文章有未保存改动，确定离开吗？'
 
 export function App() {
   const [view, setView] = useState<View>(() => parseHashView(window.location.hash))
   const [editorDirty, setEditorDirty] = useState(false)
+  const [authState, setAuthState] = useState<AuthState>({ checking: true })
   const viewRef = useRef(view)
   const editorDirtyRef = useRef(editorDirty)
   const currentPage: PageID = view.page === 'article-new' || view.page === 'article-edit' ? 'articles' : view.page
@@ -68,6 +79,42 @@ export function App() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
+  useEffect(() => {
+    let active = true
+    if (adminConfig.adminAPIKey) {
+      setAuthState({ checking: false, authenticated: true, loginEnabled: false })
+      return () => {
+        active = false
+      }
+    }
+
+    getAdminSession()
+      .then((session) => {
+        if (!active) return
+        setAuthState({
+          checking: false,
+          authenticated: session.authenticated || !session.auth_enabled,
+          loginEnabled: session.login_enabled
+        })
+      })
+      .catch(() => {
+        if (active) setAuthState({ checking: false, authenticated: false, loginEnabled: true })
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      setAdminCSRFToken('')
+      setAuthState({ checking: false, authenticated: false, loginEnabled: true })
+    }
+    window.addEventListener('admin-session-expired', handleSessionExpired)
+    return () => window.removeEventListener('admin-session-expired', handleSessionExpired)
+  }, [])
+
   const navigate = useCallback((next: View, options: NavigateOptions = {}) => {
     if (!options.skipDirtyCheck && editorDirtyRef.current && !window.confirm(discardEditorChangesMessage)) return
     setEditorDirty(false)
@@ -82,8 +129,28 @@ export function App() {
     window.location.hash = nextHash
   }, [])
 
+  const handleAuthenticated = useCallback(() => {
+    setAuthState({ checking: false, authenticated: true, loginEnabled: true })
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    logoutAdmin().finally(() => {
+      setEditorDirty(false)
+      editorDirtyRef.current = false
+      setAuthState({ checking: false, authenticated: false, loginEnabled: true })
+    })
+  }, [])
+
+  if (authState.checking) {
+    return <LoadingShell>正在检查登录状态…</LoadingShell>
+  }
+
+  if (!authState.authenticated) {
+    return <LoginPage loginEnabled={authState.loginEnabled} onAuthenticated={handleAuthenticated} />
+  }
+
   return (
-    <AppShell currentPage={currentPage} onNavigate={(page) => navigate({ page })}>
+    <AppShell currentPage={currentPage} onLogout={authState.loginEnabled ? handleLogout : undefined} onNavigate={(page) => navigate({ page })}>
       {view.page === 'dashboard' ? <DashboardPage /> : null}
       {view.page === 'accounts' ? <AccountsPage /> : null}
       {view.page === 'publishes' ? <PublishRecordsPage /> : null}
@@ -103,6 +170,16 @@ export function App() {
     </AppShell>
   )
 }
+
+const LoadingShell = styled.main`
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: ${({ theme }) => theme.colors.background};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 650;
+`
 
 function parseHashView(hash: string): View {
   const path = normalizeHashPath(hash)

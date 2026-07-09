@@ -35,19 +35,22 @@ const navItems: Array<{ id: PageID; label: string }> = [
   { id: 'wechat-setup', label: '微信配置' }
 ]
 
-export function AppShell({ children, currentPage, onNavigate }: { children: ReactNode; currentPage: PageID; onNavigate: (page: PageID) => void }) {
+export function AppShell({ children, currentPage, onNavigate, onLogout }: { children: ReactNode; currentPage: PageID; onNavigate: (page: PageID) => void; onLogout?: () => void }) {
   return (
     <Shell>
       <SkipLink href="#main-content">跳到主内容</SkipLink>
       <AppHeader>
         <HeaderInner>
-          <Brand>
-            <LogoMark><LogoIcon /></LogoMark>
-            <BrandText>
-              <strong>Official Account</strong>
-              <span>管理控制台</span>
-            </BrandText>
-          </Brand>
+          <HeaderTop>
+            <Brand>
+              <LogoMark><LogoIcon /></LogoMark>
+              <BrandText>
+                <strong>Official Account</strong>
+                <span>管理控制台</span>
+              </BrandText>
+            </Brand>
+            {onLogout ? <LogoutButton onClick={onLogout} type="button">退出</LogoutButton> : null}
+          </HeaderTop>
           <NavList aria-label="主导航">
             {navItems.map((item) => (
               <NavItem
@@ -105,6 +108,13 @@ const HeaderInner = styled.div`
   width: min(100%, 1440px);
   margin: 0 auto;
   gap: ${({ theme }) => theme.space.md};
+`
+
+const HeaderTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.space.lg};
 `
 
 const Brand = styled.div`
@@ -203,6 +213,26 @@ const NavItemActive = styled.span`
   place-items: center;
   flex-shrink: 0;
   color: ${({ theme }) => theme.colors.primary};
+`
+
+const LogoutButton = styled.button`
+  min-height: 36px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.pill};
+  padding: 0 ${({ theme }) => theme.space.md};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 650;
+  white-space: nowrap;
+  transition:
+    background ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut},
+    color ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut};
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surfaceMuted};
+    color: ${({ theme }) => theme.colors.text};
+  }
 `
 
 const MainArea = styled.div`

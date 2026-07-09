@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // DefaultPath is the default YAML config path used by the server.
@@ -19,6 +20,9 @@ type Config struct {
 	DBDSN                    string
 	RedisAddr                string
 	AdminAPIKey              string
+	AdminUsername            string
+	AdminPasswordHash        string
+	AdminSessionSecret       string
 	WeChatComponentAppSecret string
 	WeChatAPIBaseURL         string
 	WeChatComponentAppID     string
@@ -47,6 +51,9 @@ func Load(path string) (Config, error) {
 		DBDSN:                    v.GetString("database.dsn"),
 		RedisAddr:                v.GetString("redis.addr"),
 		AdminAPIKey:              v.GetString("security.admin_api_key"),
+		AdminUsername:            v.GetString("security.admin_username"),
+		AdminPasswordHash:        v.GetString("security.admin_password_hash"),
+		AdminSessionSecret:       v.GetString("security.admin_session_secret"),
 		WeChatComponentAppSecret: v.GetString("wechat.component_app_secret"),
 		WeChatAPIBaseURL:         v.GetString("wechat.api_base_url"),
 		WeChatComponentAppID:     v.GetString("wechat.component_app_id"),
@@ -57,10 +64,38 @@ func Load(path string) (Config, error) {
 	if err := validator.New().Struct(cfg); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
-	if cfg.AppEnv == "prod" && strings.TrimSpace(cfg.AdminAPIKey) == "" {
-		return Config{}, fmt.Errorf("validate config: security.admin_api_key is required in prod")
+	if err := validateAdminAuth(cfg); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func validateAdminAuth(cfg Config) error {
+	adminAPIKey := strings.TrimSpace(cfg.AdminAPIKey)
+	adminUsername := strings.TrimSpace(cfg.AdminUsername)
+	adminPasswordHash := strings.TrimSpace(cfg.AdminPasswordHash)
+	adminSessionSecret := strings.TrimSpace(cfg.AdminSessionSecret)
+	adminSessionValues := 0
+	for _, value := range []string{adminUsername, adminPasswordHash, adminSessionSecret} {
+		if value != "" {
+			adminSessionValues++
+		}
+	}
+	if adminSessionValues > 0 && adminSessionValues < 3 {
+		return fmt.Errorf("validate config: security.admin_username, security.admin_password_hash and security.admin_session_secret must be configured together")
+	}
+	if adminPasswordHash != "" {
+		if _, err := bcrypt.Cost([]byte(adminPasswordHash)); err != nil {
+			return fmt.Errorf("validate config: security.admin_password_hash must be a bcrypt hash: %w", err)
+		}
+	}
+	if adminSessionSecret != "" && len(adminSessionSecret) < 32 {
+		return fmt.Errorf("validate config: security.admin_session_secret must be at least 32 characters")
+	}
+	if cfg.AppEnv == "prod" && adminAPIKey == "" && adminSessionValues == 0 {
+		return fmt.Errorf("validate config: security.admin_api_key or administrator login must be configured in prod")
+	}
+	return nil
 }
 
 func setDefaults(v *viper.Viper) {
@@ -70,6 +105,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.dsn", "")
 	v.SetDefault("redis.addr", "")
 	v.SetDefault("security.admin_api_key", "")
+	v.SetDefault("security.admin_username", "")
+	v.SetDefault("security.admin_password_hash", "")
+	v.SetDefault("security.admin_session_secret", "")
 	v.SetDefault("wechat.component_app_secret", "")
 	v.SetDefault("wechat.api_base_url", "")
 	v.SetDefault("wechat.component_app_id", "")

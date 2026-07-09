@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"golang.org/x/crypto/bcrypt"
 
 	"official-account-service/internal/application"
 	"official-account-service/internal/domain/authorization"
@@ -211,6 +212,61 @@ func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
 
 	bearer := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "admin-key")
 	require.Equal(t, http.StatusOK, bearer.Code)
+}
+
+func TestAdminSessionLoginProtectsManagementRoutes(t *testing.T) {
+	store := memory.NewStore(fixedRouteTime)
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret-password"), bcrypt.MinCost)
+	require.NoError(t, err)
+	router := NewRouter(Dependencies{
+		Logger:             zap.NewNop(),
+		AdminUsername:      "admin",
+		AdminPasswordHash:  string(hash),
+		AdminSessionSecret: "test-session-secret",
+		Authorization:      application.NewAuthorizationService(store, fixedRouteTime),
+		Accounts:           application.NewAccountService(store),
+		Articles:           application.NewArticleService(store),
+	})
+
+	status := doJSON(t, router, http.MethodGet, "/api/v1/admin/session", ``, "")
+	require.Equal(t, http.StatusOK, status.Code)
+	require.JSONEq(t, `{"authenticated":false,"auth_enabled":true,"login_enabled":true}`, status.Body.String())
+
+	missingSession := doJSON(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1")
+	require.Equal(t, http.StatusUnauthorized, missingSession.Code)
+
+	wrongPassword := doJSON(t, router, http.MethodPost, "/api/v1/admin/session", `{"username":"admin","password":"wrong"}`, "")
+	require.Equal(t, http.StatusUnauthorized, wrongPassword.Code)
+
+	login := doJSON(t, router, http.MethodPost, "/api/v1/admin/session", `{"username":"admin","password":"secret-password"}`, "")
+	require.Equal(t, http.StatusOK, login.Code)
+	var loginBody adminSessionResponse
+	require.NoError(t, json.Unmarshal(login.Body.Bytes(), &loginBody))
+	require.True(t, loginBody.Authenticated)
+	require.Equal(t, "admin", loginBody.Username)
+	require.NotEmpty(t, loginBody.CSRFToken)
+	sessionCookie := firstCookie(t, login, adminSessionCookieName)
+	require.True(t, sessionCookie.HttpOnly)
+	require.Equal(t, http.SameSiteStrictMode, sessionCookie.SameSite)
+
+	sessionStatus := doJSONWithCookiesAndHeaders(t, router, http.MethodGet, "/api/v1/admin/session", ``, "", []*http.Cookie{sessionCookie}, nil)
+	require.Equal(t, http.StatusOK, sessionStatus.Code)
+	require.Contains(t, sessionStatus.Body.String(), `"authenticated":true`)
+	require.Contains(t, sessionStatus.Body.String(), `"csrf_token"`)
+
+	accounts := doJSONWithCookiesAndHeaders(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", []*http.Cookie{sessionCookie}, nil)
+	require.Equal(t, http.StatusOK, accounts.Code)
+
+	missingCSRF := doJSONWithCookiesAndHeaders(t, router, http.MethodPost, "/api/v1/articles", `{"authorizer_id":1,"title":"hello"}`, "tenant-1", []*http.Cookie{sessionCookie}, nil)
+	require.Equal(t, http.StatusUnauthorized, missingCSRF.Code)
+
+	created := doJSONWithCookiesAndHeaders(t, router, http.MethodPost, "/api/v1/articles", `{"authorizer_id":1,"title":"hello"}`, "tenant-1", []*http.Cookie{sessionCookie}, map[string]string{adminCSRFHeaderName: loginBody.CSRFToken})
+	require.Equal(t, http.StatusCreated, created.Code)
+
+	logout := doJSONWithCookiesAndHeaders(t, router, http.MethodDelete, "/api/v1/admin/session", ``, "", []*http.Cookie{sessionCookie}, map[string]string{adminCSRFHeaderName: loginBody.CSRFToken})
+	require.Equal(t, http.StatusOK, logout.Code)
+	clearedCookie := firstCookie(t, logout, adminSessionCookieName)
+	require.Equal(t, -1, clearedCookie.MaxAge)
 }
 
 func TestArticleCRUDRoutes(t *testing.T) {
@@ -487,6 +543,37 @@ func doJSONWithBearer(t *testing.T, router http.Handler, method string, path str
 	}
 	router.ServeHTTP(recorder, req)
 	return recorder
+}
+
+func doJSONWithCookiesAndHeaders(t *testing.T, router http.Handler, method string, path string, body string, tenantID string, cookies []*http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if tenantID != "" {
+		req.Header.Set("X-Tenant-ID", tenantID)
+	}
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func firstCookie(t *testing.T, recorder *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	t.Fatalf("cookie %q not found", name)
+	return nil
 }
 
 func doXML(t *testing.T, router http.Handler, method string, path string, body string) *httptest.ResponseRecorder {

@@ -25,17 +25,20 @@ var sensitiveLogValuePattern = regexp.MustCompile(`(?i)("?(?:access[_-]?token|co
 
 // Dependencies contains HTTP adapter dependencies.
 type Dependencies struct {
-	Logger        *zap.Logger
-	Authorization *application.AuthorizationService
-	Accounts      *application.AccountService
-	Articles      *application.ArticleService
-	Materials     *application.MaterialService
-	Publishes     *application.PublishService
-	Tokens        *application.TokenService
-	Callbacks     *application.CallbackService
-	TaskQueues    *application.TaskQueueService
-	Dashboard     *application.DashboardService
-	AdminAPIKey   string
+	Logger             *zap.Logger
+	Authorization      *application.AuthorizationService
+	Accounts           *application.AccountService
+	Articles           *application.ArticleService
+	Materials          *application.MaterialService
+	Publishes          *application.PublishService
+	Tokens             *application.TokenService
+	Callbacks          *application.CallbackService
+	TaskQueues         *application.TaskQueueService
+	Dashboard          *application.DashboardService
+	AdminAPIKey        string
+	AdminUsername      string
+	AdminPasswordHash  string
+	AdminSessionSecret string
 }
 
 // NewRouter constructs the HTTP router.
@@ -60,8 +63,14 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerWechatCallbackRoutes(r, deps.Callbacks)
 	registerAuthorizationCallbackRoutes(v1, deps.Authorization)
 	registerAuthorizationURLRoutes(v1, deps.Authorization)
+	adminSessions := newAdminSessionManager(adminSessionConfig{
+		Username:     deps.AdminUsername,
+		PasswordHash: deps.AdminPasswordHash,
+		Secret:       deps.AdminSessionSecret,
+	}, logger)
+	registerAdminSessionRoutes(v1, adminSessions, deps.AdminAPIKey)
 	adminV1 := v1.Group("")
-	adminV1.Use(requireAdminAPIKey(deps.AdminAPIKey))
+	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, adminSessions))
 	registerAccountRoutes(adminV1, deps.Accounts)
 	registerArticleRoutes(adminV1, deps.Articles)
 	registerMaterialRoutes(adminV1, deps.Materials)
@@ -81,24 +90,41 @@ func limitRequestBody(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-func requireAdminAPIKey(expected string) gin.HandlerFunc {
-	expected = strings.TrimSpace(expected)
+func requireAdminAuth(expectedAPIKey string, sessions *adminSessionManager) gin.HandlerFunc {
+	expectedAPIKey = strings.TrimSpace(expectedAPIKey)
+	authEnabled := expectedAPIKey != "" || (sessions != nil && sessions.enabled())
+	if !authEnabled {
+		return func(c *gin.Context) {
+			c.Next()
+		}
+	}
 	return func(c *gin.Context) {
-		if expected == "" {
+		if expectedAPIKey != "" && isValidAdminAPIKey(c, expectedAPIKey) {
 			c.Next()
 			return
 		}
-		actual := strings.TrimSpace(c.GetHeader("X-Admin-API-Key"))
-		if actual == "" {
-			actual = bearerToken(c.GetHeader("Authorization"))
-		}
-		if constantTimeStringEqual(actual, expected) {
-			c.Next()
-			return
+		if sessions != nil {
+			session, ok := sessions.sessionFromRequest(c)
+			if ok && sessions.validCSRF(c, session) {
+				c.Next()
+				return
+			}
 		}
 		writeError(c, http.StatusUnauthorized, "unauthorized")
 		c.Abort()
 	}
+}
+
+func isValidAdminAPIKey(c *gin.Context, expected string) bool {
+	expected = strings.TrimSpace(expected)
+	if expected == "" {
+		return false
+	}
+	actual := strings.TrimSpace(c.GetHeader("X-Admin-API-Key"))
+	if actual == "" {
+		actual = bearerToken(c.GetHeader("Authorization"))
+	}
+	return constantTimeStringEqual(actual, expected)
 }
 
 func bearerToken(header string) string {

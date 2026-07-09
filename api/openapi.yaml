@@ -7,6 +7,7 @@ servers:
   - url: http://localhost:8080
 tags:
   - {name: Health}
+  - {name: AdminAuth}
   - {name: Authorization}
   - {name: Accounts}
   - {name: Articles}
@@ -20,6 +21,20 @@ paths:
     get: {tags: [Health], summary: Root health check, responses: {"200": {$ref: "#/components/responses/Health"}}}
   /api/v1/healthz:
     get: {tags: [Health], summary: Versioned health check, responses: {"200": {$ref: "#/components/responses/Health"}}}
+  /api/v1/admin/session:
+    get:
+      tags: [AdminAuth]
+      summary: Get current administrator login status
+      responses: {"200": {description: Admin session status, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}}
+    post:
+      tags: [AdminAuth]
+      summary: Login as an administrator
+      requestBody: {$ref: "#/components/requestBodies/AdminLogin"}
+      responses: {"200": {description: Authenticated admin session, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "401": {$ref: "#/components/responses/Unauthorized"}, "429": {$ref: "#/components/responses/RateLimited"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+    delete:
+      tags: [AdminAuth]
+      summary: Logout administrator session
+      responses: {"200": {description: Logged out, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}}
   /wechat/component/callback:
     post:
       tags: [WeChatCallbacks]
@@ -186,6 +201,7 @@ components:
     Nonce: {name: nonce, in: query, schema: {type: string}}
   requestBodies:
     XMLCallback: {required: true, content: {application/xml: {schema: {type: string}}}}
+    AdminLogin: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/AdminLoginRequest"}}}}
     CreateArticle: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CreateArticleRequest"}}}}
     UpdateArticle: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/UpdateArticleRequest"}}}}
     CreatePublishRecord: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CreatePublishRecordRequest"}}}}
@@ -205,6 +221,8 @@ components:
     Health: {description: Service is healthy, content: {application/json: {schema: {$ref: "#/components/schemas/HealthResponse"}}}}
     CallbackOK: {description: Callback accepted, content: {text/plain: {schema: {type: string, example: success}}}}
     InvalidRequest: {description: Invalid request, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    Unauthorized: {description: Unauthorized request, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    RateLimited: {description: Too many login attempts, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     NotImplemented: {description: Dependency not configured, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     AccountList: {description: Account list, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/Account"}}}}}}}
@@ -213,7 +231,9 @@ components:
     ArchivedTaskList: {description: Archived task list, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/ArchivedTask"}}}}}}}
   schemas:
     HealthResponse: {type: object, required: [status], properties: {status: {type: string, example: ok}}}
-    Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, request_too_large, unauthorized, not_found, not_implemented, internal_error]}}}
+    Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, request_too_large, unauthorized, rate_limited, not_found, not_implemented, internal_error]}}}
+    AdminLoginRequest: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string, format: password}}}
+    AdminSession: {type: object, required: [authenticated, auth_enabled, login_enabled], properties: {authenticated: {type: boolean}, auth_enabled: {type: boolean}, login_enabled: {type: boolean}, username: {type: string}, csrf_token: {type: string, description: Required as X-CSRF-Token for unsafe management requests when using the admin session cookie.}}}
     AuthorizationURL: {type: object, required: [authorization_url, pre_auth_code_expires_in_sec], properties: {authorization_url: {type: string, format: uri}, pre_auth_code_expires_in_sec: {type: integer}}}
     Account:
       type: object

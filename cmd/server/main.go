@@ -76,6 +76,9 @@ func main() {
 		taskQueueService,
 	)
 	deps.AdminAPIKey = cfg.AdminAPIKey
+	deps.AdminUsername = cfg.AdminUsername
+	deps.AdminPasswordHash = cfg.AdminPasswordHash
+	deps.AdminSessionSecret = cfg.AdminSessionSecret
 	router := httpapi.NewRouter(deps)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}
 
