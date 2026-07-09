@@ -170,7 +170,13 @@ func (s *PublishService) SyncPublishStatus(ctx context.Context, input SyncPublis
 	if err != nil {
 		return publish.Record{}, wrapPublishReadError("get publish record for status sync", err)
 	}
-	if record.Status == publish.StatusPublished || record.Status == publish.StatusFailed {
+	if record.Status == publish.StatusPublished {
+		if err := s.deletePreviousPublishedRecords(ctx, input.TenantID, record); err != nil {
+			return publish.Record{}, err
+		}
+		return record, nil
+	}
+	if record.Status == publish.StatusFailed || record.Status == publish.StatusDeleted {
 		return record, nil
 	}
 	if strings.TrimSpace(record.WeChatPublishID) == "" {
@@ -344,6 +350,9 @@ func (s *PublishService) UpdatePublishStatus(ctx context.Context, input UpdatePu
 		if err := s.syncArticleStatus(ctx, input.TenantID, draft, mapPublishStatus(input.Status)); err != nil {
 			return publish.Record{}, err
 		}
+		if err := s.deletePreviousPublishedRecords(ctx, input.TenantID, current); err != nil {
+			return publish.Record{}, err
+		}
 		return current, nil
 	}
 	updated := current
@@ -363,6 +372,9 @@ func (s *PublishService) UpdatePublishStatus(ctx context.Context, input UpdatePu
 		return publish.Record{}, wrapPublishArticleError("get article for status sync", err)
 	}
 	if err := s.syncArticleStatus(ctx, input.TenantID, draft, mapPublishStatus(input.Status)); err != nil {
+		return publish.Record{}, err
+	}
+	if err := s.deletePreviousPublishedRecords(ctx, input.TenantID, updated); err != nil {
 		return publish.Record{}, err
 	}
 	return updated, nil

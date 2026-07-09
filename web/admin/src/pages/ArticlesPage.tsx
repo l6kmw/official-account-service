@@ -149,7 +149,7 @@ function useArticles(currentTenantID: string) {
       setPublishingID(article.id)
       await publishArticle(article.id, currentTenantID)
       setArticles((items) => items.map((item) => (item.id === article.id ? { ...item, status: 'publishing' } : item)))
-      setNotice(article.status === 'published' ? `「${article.title}」的修订版已提交发布。` : `「${article.title}」已提交发布。`)
+      setNotice(article.status === 'published' ? `「${article.title}」的修订版已提交发布，成功后会自动删除上一版。` : `「${article.title}」已提交发布。`)
     } catch (err: unknown) {
       setError(getErrorMessage(err))
     } finally {

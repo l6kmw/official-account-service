@@ -188,7 +188,7 @@ Dashboard 统计使用 `GET /api/v1/dashboard/stats`，需要 `X-Tenant-ID` 请�
 
 配置 `wechat.component_app_id` 后，素材上传接口会通过 TokenService 获取 authorizer access token，并调用微信正文图片上传和永久素材上传接口；未配置时素材上传保持 `501 not_implemented`。
 
-同样在配置 `wechat.component_app_id` 后，可用 `POST /api/v1/articles/:id/publish` 创建微信草稿并提交发布；已发布文章再次调用该接口会按当前本地内容提交一条新的修订版发布记录。`POST /api/v1/publish-records/:id/sync-status` 可主动轮询微信发布状态并同步本地记录。发布提交成功只代表进入微信异步处理，最终结果仍以后续状态同步或回调为准。
+同样在配置 `wechat.component_app_id` 后，可用 `POST /api/v1/articles/:id/publish` 创建微信草稿并提交发布；已发布文章再次调用该接口会按当前本地内容提交一条新的修订版发布记录，修订版发布成功后会自动删除同一文章的上一版已发布内容。`POST /api/v1/publish-records/:id/sync-status` 可主动轮询微信发布状态并同步本地记录。发布提交成功只代表进入微信异步处理，最终结果仍以后续状态同步或回调为准。
 
 删除文章时，如果该文章已有成功发布且本地保存了微信 `article_id`，后台会先调用微信 `freepublish/delete` 删除公众号侧图文，再删除本地文章；正在发布中的文章会被拒绝删除，避免公众号侧异步发布结果变成孤儿内容。已经删除本地文章但仍保留的历史发布记录，可通过 `POST /api/v1/publish-records/:id/delete-published` 或管理台发布记录页删除公众号侧内容。
 

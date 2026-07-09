@@ -187,6 +187,20 @@ func TestPublishServicePublishesPublishedArticleAsRevision(t *testing.T) {
 	require.Equal(t, "publish-2", revision.WeChatPublishID)
 	require.Equal(t, "<p>revised</p>", publisher.lastDraft.ContentHTML)
 	require.Equal(t, "hello revised", publisher.lastDraft.Title)
+	original, err := service.GetPublishRecord(ctx, "tenant-1", record.ID)
+	require.NoError(t, err)
+	require.Equal(t, publish.StatusPublished, original.Status)
+
+	updatedRevision, err := service.UpdatePublishStatus(ctx, UpdatePublishStatusInput{
+		TenantID: "tenant-1", ID: revision.ID, Status: publish.StatusPublished, WeChatArticleID: "article-2",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, publish.StatusPublished, updatedRevision.Status)
+	require.Equal(t, "article-1", publisher.lastDeletedArticleID)
+	original, err = service.GetPublishRecord(ctx, "tenant-1", record.ID)
+	require.NoError(t, err)
+	require.Equal(t, publish.StatusDeleted, original.Status)
 }
 
 func TestPublishServiceDeduplicatesPublishingArticle(t *testing.T) {

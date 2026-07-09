@@ -86,6 +86,38 @@ func (s *PublishService) deletePublishRecordFromWeChat(ctx context.Context, tena
 	return updated, nil
 }
 
+func (s *PublishService) deletePreviousPublishedRecords(ctx context.Context, tenantID string, current publish.Record) error {
+	if current.Status != publish.StatusPublished || strings.TrimSpace(current.WeChatArticleID) == "" {
+		return nil
+	}
+	records, err := s.records.ListPublishRecordsByArticle(ctx, tenantID, current.ArticleID)
+	if err != nil {
+		return fmt.Errorf("list previous publish records for cleanup: %w", err)
+	}
+	targets := make([]publish.Record, 0)
+	for _, record := range records {
+		if record.ID == current.ID {
+			continue
+		}
+		if record.Status == publish.StatusPublished && strings.TrimSpace(record.WeChatArticleID) != "" {
+			targets = append(targets, record)
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	if err := s.validateDeletePublisherReady(); err != nil {
+		return err
+	}
+	tokens := make(map[int64]string)
+	for _, record := range targets {
+		if _, err := s.deletePublishRecordFromWeChat(ctx, tenantID, record, tokens); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validatePublishTransition(from publish.Status, to publish.Status) error {
 	if from == to {
 		return nil
