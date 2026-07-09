@@ -179,8 +179,8 @@ Dashboard 统计使用 `GET /api/v1/dashboard/stats`，需要 `X-Tenant-ID` 请�
 
 归档任务运维入口：
 
-- `GET /api/v1/task-queues/:queue/archived-tasks?limit=30`：查看 `publish` 或 `token` 队列的 archived task 安全摘要
-- `POST /api/v1/task-queues/:queue/archived-tasks/:task_id/retry`：将 archived task 重新放回 pending 等待 worker 处理
+- `GET /api/v1/task-queues/:queue/archived-tasks?limit=30`：查看当前 `X-Tenant-ID` 下 `publish` 或 `token` 队列的 archived task 安全摘要
+- `POST /api/v1/task-queues/:queue/archived-tasks/:task_id/retry`：校验 archived task 属于当前 `X-Tenant-ID` 后，将其重新放回 pending 等待 worker 处理
 
 这些接口仅返回 payload 白名单字段（如 `tenant_id`、`publish_record_id`、`account_id`、`component_app_id`），疑似包含敏感字段的 `last_error` 会脱敏，不返回 token、secret、refresh token 或原始回调 payload。未配置 `redis.addr` 时会返回 `501 not_implemented`。
 

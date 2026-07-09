@@ -26,20 +26,25 @@ func NewTaskQueueService(tasks taskqueue.ArchivedTaskRepository) *TaskQueueServi
 
 // ListArchivedTasksInput contains archived task listing filters.
 type ListArchivedTasksInput struct {
-	Queue string
-	Limit int
+	TenantID string
+	Queue    string
+	Limit    int
 }
 
 // RetryArchivedTaskInput identifies one archived task to replay.
 type RetryArchivedTaskInput struct {
-	Queue  string
-	TaskID string
+	TenantID string
+	Queue    string
+	TaskID   string
 }
 
 // ListArchivedTasks returns archived tasks for an operator queue.
 func (s *TaskQueueService) ListArchivedTasks(ctx context.Context, input ListArchivedTasksInput) ([]taskqueue.ArchivedTask, error) {
 	if err := s.validateReady(); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(input.TenantID) == "" {
+		return nil, fmt.Errorf("validate archived task tenant id: %w", ErrInvalidInput)
 	}
 	queue, err := validateTaskQueue(input.Queue)
 	if err != nil {
@@ -56,13 +61,16 @@ func (s *TaskQueueService) ListArchivedTasks(ctx context.Context, input ListArch
 	if err != nil {
 		return nil, wrapTaskQueueError("list archived tasks", err)
 	}
-	return tasks, nil
+	return filterArchivedTasksByTenant(tasks, input.TenantID), nil
 }
 
 // RetryArchivedTask replays one archived task by moving it back to pending.
 func (s *TaskQueueService) RetryArchivedTask(ctx context.Context, input RetryArchivedTaskInput) error {
 	if err := s.validateReady(); err != nil {
 		return err
+	}
+	if strings.TrimSpace(input.TenantID) == "" {
+		return fmt.Errorf("validate archived task tenant id: %w", ErrInvalidInput)
 	}
 	queue, err := validateTaskQueue(input.Queue)
 	if err != nil {
@@ -71,10 +79,28 @@ func (s *TaskQueueService) RetryArchivedTask(ctx context.Context, input RetryArc
 	if strings.TrimSpace(input.TaskID) == "" {
 		return fmt.Errorf("validate archived task id: %w", ErrInvalidInput)
 	}
+	task, err := s.tasks.GetArchivedTask(ctx, queue, input.TaskID)
+	if err != nil {
+		return wrapTaskQueueError("get archived task", err)
+	}
+	if task.Payload["tenant_id"] != strings.TrimSpace(input.TenantID) {
+		return fmt.Errorf("validate archived task tenant: %w", ErrNotFound)
+	}
 	if err := s.tasks.RetryArchivedTask(ctx, queue, input.TaskID); err != nil {
 		return wrapTaskQueueError("retry archived task", err)
 	}
 	return nil
+}
+
+func filterArchivedTasksByTenant(tasks []taskqueue.ArchivedTask, tenantID string) []taskqueue.ArchivedTask {
+	tenantID = strings.TrimSpace(tenantID)
+	out := make([]taskqueue.ArchivedTask, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Payload["tenant_id"] == tenantID {
+			out = append(out, task)
+		}
+	}
+	return out
 }
 
 func (s *TaskQueueService) validateReady() error {

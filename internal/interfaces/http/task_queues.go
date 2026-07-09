@@ -37,6 +37,10 @@ type archivedTaskResponse struct {
 
 func registerTaskQueueRoutes(r gin.IRouter, service *application.TaskQueueService) {
 	r.GET("/task-queues/:queue/archived-tasks", func(c *gin.Context) {
+		tenant, ok := bindTenant(c)
+		if !ok {
+			return
+		}
 		var uri taskQueueURI
 		if err := c.ShouldBindUri(&uri); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid_request")
@@ -48,7 +52,7 @@ func registerTaskQueueRoutes(r gin.IRouter, service *application.TaskQueueServic
 			return
 		}
 		tasks, err := service.ListArchivedTasks(c.Request.Context(), application.ListArchivedTasksInput{
-			Queue: uri.Queue, Limit: query.Limit,
+			TenantID: tenant, Queue: uri.Queue, Limit: query.Limit,
 		})
 		if !writeServiceError(c, err) {
 			return
@@ -60,13 +64,17 @@ func registerTaskQueueRoutes(r gin.IRouter, service *application.TaskQueueServic
 		c.JSON(http.StatusOK, gin.H{"items": out})
 	})
 	r.POST("/task-queues/:queue/archived-tasks/:task_id/retry", func(c *gin.Context) {
+		tenant, ok := bindTenant(c)
+		if !ok {
+			return
+		}
 		var uri archivedTaskURI
 		if err := c.ShouldBindUri(&uri); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid_request")
 			return
 		}
 		err := service.RetryArchivedTask(c.Request.Context(), application.RetryArchivedTaskInput{
-			Queue: uri.Queue, TaskID: uri.TaskID,
+			TenantID: tenant, Queue: uri.Queue, TaskID: uri.TaskID,
 		})
 		if !writeServiceError(c, err) {
 			return

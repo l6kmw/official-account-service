@@ -44,12 +44,21 @@ func (i *TaskInspector) ListArchivedTasks(_ context.Context, queue string, limit
 	}
 	out := make([]taskqueue.ArchivedTask, 0, len(items))
 	for _, item := range items {
-		out = append(out, taskqueue.ArchivedTask{
-			ID: item.ID, Queue: item.Queue, Type: item.Type, Payload: payloadSummary(item.Payload),
-			Retried: item.Retried, MaxRetry: item.MaxRetry, LastError: item.LastErr, LastFailedAt: item.LastFailedAt,
-		})
+		out = append(out, archivedTaskFromTaskInfo(item))
 	}
 	return out, nil
+}
+
+// GetArchivedTask returns one archived task summary from one asynq queue.
+func (i *TaskInspector) GetArchivedTask(_ context.Context, queue string, id string) (taskqueue.ArchivedTask, error) {
+	if i == nil || i.inspector == nil {
+		return taskqueue.ArchivedTask{}, fmt.Errorf("validate task inspector: %w", taskqueue.ErrUnavailable)
+	}
+	item, err := i.inspector.GetTaskInfo(queue, id)
+	if err != nil {
+		return taskqueue.ArchivedTask{}, mapInspectorError("get archived task", err)
+	}
+	return archivedTaskFromTaskInfo(item), nil
 }
 
 // RetryArchivedTask replays one archived task by moving it back to pending.
@@ -61,6 +70,13 @@ func (i *TaskInspector) RetryArchivedTask(_ context.Context, queue string, id st
 		return mapInspectorError("retry archived task", err)
 	}
 	return nil
+}
+
+func archivedTaskFromTaskInfo(item *asynq.TaskInfo) taskqueue.ArchivedTask {
+	return taskqueue.ArchivedTask{
+		ID: item.ID, Queue: item.Queue, Type: item.Type, Payload: payloadSummary(item.Payload),
+		Retried: item.Retried, MaxRetry: item.MaxRetry, LastError: item.LastErr, LastFailedAt: item.LastFailedAt,
+	}
 }
 
 // Close closes the underlying asynq inspector.

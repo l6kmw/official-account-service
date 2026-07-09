@@ -19,18 +19,22 @@ func TestTaskQueueRoutesListArchivedTasks(t *testing.T) {
 		Payload: map[string]string{"tenant_id": "tenant-1", "publish_record_id": "12"},
 		Retried: 2, MaxRetry: 3, LastError: "access_token secret leaked from dependency",
 		LastFailedAt: time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC),
+	}, {
+		ID: "task-2", Queue: taskqueue.QueuePublish, Type: "publish:sync_status",
+		Payload: map[string]string{"tenant_id": "tenant-2", "publish_record_id": "13"},
 	}}}
 	router := NewRouter(Dependencies{
 		Logger:     zap.NewNop(),
 		TaskQueues: application.NewTaskQueueService(repo),
 	})
 
-	recorder := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/publish/archived-tasks?limit=5", ``, "")
+	recorder := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/publish/archived-tasks?limit=5", ``, "tenant-1")
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, taskqueue.QueuePublish, repo.listQueue)
 	require.Equal(t, 5, repo.listLimit)
 	require.Contains(t, recorder.Body.String(), `"id":"task-1"`)
 	require.Contains(t, recorder.Body.String(), `"tenant_id":"tenant-1"`)
+	require.NotContains(t, recorder.Body.String(), `"id":"task-2"`)
 	require.Contains(t, recorder.Body.String(), `"last_error":"[REDACTED]"`)
 	require.NotContains(t, recorder.Body.String(), "access_token")
 	require.NotContains(t, recorder.Body.String(), "refresh_token")
@@ -43,34 +47,44 @@ func TestTaskQueueRoutesValidateArchivedTaskList(t *testing.T) {
 		TaskQueues: application.NewTaskQueueService(&taskQueueRouteFakeRepository{}),
 	})
 
-	badQueue := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/default/archived-tasks", ``, "")
+	missingTenant := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/publish/archived-tasks", ``, "")
+	require.Equal(t, http.StatusBadRequest, missingTenant.Code)
+
+	badQueue := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/default/archived-tasks", ``, "tenant-1")
 	require.Equal(t, http.StatusBadRequest, badQueue.Code)
 
-	badLimit := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/publish/archived-tasks?limit=101", ``, "")
+	badLimit := doJSON(t, router, http.MethodGet, "/api/v1/task-queues/publish/archived-tasks?limit=101", ``, "tenant-1")
 	require.Equal(t, http.StatusBadRequest, badLimit.Code)
 
-	unavailable := doJSON(t, NewRouter(Dependencies{Logger: zap.NewNop()}), http.MethodGet, "/api/v1/task-queues/publish/archived-tasks", ``, "")
+	unavailable := doJSON(t, NewRouter(Dependencies{Logger: zap.NewNop()}), http.MethodGet, "/api/v1/task-queues/publish/archived-tasks", ``, "tenant-1")
 	require.Equal(t, http.StatusNotImplemented, unavailable.Code)
 }
 
 func TestTaskQueueRoutesRetryArchivedTask(t *testing.T) {
-	repo := &taskQueueRouteFakeRepository{}
+	repo := &taskQueueRouteFakeRepository{tasks: []taskqueue.ArchivedTask{{
+		ID: "task-1", Queue: taskqueue.QueueToken, Payload: map[string]string{"tenant_id": "tenant-1"},
+	}}}
 	router := NewRouter(Dependencies{
 		Logger:     zap.NewNop(),
 		TaskQueues: application.NewTaskQueueService(repo),
 	})
 
-	recorder := doJSON(t, router, http.MethodPost, "/api/v1/task-queues/token/archived-tasks/task-1/retry", ``, "")
+	recorder := doJSON(t, router, http.MethodPost, "/api/v1/task-queues/token/archived-tasks/task-1/retry", ``, "tenant-1")
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"status":"queued"}`, recorder.Body.String())
+	require.Equal(t, taskqueue.QueueToken, repo.getQueue)
+	require.Equal(t, "task-1", repo.getID)
 	require.Equal(t, taskqueue.QueueToken, repo.retryQueue)
 	require.Equal(t, "task-1", repo.retryID)
+
+	otherTenant := doJSON(t, router, http.MethodPost, "/api/v1/task-queues/token/archived-tasks/task-1/retry", ``, "tenant-2")
+	require.Equal(t, http.StatusNotFound, otherTenant.Code)
 
 	missingRouter := NewRouter(Dependencies{
 		Logger:     zap.NewNop(),
 		TaskQueues: application.NewTaskQueueService(&taskQueueRouteFakeRepository{err: taskqueue.ErrNotFound}),
 	})
-	missing := doJSON(t, missingRouter, http.MethodPost, "/api/v1/task-queues/token/archived-tasks/missing/retry", ``, "")
+	missing := doJSON(t, missingRouter, http.MethodPost, "/api/v1/task-queues/token/archived-tasks/missing/retry", ``, "tenant-1")
 	require.Equal(t, http.StatusNotFound, missing.Code)
 }
 
@@ -79,6 +93,8 @@ type taskQueueRouteFakeRepository struct {
 	err        error
 	listQueue  string
 	listLimit  int
+	getQueue   string
+	getID      string
 	retryQueue string
 	retryID    string
 }
@@ -90,6 +106,20 @@ func (r *taskQueueRouteFakeRepository) ListArchivedTasks(_ context.Context, queu
 		return nil, r.err
 	}
 	return r.tasks, nil
+}
+
+func (r *taskQueueRouteFakeRepository) GetArchivedTask(_ context.Context, queue string, id string) (taskqueue.ArchivedTask, error) {
+	r.getQueue = queue
+	r.getID = id
+	if r.err != nil {
+		return taskqueue.ArchivedTask{}, r.err
+	}
+	for _, task := range r.tasks {
+		if task.ID == id && task.Queue == queue {
+			return task, nil
+		}
+	}
+	return taskqueue.ArchivedTask{}, taskqueue.ErrNotFound
 }
 
 func (r *taskQueueRouteFakeRepository) RetryArchivedTask(_ context.Context, queue string, id string) error {

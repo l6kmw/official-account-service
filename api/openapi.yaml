@@ -167,14 +167,14 @@ paths:
     get:
       tags: [TaskQueues]
       summary: List archived asynq tasks with safe payload summaries
-      parameters: [{$ref: "#/components/parameters/Queue"}, {name: limit, in: query, schema: {type: integer, minimum: 0, maximum: 100}}]
-      responses: {"200": {$ref: "#/components/responses/ArchivedTaskList"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/Queue"}, {name: limit, in: query, schema: {type: integer, minimum: 0, maximum: 100}}]
+      responses: {"200": {$ref: "#/components/responses/ArchivedTaskList"}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/task-queues/{queue}/archived-tasks/{task_id}/retry:
     post:
       tags: [TaskQueues]
       summary: Move one archived task back to pending
-      parameters: [{$ref: "#/components/parameters/Queue"}, {name: task_id, in: path, required: true, schema: {type: string}}]
-      responses: {"200": {description: Task queued, content: {application/json: {schema: {type: object, required: [status], properties: {status: {type: string, example: queued}}}}}}, "404": {$ref: "#/components/responses/NotFound"}}
+      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/Queue"}, {name: task_id, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: Task queued, content: {application/json: {schema: {type: object, required: [status], properties: {status: {type: string, example: queued}}}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "404": {$ref: "#/components/responses/NotFound"}, "501": {$ref: "#/components/responses/NotImplemented"}}
 components:
   parameters:
     TenantID: {name: X-Tenant-ID, in: header, required: true, schema: {type: string}}

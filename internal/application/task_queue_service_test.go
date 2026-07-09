@@ -16,57 +16,73 @@ func TestTaskQueueServiceListsArchivedTasks(t *testing.T) {
 		ID: "task-1", Queue: taskqueue.QueuePublish, Type: "publish:sync_status",
 		Payload: map[string]string{"tenant_id": "tenant-1"}, Retried: 2, MaxRetry: 3,
 		LastError: "publish still processing", LastFailedAt: time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC),
+	}, {
+		ID: "task-2", Queue: taskqueue.QueuePublish, Type: "publish:sync_status",
+		Payload: map[string]string{"tenant_id": "tenant-2"}, Retried: 1, MaxRetry: 3,
 	}}}
 	service := NewTaskQueueService(repo)
 
-	items, err := service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: taskqueue.QueuePublish, Limit: 10})
+	items, err := service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{TenantID: "tenant-1", Queue: taskqueue.QueuePublish, Limit: 10})
 	require.NoError(t, err)
 
 	require.Equal(t, taskqueue.QueuePublish, repo.listQueue)
 	require.Equal(t, 10, repo.listLimit)
-	require.Equal(t, repo.tasks, items)
+	require.Len(t, items, 1)
+	require.Equal(t, "task-1", items[0].ID)
 }
 
 func TestTaskQueueServiceDefaultsAndValidatesListInput(t *testing.T) {
 	repo := &fakeArchivedTaskRepository{}
 	service := NewTaskQueueService(repo)
 
-	_, err := service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: taskqueue.QueueToken})
+	_, err := service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{TenantID: "tenant-1", Queue: taskqueue.QueueToken})
 	require.NoError(t, err)
 	require.Equal(t, defaultArchivedTaskLimit, repo.listLimit)
 
-	_, err = service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: "default"})
+	_, err = service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: taskqueue.QueueToken})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
-	_, err = service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: taskqueue.QueuePublish, Limit: 101})
+	_, err = service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{TenantID: "tenant-1", Queue: "default"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
-	_, err = (*TaskQueueService)(nil).ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: taskqueue.QueuePublish})
+	_, err = service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{TenantID: "tenant-1", Queue: taskqueue.QueuePublish, Limit: 101})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+
+	_, err = (*TaskQueueService)(nil).ListArchivedTasks(t.Context(), ListArchivedTasksInput{TenantID: "tenant-1", Queue: taskqueue.QueuePublish})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotImplemented))
 }
 
 func TestTaskQueueServiceRetriesArchivedTask(t *testing.T) {
-	repo := &fakeArchivedTaskRepository{}
+	repo := &fakeArchivedTaskRepository{tasks: []taskqueue.ArchivedTask{{
+		ID: "task-1", Queue: taskqueue.QueueToken, Payload: map[string]string{"tenant_id": "tenant-1"},
+	}}}
 	service := NewTaskQueueService(repo)
 
-	err := service.RetryArchivedTask(t.Context(), RetryArchivedTaskInput{Queue: taskqueue.QueueToken, TaskID: "task-1"})
+	err := service.RetryArchivedTask(t.Context(), RetryArchivedTaskInput{TenantID: "tenant-1", Queue: taskqueue.QueueToken, TaskID: "task-1"})
 	require.NoError(t, err)
 
+	require.Equal(t, taskqueue.QueueToken, repo.getQueue)
+	require.Equal(t, "task-1", repo.getID)
 	require.Equal(t, taskqueue.QueueToken, repo.retryQueue)
 	require.Equal(t, "task-1", repo.retryID)
+
+	err = service.RetryArchivedTask(t.Context(), RetryArchivedTaskInput{TenantID: "tenant-2", Queue: taskqueue.QueueToken, TaskID: "task-1"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestTaskQueueServiceMapsRepositoryErrors(t *testing.T) {
 	service := NewTaskQueueService(&fakeArchivedTaskRepository{err: taskqueue.ErrNotFound})
-	_, err := service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{Queue: taskqueue.QueuePublish})
+	_, err := service.ListArchivedTasks(t.Context(), ListArchivedTasksInput{TenantID: "tenant-1", Queue: taskqueue.QueuePublish})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotFound))
 
 	service = NewTaskQueueService(&fakeArchivedTaskRepository{err: taskqueue.ErrUnavailable})
-	err = service.RetryArchivedTask(t.Context(), RetryArchivedTaskInput{Queue: taskqueue.QueuePublish, TaskID: "task-1"})
+	err = service.RetryArchivedTask(t.Context(), RetryArchivedTaskInput{TenantID: "tenant-1", Queue: taskqueue.QueuePublish, TaskID: "task-1"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotImplemented))
 }
@@ -76,6 +92,8 @@ type fakeArchivedTaskRepository struct {
 	err        error
 	listQueue  string
 	listLimit  int
+	getQueue   string
+	getID      string
 	retryQueue string
 	retryID    string
 }
@@ -87,6 +105,20 @@ func (r *fakeArchivedTaskRepository) ListArchivedTasks(_ context.Context, queue 
 		return nil, r.err
 	}
 	return r.tasks, nil
+}
+
+func (r *fakeArchivedTaskRepository) GetArchivedTask(_ context.Context, queue string, id string) (taskqueue.ArchivedTask, error) {
+	r.getQueue = queue
+	r.getID = id
+	if r.err != nil {
+		return taskqueue.ArchivedTask{}, r.err
+	}
+	for _, task := range r.tasks {
+		if task.ID == id && task.Queue == queue {
+			return task, nil
+		}
+	}
+	return taskqueue.ArchivedTask{}, taskqueue.ErrNotFound
 }
 
 func (r *fakeArchivedTaskRepository) RetryArchivedTask(_ context.Context, queue string, id string) error {

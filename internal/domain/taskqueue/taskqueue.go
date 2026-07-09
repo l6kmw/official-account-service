@@ -34,5 +34,6 @@ type ArchivedTask struct {
 // ArchivedTaskRepository manages archived background tasks.
 type ArchivedTaskRepository interface {
 	ListArchivedTasks(ctx context.Context, queue string, limit int) ([]ArchivedTask, error)
+	GetArchivedTask(ctx context.Context, queue string, id string) (ArchivedTask, error)
 	RetryArchivedTask(ctx context.Context, queue string, id string) error
 }
