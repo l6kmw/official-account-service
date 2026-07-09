@@ -122,6 +122,28 @@ func TestPublisherGetsFreePublishStatusWithNumericPublishID(t *testing.T) {
 	require.Equal(t, publish.StatusPublishing, result.Status)
 }
 
+func TestPublisherDeletesFreePublishArticle(t *testing.T) {
+	var token string
+	var body freePublishDeleteRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/freepublish/delete", r.URL.Path)
+		token = r.URL.Query().Get("access_token")
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, err := w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	err = publisher.DeleteFreePublish(context.Background(), "authorizer-token", "article-1", 0)
+	require.NoError(t, err)
+
+	require.Equal(t, "authorizer-token", token)
+	require.Equal(t, "article-1", body.ArticleID)
+	require.Equal(t, 0, body.Index)
+}
+
 func TestPublisherHandlesWeChatErrCodeWithoutLeakingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := w.Write([]byte(`{"errcode":40001,"errmsg":"invalid credential"}`))

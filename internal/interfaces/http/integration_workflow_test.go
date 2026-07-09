@@ -356,3 +356,7 @@ func (p *integrationPublisher) GetFreePublishStatus(_ context.Context, token str
 	p.statusToken = token
 	return publish.StatusResult{Status: publish.StatusPublished, WeChatArticleID: "wechat-article-1"}, nil
 }
+
+func (p *integrationPublisher) DeleteFreePublish(_ context.Context, _ string, _ string, _ int) error {
+	return nil
+}

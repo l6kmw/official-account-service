@@ -82,6 +82,18 @@ type SyncPublishStatusInput struct {
 	ID       int64
 }
 
+// DeletePublishedArticleInput identifies one article whose WeChat publishes should be deleted.
+type DeletePublishedArticleInput struct {
+	TenantID  string
+	ArticleID int64
+}
+
+// DeletePublishedRecordInput identifies one publish record whose WeChat article should be deleted.
+type DeletePublishedRecordInput struct {
+	TenantID string
+	ID       int64
+}
+
 // HandlePublishResultInput contains a WeChat publish result callback payload.
 type HandlePublishResultInput struct {
 	TenantID        string
@@ -176,6 +188,66 @@ func (s *PublishService) SyncPublishStatus(ctx context.Context, input SyncPublis
 		TenantID: input.TenantID, ID: record.ID, Status: status.Status, WeChatArticleID: status.WeChatArticleID,
 		ErrorCode: status.ErrorCode, ErrorMessage: status.ErrorMessage,
 	})
+}
+
+// DeletePublishedArticle removes published WeChat copies for one local article.
+func (s *PublishService) DeletePublishedArticle(ctx context.Context, input DeletePublishedArticleInput) error {
+	if err := s.validatePublishRecordID(input.TenantID, input.ArticleID); err != nil {
+		return err
+	}
+	if err := s.validateReady(); err != nil {
+		return err
+	}
+	if _, err := s.articles.Get(ctx, input.TenantID, input.ArticleID); err != nil {
+		return wrapPublishArticleError("get article for delete", err)
+	}
+	records, err := s.records.ListPublishRecordsByArticle(ctx, input.TenantID, input.ArticleID)
+	if err != nil {
+		return fmt.Errorf("list publish records for delete: %w", err)
+	}
+	targets := make([]publish.Record, 0)
+	for _, record := range records {
+		if record.Status == publish.StatusPublishing {
+			return fmt.Errorf("validate publishing article delete: %w", ErrInvalidInput)
+		}
+		if record.Status == publish.StatusPublished && strings.TrimSpace(record.WeChatArticleID) != "" {
+			targets = append(targets, record)
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	if err := s.validateDeletePublisherReady(); err != nil {
+		return err
+	}
+	tokens := make(map[int64]string)
+	for _, record := range targets {
+		if _, err := s.deletePublishRecordFromWeChat(ctx, input.TenantID, record, tokens); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeletePublishedRecord deletes the WeChat article referenced by one publish record.
+func (s *PublishService) DeletePublishedRecord(ctx context.Context, input DeletePublishedRecordInput) (publish.Record, error) {
+	if err := s.validatePublishRecordID(input.TenantID, input.ID); err != nil {
+		return publish.Record{}, err
+	}
+	record, err := s.records.GetPublishRecord(ctx, input.TenantID, input.ID)
+	if err != nil {
+		return publish.Record{}, wrapPublishReadError("get publish record for delete", err)
+	}
+	if record.Status == publish.StatusDeleted {
+		return record, nil
+	}
+	if record.Status == publish.StatusPublishing || record.Status != publish.StatusPublished || strings.TrimSpace(record.WeChatArticleID) == "" {
+		return publish.Record{}, fmt.Errorf("validate publish record delete: %w", ErrInvalidInput)
+	}
+	if err := s.validateDeletePublisherReady(); err != nil {
+		return publish.Record{}, err
+	}
+	return s.deletePublishRecordFromWeChat(ctx, input.TenantID, record, nil)
 }
 
 // HandlePublishResult updates one publish record from a WeChat publish result callback.
@@ -279,7 +351,7 @@ func (s *PublishService) UpdatePublishStatus(ctx context.Context, input UpdatePu
 	updated.WeChatArticleID = input.WeChatArticleID
 	updated.ErrorCode = input.ErrorCode
 	updated.ErrorMessage = input.ErrorMessage
-	if input.Status == publish.StatusPublished || input.Status == publish.StatusFailed {
+	if input.Status == publish.StatusPublished || input.Status == publish.StatusFailed || input.Status == publish.StatusDeleted {
 		updated.FinishedAt = s.now()
 	}
 	updated, err = s.records.UpdatePublishRecordStatus(ctx, input.TenantID, updated)
@@ -309,6 +381,16 @@ func (s *PublishService) validatePublisherReady() error {
 	}
 	if s.materials == nil || s.publisher == nil || s.tokens == nil || strings.TrimSpace(s.componentAppID) == "" {
 		return fmt.Errorf("validate publish service publisher dependencies: %w", ErrNotImplemented)
+	}
+	return nil
+}
+
+func (s *PublishService) validateDeletePublisherReady() error {
+	if err := s.validateReady(); err != nil {
+		return err
+	}
+	if s.publisher == nil || s.tokens == nil || strings.TrimSpace(s.componentAppID) == "" {
+		return fmt.Errorf("validate publish delete dependencies: %w", ErrNotImplemented)
 	}
 	return nil
 }

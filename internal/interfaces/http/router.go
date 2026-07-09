@@ -72,7 +72,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	adminV1 := v1.Group("")
 	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, adminSessions))
 	registerAccountRoutes(adminV1, deps.Accounts)
-	registerArticleRoutes(adminV1, deps.Articles)
+	registerArticleRoutes(adminV1, deps.Articles, deps.Publishes)
 	registerMaterialRoutes(adminV1, deps.Materials)
 	registerPublishRoutes(adminV1, deps.Publishes)
 	registerTokenRoutes(adminV1, deps.Tokens)
@@ -183,7 +183,7 @@ type articleResponse struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-func registerArticleRoutes(r gin.IRouter, service *application.ArticleService) {
+func registerArticleRoutes(r gin.IRouter, service *application.ArticleService, publishes *application.PublishService) {
 	r.POST("/articles", func(c *gin.Context) {
 		tenant, ok := bindTenant(c)
 		if !ok {
@@ -270,6 +270,13 @@ func registerArticleRoutes(r gin.IRouter, service *application.ArticleService) {
 		tenant, id, ok := bindTenantAndID(c)
 		if !ok {
 			return
+		}
+		if publishes != nil {
+			if !writeServiceError(c, publishes.DeletePublishedArticle(c.Request.Context(), application.DeletePublishedArticleInput{
+				TenantID: tenant, ArticleID: id,
+			})) {
+				return
+			}
 		}
 		if !writeServiceError(c, service.DeleteArticle(c.Request.Context(), tenant, id)) {
 			return

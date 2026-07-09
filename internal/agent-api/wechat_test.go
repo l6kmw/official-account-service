@@ -179,6 +179,10 @@ func (fakePublisher) GetFreePublishStatus(_ context.Context, _ string, _ string)
 	return publish.StatusResult{Status: publish.StatusPublished, WeChatArticleID: "article-1"}, nil
 }
 
+func (fakePublisher) DeleteFreePublish(_ context.Context, _ string, _ string, _ int) error {
+	return nil
+}
+
 type fakePublishTokenProvider struct{}
 
 func (fakePublishTokenProvider) GetAuthorizerAccessToken(_ context.Context, _ application.RefreshAuthorizerAccessTokenInput) (application.AuthorizerAccessToken, error) {

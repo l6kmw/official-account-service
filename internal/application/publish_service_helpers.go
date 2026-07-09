@@ -36,9 +36,6 @@ func (s *PublishService) pendingPublishRecord(ctx context.Context, tenantID stri
 }
 
 func validateArticleReadyForPublish(draft article.Article) error {
-	if draft.Status == article.StatusPublished {
-		return fmt.Errorf("validate article publish status: %w", ErrInvalidInput)
-	}
 	if draft.Status == article.StatusPublishing {
 		return fmt.Errorf("validate article publish status: %w", ErrInvalidInput)
 	}
@@ -61,12 +58,46 @@ func (s *PublishService) accessTokenForPublish(ctx context.Context, tenantID str
 	return token.AccessToken, nil
 }
 
+func (s *PublishService) deletePublishRecordFromWeChat(ctx context.Context, tenantID string, record publish.Record, tokens map[int64]string) (publish.Record, error) {
+	accessToken := ""
+	if tokens != nil {
+		accessToken = tokens[record.AuthorizerID]
+	}
+	if strings.TrimSpace(accessToken) == "" {
+		token, err := s.accessTokenForPublish(ctx, tenantID, record.AuthorizerID)
+		if err != nil {
+			return publish.Record{}, err
+		}
+		accessToken = token
+		if tokens != nil {
+			tokens[record.AuthorizerID] = token
+		}
+	}
+	if err := s.publisher.DeleteFreePublish(ctx, accessToken, record.WeChatArticleID, 0); err != nil {
+		return publish.Record{}, wrapPublisherError("delete wechat published article", err)
+	}
+	updated := record
+	updated.Status = publish.StatusDeleted
+	updated.FinishedAt = s.now()
+	updated, err := s.records.UpdatePublishRecordStatus(ctx, tenantID, updated)
+	if err != nil {
+		return publish.Record{}, wrapPublishReadError("mark publish record deleted", err)
+	}
+	return updated, nil
+}
+
 func validatePublishTransition(from publish.Status, to publish.Status) error {
 	if from == to {
 		return nil
 	}
+	if from == publish.StatusPublished && to == publish.StatusDeleted {
+		return nil
+	}
 	if from == publish.StatusPublished || from == publish.StatusFailed {
 		return fmt.Errorf("validate publish final transition: %w", ErrInvalidInput)
+	}
+	if from == publish.StatusDeleted {
+		return fmt.Errorf("validate publish deleted transition: %w", ErrInvalidInput)
 	}
 	return nil
 }
@@ -76,7 +107,7 @@ func samePublishUpdate(current publish.Record, input UpdatePublishStatusInput) b
 }
 
 func isPublishStatus(status publish.Status) bool {
-	return status == publish.StatusPublishing || status == publish.StatusPublished || status == publish.StatusFailed
+	return status == publish.StatusPublishing || status == publish.StatusPublished || status == publish.StatusFailed || status == publish.StatusDeleted
 }
 
 func mapPublishStatus(status publish.Status) article.Status {

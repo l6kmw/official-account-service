@@ -34,11 +34,13 @@ func TestRealPublishRoutes(t *testing.T) {
 	publisher := &routeFakePublisher{draftMediaID: "draft-media", publishID: "publish-1", status: publish.StatusResult{
 		Status: publish.StatusPublished, WeChatArticleID: "article-1",
 	}}
+	publishes := application.NewPublishServiceWithPublisher(
+		store, store, store, publisher, routeFakePublishTokenProvider{}, "wx-component", func() time.Time { return now },
+	)
 	router := NewRouter(Dependencies{
-		Logger: zap.NewNop(),
-		Publishes: application.NewPublishServiceWithPublisher(
-			store, store, store, publisher, routeFakePublishTokenProvider{}, "wx-component", func() time.Time { return now },
-		),
+		Logger:    zap.NewNop(),
+		Articles:  articles,
+		Publishes: publishes,
 	})
 
 	published := doJSON(t, router, http.MethodPost, "/api/v1/articles/1/publish", ``, "tenant-1")
@@ -50,6 +52,31 @@ func TestRealPublishRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, synced.Code)
 	require.Contains(t, synced.Body.String(), `"status":"published"`)
 	require.Contains(t, synced.Body.String(), `"wechat_article_id":"article-1"`)
+	deleted := doJSON(t, router, http.MethodDelete, "/api/v1/articles/1", ``, "tenant-1")
+	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
+	require.Equal(t, "article-1", publisher.deletedArticleID)
+	require.Equal(t, 0, publisher.deletedIndex)
+}
+
+func TestDeletePublishedRecordRoute(t *testing.T) {
+	now := time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC)
+	store := memory.NewStore(func() time.Time { return now })
+	record, err := store.CreatePublishRecord(t.Context(), "tenant-1", publish.Record{
+		ArticleID: 99, AuthorizerID: 1, Status: publish.StatusPublished, WeChatPublishID: "publish-1", WeChatArticleID: "article-1",
+	})
+	require.NoError(t, err)
+	publisher := &routeFakePublisher{}
+	router := NewRouter(Dependencies{
+		Logger: zap.NewNop(),
+		Publishes: application.NewPublishServiceWithPublisher(
+			store, store, store, publisher, routeFakePublishTokenProvider{}, "wx-component", func() time.Time { return now },
+		),
+	})
+
+	deleted := doJSON(t, router, http.MethodPost, "/api/v1/publish-records/1/delete-published", ``, "tenant-1")
+	require.Equal(t, http.StatusOK, deleted.Code, deleted.Body.String())
+	require.Contains(t, deleted.Body.String(), `"status":"deleted"`)
+	require.Equal(t, record.WeChatArticleID, publisher.deletedArticleID)
 }
 
 func TestRealPublishRouteUnavailable(t *testing.T) {
@@ -59,9 +86,11 @@ func TestRealPublishRouteUnavailable(t *testing.T) {
 }
 
 type routeFakePublisher struct {
-	draftMediaID string
-	publishID    string
-	status       publish.StatusResult
+	draftMediaID     string
+	publishID        string
+	status           publish.StatusResult
+	deletedArticleID string
+	deletedIndex     int
 }
 
 func (p *routeFakePublisher) AddDraft(_ context.Context, _ string, _ publish.ArticleDraft) (publish.DraftResult, error) {
@@ -74,6 +103,12 @@ func (p *routeFakePublisher) SubmitFreePublish(_ context.Context, _ string, _ st
 
 func (p *routeFakePublisher) GetFreePublishStatus(_ context.Context, _ string, _ string) (publish.StatusResult, error) {
 	return p.status, nil
+}
+
+func (p *routeFakePublisher) DeleteFreePublish(_ context.Context, _ string, articleID string, index int) error {
+	p.deletedArticleID = articleID
+	p.deletedIndex = index
+	return nil
 }
 
 type routeFakePublishTokenProvider struct{}

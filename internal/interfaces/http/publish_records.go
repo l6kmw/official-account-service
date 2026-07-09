@@ -143,6 +143,19 @@ func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
 		}
 		c.JSON(http.StatusOK, toPublishRecordResponse(record))
 	})
+	r.POST("/publish-records/:id/delete-published", func(c *gin.Context) {
+		tenant, id, ok := bindTenantAndID(c)
+		if !ok {
+			return
+		}
+		record, err := service.DeletePublishedRecord(c.Request.Context(), application.DeletePublishedRecordInput{
+			TenantID: tenant, ID: id,
+		})
+		if !writeServiceError(c, err) {
+			return
+		}
+		c.JSON(http.StatusOK, toPublishRecordResponse(record))
+	})
 }
 
 func toPublishRecordResponse(record publish.Record) publishRecordResponse {

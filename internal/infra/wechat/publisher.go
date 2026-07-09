@@ -109,6 +109,18 @@ func (p *Publisher) GetFreePublishStatus(ctx context.Context, authorizerAccessTo
 	return response.statusResult(), nil
 }
 
+// DeleteFreePublish deletes one successfully published WeChat article.
+func (p *Publisher) DeleteFreePublish(ctx context.Context, authorizerAccessToken string, articleID string, index int) error {
+	if strings.TrimSpace(articleID) == "" || index < 0 {
+		return fmt.Errorf("validate free publish delete input: %w", publish.ErrPublisherUnavailable)
+	}
+	var response freePublishDeleteResponse
+	return p.postJSON(ctx, "freepublish_delete", "/freepublish/delete", authorizerAccessToken, freePublishDeleteRequest{
+		ArticleID: articleID,
+		Index:     index,
+	}, &response)
+}
+
 func (p *Publisher) postJSON(ctx context.Context, operation string, path string, accessToken string, body any, out wechatPublishResponse) error {
 	if p == nil || p.httpClient == nil {
 		return fmt.Errorf("validate publisher: %w", publish.ErrPublisherUnavailable)
@@ -233,6 +245,20 @@ type freePublishStatusResponse struct {
 	ErrCode          int             `json:"errcode"`
 	ErrMsg           string          `json:"errmsg"`
 	ArticleDetailRaw struct{}        `json:"article_detail"`
+}
+
+type freePublishDeleteRequest struct {
+	ArticleID string `json:"article_id"`
+	Index     int    `json:"index"`
+}
+
+type freePublishDeleteResponse struct {
+	ErrCode int    `json:"errcode"`
+	ErrMsg  string `json:"errmsg"`
+}
+
+func (r freePublishDeleteResponse) wechatError(operation string) error {
+	return wechatPublishError(operation, r.ErrCode, r.ErrMsg)
 }
 
 type wechatPublishID string

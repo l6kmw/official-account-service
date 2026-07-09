@@ -31,6 +31,8 @@ const (
 	StatusPublished Status = "published"
 	// StatusFailed means WeChat reported publish failure.
 	StatusFailed Status = "failed"
+	// StatusDeleted means a published WeChat article was deleted.
+	StatusDeleted Status = "deleted"
 )
 
 // Record stores one publish attempt and its final result.
@@ -98,6 +100,7 @@ type Publisher interface {
 	AddDraft(ctx context.Context, authorizerAccessToken string, draft ArticleDraft) (DraftResult, error)
 	SubmitFreePublish(ctx context.Context, authorizerAccessToken string, mediaID string) (SubmitResult, error)
 	GetFreePublishStatus(ctx context.Context, authorizerAccessToken string, publishID string) (StatusResult, error)
+	DeleteFreePublish(ctx context.Context, authorizerAccessToken string, articleID string, index int) error
 }
 
 // Repository persists tenant-scoped publish records.

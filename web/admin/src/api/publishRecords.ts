@@ -1,6 +1,6 @@
 import { getJSON, postJSON } from './client'
 
-export type PublishStatus = 'publishing' | 'published' | 'failed'
+export type PublishStatus = 'publishing' | 'published' | 'failed' | 'deleted'
 
 export type PublishRecord = {
   id: number
@@ -33,4 +33,8 @@ export function getPublishRecord(id: number, tenantID?: string): Promise<Publish
 
 export function syncPublishRecordStatus(id: number, tenantID?: string): Promise<PublishRecord> {
   return postJSON<PublishRecord>(`/api/v1/publish-records/${id}/sync-status`, {}, tenantID)
+}
+
+export function deletePublishedRecord(id: number, tenantID?: string): Promise<PublishRecord> {
+  return postJSON<PublishRecord>(`/api/v1/publish-records/${id}/delete-published`, {}, tenantID)
 }

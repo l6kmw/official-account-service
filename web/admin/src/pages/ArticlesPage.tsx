@@ -77,7 +77,7 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
       </AccountFilterBar>
 
       {error ? <ErrorPanel message={error} onRetry={reload} /> : null}
-      {notice ? <NoticePanel><NoticeLeft><NoticeIconWrap tone="info"><InfoIcon /></NoticeIconWrap><div><PanelTitle>{notice}</PanelTitle><PanelDesc>可在发布记录页查看后续状态。</PanelDesc></div></NoticeLeft></NoticePanel> : null}
+      {notice ? <NoticePanel><NoticeLeft><NoticeIconWrap tone="info"><InfoIcon /></NoticeIconWrap><div><PanelTitle>{notice}</PanelTitle><PanelDesc>发布或删除结果会同步显示在列表和发布记录页。</PanelDesc></div></NoticeLeft></NoticePanel> : null}
 
       {!loading && visible.length === 0 ? (
         <EmptyState onCreate={onCreate} />
@@ -129,12 +129,13 @@ function useArticles(currentTenantID: string) {
   }, [currentTenantID, version])
 
   async function remove(article: Article) {
-    const confirmed = window.confirm(`确定删除「${article.title}」吗？此操作不可撤销。`)
+    const confirmed = window.confirm(deleteConfirmText(article))
     if (!confirmed) return
 
     try {
       await deleteArticle(article.id, currentTenantID)
       setArticles((items) => items.filter((item) => item.id !== article.id))
+      setNotice(article.status === 'published' ? `「${article.title}」已删除，本地记录和公众号发布内容已同步处理。` : `「${article.title}」已删除。`)
     } catch (err: unknown) {
       setError(getErrorMessage(err))
     }
@@ -148,7 +149,7 @@ function useArticles(currentTenantID: string) {
       setPublishingID(article.id)
       await publishArticle(article.id, currentTenantID)
       setArticles((items) => items.map((item) => (item.id === article.id ? { ...item, status: 'publishing' } : item)))
-      setNotice(`「${article.title}」已提交发布。`)
+      setNotice(article.status === 'published' ? `「${article.title}」的修订版已提交发布。` : `「${article.title}」已提交发布。`)
     } catch (err: unknown) {
       setError(getErrorMessage(err))
     } finally {
@@ -186,9 +187,9 @@ function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publ
                 <RowActions>
                   <Button variant="ghost" onClick={() => onEdit(article.id)}><EditIcon />编辑</Button>
                   {canPublishArticle(article) ? (
-                    <Button disabled={publishingID === article.id || article.status === 'publishing'} variant="ghost" onClick={() => onPublish(article)}><SendIcon />{publishingID === article.id ? '提交中…' : '发布'}</Button>
+                    <Button disabled={publishingID === article.id || article.status === 'publishing'} variant="ghost" onClick={() => onPublish(article)}><SendIcon />{publishActionText(article, publishingID === article.id)}</Button>
                   ) : null}
-                  <Button variant="danger" onClick={() => onDelete(article)}><TrashIcon />删除</Button>
+                  <Button disabled={article.status === 'publishing'} variant="danger" onClick={() => onDelete(article)}><TrashIcon />删除</Button>
                 </RowActions>
               </ArticleFoot>
             </ArticleBody>
@@ -200,7 +201,23 @@ function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publ
 }
 
 function canPublishArticle(article: Article) {
-  return article.status !== 'publishing' && article.status !== 'published'
+  return article.status !== 'publishing'
+}
+
+function publishActionText(article: Article, submitting: boolean) {
+  if (submitting) return '提交中…'
+  if (article.status === 'published') return '发布修订版'
+  return '发布'
+}
+
+function deleteConfirmText(article: Article) {
+  if (article.status === 'published') {
+    return `确定删除「${article.title}」吗？这会同时删除公众号里已发布的内容和本地文章记录，且不可恢复。`
+  }
+  if (article.status === 'publishing') {
+    return `「${article.title}」正在发布中，暂不支持删除。`
+  }
+  return `确定删除「${article.title}」吗？此操作不可撤销。`
 }
 
 function KeyGlyph() { return <svg {...svgAttrs} width="15" height="15"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg> }

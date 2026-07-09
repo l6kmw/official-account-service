@@ -148,6 +148,47 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	require.Equal(t, article.StatusPublishing, current.Status)
 }
 
+func TestPublishServicePublishesPublishedArticleAsRevision(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC)
+	store := memory.NewStore(func() time.Time { return now })
+	articles := NewArticleService(store)
+	draft, err := articles.CreateArticle(ctx, CreateArticleInput{
+		TenantID: "tenant-1", AuthorizerID: 1, Title: "hello", Author: "me", Digest: "summary", ContentHTML: "<p>body</p>",
+	})
+	require.NoError(t, err)
+	cover, err := store.CreateMaterial(ctx, "tenant-1", material.Asset{
+		AuthorizerID: 1, ArticleID: draft.ID, Usage: material.UsageCover, MediaID: "thumb-media",
+	})
+	require.NoError(t, err)
+	_, err = articles.UpdateArticle(ctx, UpdateArticleInput{
+		TenantID: "tenant-1", ID: draft.ID, Title: "hello", Author: "me", Digest: "summary",
+		ContentHTML: "<p>body</p>", CoverMediaAssetID: cover.ID,
+	})
+	require.NoError(t, err)
+	service := NewPublishServiceWithPublisher(store, store, store, &fakePublishPublisher{draftMediaID: "draft-media", publishID: "publish-1"}, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}, "wx-component", func() time.Time { return now })
+	record, err := service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.NoError(t, err)
+	_, err = service.UpdatePublishStatus(ctx, UpdatePublishStatusInput{TenantID: "tenant-1", ID: record.ID, Status: publish.StatusPublished, WeChatArticleID: "article-1"})
+	require.NoError(t, err)
+	_, err = articles.UpdateArticle(ctx, UpdateArticleInput{
+		TenantID: "tenant-1", ID: draft.ID, Title: "hello revised", Author: "me", Digest: "summary",
+		ContentHTML: "<p>revised</p>", CoverMediaAssetID: cover.ID,
+	})
+	require.NoError(t, err)
+	publisher := &fakePublishPublisher{draftMediaID: "draft-media-2", publishID: "publish-2"}
+	service = NewPublishServiceWithPublisher(store, store, store, publisher, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}, "wx-component", func() time.Time { return now })
+
+	revision, err := service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.NoError(t, err)
+
+	require.NotEqual(t, record.ID, revision.ID)
+	require.Equal(t, publish.StatusPublishing, revision.Status)
+	require.Equal(t, "publish-2", revision.WeChatPublishID)
+	require.Equal(t, "<p>revised</p>", publisher.lastDraft.ContentHTML)
+	require.Equal(t, "hello revised", publisher.lastDraft.Title)
+}
+
 func TestPublishServiceDeduplicatesPublishingArticle(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
@@ -164,6 +205,67 @@ func TestPublishServiceDeduplicatesPublishingArticle(t *testing.T) {
 
 	require.Equal(t, existing.ID, record.ID)
 	require.Equal(t, int32(0), publisher.addDraftCalls)
+}
+
+func TestPublishServiceDeletesPublishedArticleFromWeChat(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC)
+	store := memory.NewStore(func() time.Time { return now })
+	articles := NewArticleService(store)
+	draft, err := articles.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-1", AuthorizerID: 1, Title: "hello"})
+	require.NoError(t, err)
+	record, err := store.CreatePublishRecord(ctx, "tenant-1", publish.Record{
+		ArticleID: draft.ID, AuthorizerID: 1, Status: publish.StatusPublished, WeChatPublishID: "publish-1", WeChatArticleID: "article-1",
+	})
+	require.NoError(t, err)
+	publisher := &fakePublishPublisher{}
+	service := NewPublishServiceWithPublisher(store, store, store, publisher, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}, "wx-component", func() time.Time { return now })
+
+	err = service.DeletePublishedArticle(ctx, DeletePublishedArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.NoError(t, err)
+
+	require.Equal(t, "authorizer-token", publisher.lastDeleteToken)
+	require.Equal(t, "article-1", publisher.lastDeletedArticleID)
+	require.Equal(t, 0, publisher.lastDeletedIndex)
+	updated, err := service.GetPublishRecord(ctx, "tenant-1", record.ID)
+	require.NoError(t, err)
+	require.Equal(t, publish.StatusDeleted, updated.Status)
+	require.Equal(t, now, updated.FinishedAt)
+}
+
+func TestPublishServiceDeletesPublishedRecordWithoutLocalArticle(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC)
+	store := memory.NewStore(func() time.Time { return now })
+	record, err := store.CreatePublishRecord(ctx, "tenant-1", publish.Record{
+		ArticleID: 99, AuthorizerID: 1, Status: publish.StatusPublished, WeChatPublishID: "publish-1", WeChatArticleID: "article-1",
+	})
+	require.NoError(t, err)
+	publisher := &fakePublishPublisher{}
+	service := NewPublishServiceWithPublisher(store, store, store, publisher, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}, "wx-component", func() time.Time { return now })
+
+	updated, err := service.DeletePublishedRecord(ctx, DeletePublishedRecordInput{TenantID: "tenant-1", ID: record.ID})
+	require.NoError(t, err)
+
+	require.Equal(t, publish.StatusDeleted, updated.Status)
+	require.Equal(t, "article-1", publisher.lastDeletedArticleID)
+}
+
+func TestPublishServiceRejectsDeletingPublishingArticle(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	articles := NewArticleService(store)
+	draft, err := articles.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-1", AuthorizerID: 1, Title: "hello"})
+	require.NoError(t, err)
+	_, err = store.CreatePublishRecord(ctx, "tenant-1", publish.Record{
+		ArticleID: draft.ID, AuthorizerID: 1, Status: publish.StatusPublishing, WeChatPublishID: "publish-1",
+	})
+	require.NoError(t, err)
+	service := NewPublishServiceWithPublisher(store, store, store, &fakePublishPublisher{}, &fakePublishTokenProvider{}, "wx-component", time.Now)
+
+	err = service.DeletePublishedArticle(ctx, DeletePublishedArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
 func TestPublishServiceSyncsPublishStatus(t *testing.T) {
@@ -225,12 +327,15 @@ func serviceWithStore(store *memory.Store, now time.Time) *PublishService {
 }
 
 type fakePublishPublisher struct {
-	draftMediaID  string
-	publishID     string
-	status        publish.StatusResult
-	lastToken     string
-	lastDraft     publish.ArticleDraft
-	addDraftCalls int32
+	draftMediaID         string
+	publishID            string
+	status               publish.StatusResult
+	lastToken            string
+	lastDraft            publish.ArticleDraft
+	lastDeleteToken      string
+	lastDeletedArticleID string
+	lastDeletedIndex     int
+	addDraftCalls        int32
 }
 
 func (p *fakePublishPublisher) AddDraft(_ context.Context, accessToken string, draft publish.ArticleDraft) (publish.DraftResult, error) {
@@ -246,6 +351,13 @@ func (p *fakePublishPublisher) SubmitFreePublish(_ context.Context, _ string, _ 
 
 func (p *fakePublishPublisher) GetFreePublishStatus(_ context.Context, _ string, _ string) (publish.StatusResult, error) {
 	return p.status, nil
+}
+
+func (p *fakePublishPublisher) DeleteFreePublish(_ context.Context, accessToken string, articleID string, index int) error {
+	p.lastDeleteToken = accessToken
+	p.lastDeletedArticleID = articleID
+	p.lastDeletedIndex = index
+	return nil
 }
 
 type fakePublishTokenProvider struct {

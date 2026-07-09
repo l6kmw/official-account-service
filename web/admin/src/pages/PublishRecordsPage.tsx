@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import styled from '@emotion/styled'
-import { getPublishRecord, listPublishRecords, syncPublishRecordStatus, type PublishRecord, type PublishStatus } from '../api/publishRecords'
+import { deletePublishedRecord, getPublishRecord, listPublishRecords, syncPublishRecordStatus, type PublishRecord, type PublishStatus } from '../api/publishRecords'
 import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
@@ -20,10 +20,11 @@ function HashIcon() { return <svg {...svgAttrs} width="14" height="14"><line x1=
 function SendIcon() { return <svg {...svgAttrs} width="16" height="16"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg> }
 function AlertIcon() { return <svg {...svgAttrs} width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg> }
 function CopyIcon() { return <svg {...svgAttrs} width="15" height="15"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg> }
+function TrashIcon() { return <svg {...svgAttrs} width="15" height="15"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg> }
 function InboxLargeIcon() { return <svg {...svgAttrs} width="64" height="64"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg> }
 
 export function PublishRecordsPage() {
-  const { records, selected, loading, syncingID, error, select, reload, sync } = usePublishRecords(tenantID)
+  const { records, selected, loading, syncingID, deletingID, error, select, reload, sync, deletePublished } = usePublishRecords(tenantID)
 
   return (
     <Page>
@@ -45,7 +46,7 @@ export function PublishRecordsPage() {
             <StatusBadge tone="info">{tenantID}</StatusBadge>
           </Toolbar>
           {!loading && records.length === 0 ? <EmptyState /> : null}
-          {loading ? <LoadingRows /> : <Timeline records={records} selectedID={selected?.id} onSelect={select} onSync={sync} syncingID={syncingID} />}
+          {loading ? <LoadingRows /> : <Timeline records={records} selectedID={selected?.id} onSelect={select} onSync={sync} onDeletePublished={deletePublished} syncingID={syncingID} deletingID={deletingID} />}
         </ListPanel>
 
         <DetailPanel>
@@ -63,6 +64,7 @@ function usePublishRecords(currentTenantID: string) {
   const [selected, setSelected] = useState<PublishRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncingID, setSyncingID] = useState<number | null>(null)
+  const [deletingID, setDeletingID] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [version, setVersion] = useState(0)
 
@@ -119,16 +121,35 @@ function usePublishRecords(currentTenantID: string) {
     }
   }
 
-  return { records, selected, loading, syncingID, error, select, reload: () => setVersion((value) => value + 1), sync }
+  async function deletePublished(record: PublishRecord) {
+    if (record.status !== 'published' || !record.wechat_article_id) return
+    const confirmed = window.confirm(`确定删除发布记录 #${record.id} 对应的公众号内容吗？这只删除微信侧已发布图文，不会删除本地文章记录。`)
+    if (!confirmed) return
+
+    try {
+      setError('')
+      setDeletingID(record.id)
+      const updated = await deletePublishedRecord(record.id, currentTenantID)
+      setRecords((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      setSelected(updated)
+    } catch (err: unknown) {
+      setError(getErrorMessage(err))
+    } finally {
+      setDeletingID(null)
+    }
+  }
+
+  return { records, selected, loading, syncingID, deletingID, error, select, reload: () => setVersion((value) => value + 1), sync, deletePublished }
 }
 
 function statusTone(status: PublishStatus): Tone {
   if (status === 'publishing') return 'warning'
   if (status === 'published') return 'success'
+  if (status === 'deleted') return 'muted'
   return 'danger'
 }
 
-function Timeline({ records, selectedID, onSelect, onSync, syncingID }: { records: PublishRecord[]; selectedID?: number; onSelect: (id: number) => void; onSync: (record: PublishRecord) => void; syncingID: number | null }) {
+function Timeline({ records, selectedID, onSelect, onSync, onDeletePublished, syncingID, deletingID }: { records: PublishRecord[]; selectedID?: number; onSelect: (id: number) => void; onSync: (record: PublishRecord) => void; onDeletePublished: (record: PublishRecord) => void; syncingID: number | null; deletingID: number | null }) {
   if (records.length === 0) return null
 
   return (
@@ -156,6 +177,11 @@ function Timeline({ records, selectedID, onSelect, onSync, syncingID }: { record
                 {record.status === 'publishing' ? (
                   <Button disabled={syncingID === record.id} variant="secondary" onClick={() => onSync(record)}>
                     {syncingID === record.id ? '同步中…' : '同步状态'}
+                  </Button>
+                ) : null}
+                {record.status === 'published' && record.wechat_article_id ? (
+                  <Button disabled={deletingID === record.id} variant="danger" onClick={() => onDeletePublished(record)}>
+                    <TrashIcon />{deletingID === record.id ? '删除中…' : '删除公众号内容'}
                   </Button>
                 ) : null}
               </TimelineActions>
@@ -216,6 +242,8 @@ function PublishStatusBadge({ status }: { status: PublishStatus }) {
       return <StatusBadge tone="warning">发布中</StatusBadge>
     case 'published':
       return <StatusBadge tone="success">已发布</StatusBadge>
+    case 'deleted':
+      return <StatusBadge tone="muted">已删除</StatusBadge>
     case 'failed':
       return <StatusBadge tone="danger">失败</StatusBadge>
   }
@@ -224,6 +252,7 @@ function PublishStatusBadge({ status }: { status: PublishStatus }) {
 function statusText(status: PublishStatus) {
   if (status === 'publishing') return '发布中'
   if (status === 'published') return '已发布'
+  if (status === 'deleted') return '已删除'
   return '失败'
 }
 
