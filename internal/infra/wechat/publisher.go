@@ -90,10 +90,11 @@ func (p *Publisher) SubmitFreePublish(ctx context.Context, authorizerAccessToken
 	if err := p.postJSON(ctx, "freepublish_submit", "/freepublish/submit", authorizerAccessToken, freePublishSubmitRequest{MediaID: mediaID}, &response); err != nil {
 		return publish.SubmitResult{}, err
 	}
-	if strings.TrimSpace(response.PublishID) == "" {
+	publishID := response.PublishID.String()
+	if strings.TrimSpace(publishID) == "" {
 		return publish.SubmitResult{}, fmt.Errorf("validate free publish response: %w", publish.ErrPublishFailed)
 	}
-	return publish.SubmitResult{PublishID: response.PublishID}, nil
+	return publish.SubmitResult{PublishID: publishID}, nil
 }
 
 // GetFreePublishStatus gets one WeChat asynchronous publish status.
@@ -102,7 +103,7 @@ func (p *Publisher) GetFreePublishStatus(ctx context.Context, authorizerAccessTo
 		return publish.StatusResult{}, fmt.Errorf("validate free publish id: %w", publish.ErrPublisherUnavailable)
 	}
 	var response freePublishStatusResponse
-	if err := p.postJSON(ctx, "freepublish_get", "/freepublish/get", authorizerAccessToken, freePublishStatusRequest{PublishID: publishID}, &response); err != nil {
+	if err := p.postJSON(ctx, "freepublish_get", "/freepublish/get", authorizerAccessToken, freePublishStatusRequest{PublishID: wechatPublishID(publishID)}, &response); err != nil {
 		return publish.StatusResult{}, err
 	}
 	return response.statusResult(), nil
@@ -211,9 +212,9 @@ type freePublishSubmitRequest struct {
 }
 
 type freePublishSubmitResponse struct {
-	PublishID string `json:"publish_id"`
-	ErrCode   int    `json:"errcode"`
-	ErrMsg    string `json:"errmsg"`
+	PublishID wechatPublishID `json:"publish_id"`
+	ErrCode   int             `json:"errcode"`
+	ErrMsg    string          `json:"errmsg"`
 }
 
 func (r freePublishSubmitResponse) wechatError(operation string) error {
@@ -221,17 +222,65 @@ func (r freePublishSubmitResponse) wechatError(operation string) error {
 }
 
 type freePublishStatusRequest struct {
-	PublishID string `json:"publish_id"`
+	PublishID wechatPublishID `json:"publish_id"`
 }
 
 type freePublishStatusResponse struct {
-	PublishID        string   `json:"publish_id"`
-	PublishStatus    int      `json:"publish_status"`
-	ArticleID        string   `json:"article_id"`
-	FailIndexes      []int    `json:"fail_idx"`
-	ErrCode          int      `json:"errcode"`
-	ErrMsg           string   `json:"errmsg"`
-	ArticleDetailRaw struct{} `json:"article_detail"`
+	PublishID        wechatPublishID `json:"publish_id"`
+	PublishStatus    int             `json:"publish_status"`
+	ArticleID        string          `json:"article_id"`
+	FailIndexes      []int           `json:"fail_idx"`
+	ErrCode          int             `json:"errcode"`
+	ErrMsg           string          `json:"errmsg"`
+	ArticleDetailRaw struct{}        `json:"article_detail"`
+}
+
+type wechatPublishID string
+
+func (id wechatPublishID) String() string {
+	return string(id)
+}
+
+func (id wechatPublishID) MarshalJSON() ([]byte, error) {
+	value := strings.TrimSpace(string(id))
+	if isDecimalDigits(value) {
+		return []byte(value), nil
+	}
+	return json.Marshal(value)
+}
+
+func (id *wechatPublishID) UnmarshalJSON(data []byte) error {
+	value := strings.TrimSpace(string(data))
+	if value == "" || value == "null" {
+		*id = ""
+		return nil
+	}
+	if strings.HasPrefix(value, "\"") {
+		var decoded string
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			return err
+		}
+		*id = wechatPublishID(decoded)
+		return nil
+	}
+	var decoded json.Number
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*id = wechatPublishID(decoded.String())
+	return nil
+}
+
+func isDecimalDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (r freePublishStatusResponse) wechatError(operation string) error {

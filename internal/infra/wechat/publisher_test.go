@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -31,7 +32,8 @@ func TestPublisherAddsDraftAndSubmitsFreePublish(t *testing.T) {
 		case "/freepublish/submit":
 			submitPath = r.URL.Path
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&submitBody))
-			require.NoError(t, json.NewEncoder(w).Encode(map[string]string{"publish_id": "publish-1"}))
+			_, err := w.Write([]byte(`{"publish_id":2247483657}`))
+			require.NoError(t, err)
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
@@ -54,7 +56,7 @@ func TestPublisherAddsDraftAndSubmitsFreePublish(t *testing.T) {
 	require.Equal(t, "thumb-media", draftBody.Articles[0].ThumbMediaID)
 	require.Equal(t, "<p>body</p>", draftBody.Articles[0].Content)
 	require.Equal(t, "draft-media", submitBody.MediaID)
-	require.Equal(t, "publish-1", submitted.PublishID)
+	require.Equal(t, "2247483657", submitted.PublishID)
 }
 
 func TestPublisherGetsFreePublishStatus(t *testing.T) {
@@ -72,10 +74,15 @@ func TestPublisherGetsFreePublishStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var body freePublishStatusRequest
+			var rawBody string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.Equal(t, "/freepublish/get", r.URL.Path)
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-				_, err := w.Write([]byte(tt.response))
+				var err error
+				raw, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				rawBody = string(raw)
+				require.NoError(t, json.Unmarshal(raw, &body))
+				_, err = w.Write([]byte(tt.response))
 				require.NoError(t, err)
 			}))
 			defer server.Close()
@@ -85,12 +92,34 @@ func TestPublisherGetsFreePublishStatus(t *testing.T) {
 			result, err := publisher.GetFreePublishStatus(context.Background(), "authorizer-token", "publish-1")
 			require.NoError(t, err)
 
-			require.Equal(t, "publish-1", body.PublishID)
+			require.Equal(t, "publish-1", body.PublishID.String())
+			require.Equal(t, `{"publish_id":"publish-1"}`, rawBody)
 			require.Equal(t, tt.status, result.Status)
 			require.Equal(t, tt.articleID, result.WeChatArticleID)
 			require.Equal(t, tt.errorCode, result.ErrorCode)
 		})
 	}
+}
+
+func TestPublisherGetsFreePublishStatusWithNumericPublishID(t *testing.T) {
+	var rawBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/freepublish/get", r.URL.Path)
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		rawBody = string(raw)
+		_, err = w.Write([]byte(`{"publish_id":2247483657,"publish_status":1}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	result, err := publisher.GetFreePublishStatus(context.Background(), "authorizer-token", "2247483657")
+	require.NoError(t, err)
+
+	require.Equal(t, `{"publish_id":2247483657}`, rawBody)
+	require.Equal(t, publish.StatusPublishing, result.Status)
 }
 
 func TestPublisherHandlesWeChatErrCodeWithoutLeakingToken(t *testing.T) {
