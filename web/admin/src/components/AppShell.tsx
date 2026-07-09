@@ -48,32 +48,30 @@ export function AppShell({ children, currentPage, onNavigate }: { children: Reac
   return (
     <Shell>
       <SkipLink href="#main-content">跳到主内容</SkipLink>
-      <Sidebar aria-label="主导航">
-        <Brand>
-          <LogoMark><LogoIcon /></LogoMark>
-          <BrandText>
-            <strong>Official Account</strong>
-            <span>管理控制台</span>
-          </BrandText>
-        </Brand>
-        <NavList>
-          {navItems.map((item) => (
-            <NavItem
-              aria-current={item.id === currentPage ? 'page' : undefined}
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              type="button"
-            >
-              {item.id === currentPage ? <NavItemActive aria-hidden="true"><NavIcon id={item.id} /></NavItemActive> : <NavIconWrap aria-hidden="true"><NavIcon id={item.id} /></NavIconWrap>}
-              {item.label}
-            </NavItem>
-          ))}
-        </NavList>
-        <SidebarFooter>
-          <TenantDot />
-          <span>{adminConfig.tenantID}</span>
-        </SidebarFooter>
-      </Sidebar>
+      <AppHeader>
+        <HeaderInner>
+          <Brand>
+            <LogoMark><LogoIcon /></LogoMark>
+            <BrandText>
+              <strong>Official Account</strong>
+              <span>管理控制台</span>
+            </BrandText>
+          </Brand>
+          <NavList aria-label="主导航">
+            {navItems.map((item) => (
+              <NavItem
+                aria-current={item.id === currentPage ? 'page' : undefined}
+                key={item.id}
+                onClick={() => onNavigate(item.id)}
+                type="button"
+              >
+                {item.id === currentPage ? <NavItemActive aria-hidden="true"><NavIcon id={item.id} /></NavItemActive> : <NavIconWrap aria-hidden="true"><NavIcon id={item.id} /></NavIconWrap>}
+                {item.label}
+              </NavItem>
+            ))}
+          </NavList>
+        </HeaderInner>
+      </AppHeader>
 
       <MainArea>
         <Topbar>
@@ -92,11 +90,6 @@ export function AppShell({ children, currentPage, onNavigate }: { children: Reac
 const Shell = styled.div`
   min-height: 100dvh;
   background: ${({ theme }) => theme.colors.background};
-
-  @media (min-width: 960px) {
-    display: grid;
-    grid-template-columns: 248px minmax(0, 1fr);
-  }
 `
 
 const SkipLink = styled.a`
@@ -115,31 +108,25 @@ const SkipLink = styled.a`
   }
 `
 
-const Sidebar = styled.aside`
+const AppHeader = styled.header`
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   background: ${({ theme }) => theme.colors.surface};
-  padding: ${({ theme }) => theme.space.lg};
+  padding: ${({ theme }) => theme.space.lg} clamp(1rem, 3vw, 2rem);
+`
 
-  @media (min-width: 960px) {
-    position: sticky;
-    top: 0;
-    height: 100dvh;
-    border-right: 1px solid ${({ theme }) => theme.colors.border};
-    border-bottom: 0;
-    padding: ${({ theme }) => theme.space.xl} ${({ theme }) => theme.space.lg};
-  }
+const HeaderInner = styled.div`
+  display: grid;
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  gap: ${({ theme }) => theme.space.md};
 `
 
 const Brand = styled.div`
   display: flex;
   align-items: center;
   gap: ${({ theme }) => theme.space.md};
-
-  @media (max-width: 959px) {
-    margin-bottom: ${({ theme }) => theme.space.md};
-  }
 `
 
 const LogoMark = styled.div`
@@ -171,13 +158,7 @@ const NavList = styled.nav`
   display: flex;
   gap: ${({ theme }) => theme.space.sm};
   overflow-x: auto;
-  flex: 1;
-
-  @media (min-width: 960px) {
-    display: grid;
-    overflow: visible;
-    margin-top: ${({ theme }) => theme.space.xl};
-  }
+  padding-bottom: 1px;
 `
 
 const NavItem = styled.button`
@@ -188,7 +169,7 @@ const NavItem = styled.button`
   min-height: 44px;
   border: 0;
   border-radius: ${({ theme }) => theme.radii.md};
-  padding: 0 ${({ theme }) => theme.space.md};
+  padding: 0 ${({ theme }) => theme.space.lg};
   background: transparent;
   color: ${({ theme }) => theme.colors.textMuted};
   font-weight: 650;
@@ -238,20 +219,6 @@ const NavItemActive = styled.span`
   place-items: center;
   flex-shrink: 0;
   color: ${({ theme }) => theme.colors.primary};
-`
-
-const SidebarFooter = styled.div`
-  display: none;
-  align-items: center;
-  gap: ${({ theme }) => theme.space.sm};
-  padding-top: ${({ theme }) => theme.space.lg};
-  border-top: 1px solid ${({ theme }) => theme.colors.border};
-  color: ${({ theme }) => theme.colors.textMuted};
-  font-size: ${({ theme }) => theme.typeScale.small};
-
-  @media (min-width: 960px) {
-    display: flex;
-  }
 `
 
 const TenantDot = styled.span`
