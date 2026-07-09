@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import styled from '@emotion/styled'
+import { listAccounts, type Account } from '../api/accounts'
 import { createArticle, getArticle, updateArticle, type Article, type ArticleFormInput } from '../api/articles'
 import { uploadCover, uploadInlineImage } from '../api/materials'
 import { getErrorMessage } from '../api/client'
@@ -7,6 +8,7 @@ import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { adminConfig } from '../config'
+import { accountByID, accountDisplayName, accountOptionLabel } from '../utils/accounts'
 
 const tenantID = adminConfig.tenantID
 const emptyForm: ArticleFormInput = {
@@ -35,6 +37,8 @@ type BackOptions = {
 export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articleID?: number; onBack: (options?: BackOptions) => void; onDirtyChange: (dirty: boolean) => void }) {
   const editing = articleID !== undefined
   const [form, setForm] = useState<ArticleFormInput>(emptyForm)
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(true)
   const [loaded, setLoaded] = useState<Article | null>(null)
   const [loading, setLoading] = useState(editing)
   const [saving, setSaving] = useState(false)
@@ -42,12 +46,41 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
   const [dirty, setDirty] = useState(false)
+  const activeAccounts = useMemo(() => accounts.filter((account) => account.status === 'active'), [accounts])
+  const accountsByID = useMemo(() => accountByID(accounts), [accounts])
+  const selectedAccount = accountsByID.get(form.authorizer_id)
   const fieldErrors = useMemo(() => validate(form, editing), [form, editing])
-  const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading
+  const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading && !accountsLoading
 
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
+
+  useEffect(() => {
+    let active = true
+    setAccountsLoading(true)
+
+    listAccounts(tenantID)
+      .then((items) => {
+        if (!active) return
+        setAccounts(items)
+        const activeItems = items.filter((account) => account.status === 'active')
+        if (!editing && activeItems.length === 1) {
+          setForm((current) => current.authorizer_id > 0 ? current : { ...current, authorizer_id: activeItems[0].id })
+        }
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        setError(getErrorMessage(err))
+      })
+      .finally(() => {
+        if (active) setAccountsLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [editing])
 
   useEffect(() => {
     if (!editing || articleID === undefined) return
@@ -100,7 +133,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   async function uploadMaterial(kind: 'inline' | 'cover', file: File | undefined) {
     if (!file || articleID === undefined) return
     if (form.authorizer_id <= 0) {
-      setError('请先填写有效的 Authorizer ID。')
+      setError('请先选择公众号。')
       return
     }
 
@@ -181,16 +214,30 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           <SectionLabel>基础信息</SectionLabel>
           <TwoColumns>
             <Field>
-              <Label htmlFor="authorizer-id">Authorizer ID *</Label>
-              <Input
-                disabled={editing}
-                id="authorizer-id"
-                min="1"
-                type="number"
-                value={form.authorizer_id || ''}
-                onChange={(event) => update('authorizer_id', Number(event.target.value))}
-              />
-              {fieldErrors.authorizer_id ? <FieldError>{fieldErrors.authorizer_id}</FieldError> : <Helper>来自已授权公众号账号。</Helper>}
+              <Label htmlFor="authorizer-id">公众号 *</Label>
+              {editing ? (
+                <ReadonlyAccount>
+                  <strong>{accountDisplayName(selectedAccount, form.authorizer_id)}</strong>
+                  <span>ID {form.authorizer_id || '—'}</span>
+                </ReadonlyAccount>
+              ) : (
+                <Select
+                  disabled={accountsLoading || activeAccounts.length === 0}
+                  id="authorizer-id"
+                  value={form.authorizer_id || ''}
+                  onChange={(event) => update('authorizer_id', Number(event.target.value))}
+                >
+                  <option value="">{accountsLoading ? '正在加载公众号…' : '选择公众号'}</option>
+                  {activeAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>
+                  ))}
+                </Select>
+              )}
+              {fieldErrors.authorizer_id ? (
+                <FieldError>{fieldErrors.authorizer_id}</FieldError>
+              ) : (
+                <Helper>{editing ? '已创建文章不能切换公众号。' : activeAccounts.length === 0 ? '没有可用公众号，请先在账号管理页添加或恢复授权。' : '只展示可用状态的授权公众号。'}</Helper>
+              )}
             </Field>
             <Field>
               <Label htmlFor="article-author">作者</Label>
@@ -299,7 +346,7 @@ function UploadControl({ id, title, note, disabled, loading, onFile }: { id: str
 function validate(form: ArticleFormInput, editing: boolean): FieldErrors {
   const errors: FieldErrors = {}
   if (!form.title.trim()) errors.title = '标题必填。'
-  if (!editing && form.authorizer_id <= 0) errors.authorizer_id = 'Authorizer ID 必须大于 0。'
+  if (!editing && form.authorizer_id <= 0) errors.authorizer_id = '请选择要发布的公众号。'
   if (form.cover_media_asset_id < 0) errors.cover_media_asset_id = '封面素材 ID 不能小于 0。'
   return errors
 }
@@ -449,6 +496,52 @@ const Input = styled.input`
   &:disabled {
     background: ${({ theme }) => theme.colors.surfaceMuted};
     color: ${({ theme }) => theme.colors.textMuted};
+  }
+`
+
+const Select = styled.select`
+  min-height: 44px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.md};
+  padding: 0 ${({ theme }) => theme.space.md};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.text};
+  font: inherit;
+
+  &:focus {
+    outline: 3px solid ${({ theme }) => theme.colors.primarySoft};
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+
+  &:disabled {
+    background: ${({ theme }) => theme.colors.surfaceMuted};
+    color: ${({ theme }) => theme.colors.textMuted};
+  }
+`
+
+const ReadonlyAccount = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.space.md};
+  min-height: 44px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.md};
+  background: ${({ theme }) => theme.colors.surfaceMuted};
+  padding: 0 ${({ theme }) => theme.space.md};
+  color: ${({ theme }) => theme.colors.text};
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: ${({ theme }) => theme.typeScale.small};
+    white-space: nowrap;
   }
 `
 

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import styled from '@emotion/styled'
+import { listAccounts, type Account } from '../api/accounts'
 import { deleteArticle, listArticles, publishArticle, type Article, type ArticleStatus } from '../api/articles'
 import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { adminConfig } from '../config'
+import { accountByID, accountDisplayName, accountOptionLabel } from '../utils/accounts'
 
 const tenantID = adminConfig.tenantID
 
@@ -36,10 +38,13 @@ const FILTER_TABS: { key: FilterKey; label: string }[] = [
 ]
 
 export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdit: (id: number) => void }) {
-  const { articles, loading, error, notice, publishingID, reload, remove, publish } = useArticles(tenantID)
+  const { articles, accounts, loading, error, notice, publishingID, reload, remove, publish } = useArticles(tenantID)
   const [filter, setFilter] = useState<FilterKey>('all')
-  const counts = countByStatus(articles)
-  const visible = filter === 'all' ? articles : articles.filter((a) => a.status === filter)
+  const [accountFilter, setAccountFilter] = useState('all')
+  const accountsByID = accountByID(accounts)
+  const accountScopedArticles = accountFilter === 'all' ? articles : articles.filter((article) => article.authorizer_id === Number(accountFilter))
+  const counts = countByStatus(accountScopedArticles)
+  const visible = filter === 'all' ? accountScopedArticles : accountScopedArticles.filter((article) => article.status === filter)
 
   return (
     <Page>
@@ -61,6 +66,16 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
         ))}
       </FilterTabs>
 
+      <AccountFilterBar>
+        <AccountFilterLabel htmlFor="article-account-filter">公众号</AccountFilterLabel>
+        <AccountSelect id="article-account-filter" value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}>
+          <option value="all">全部公众号</option>
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>
+          ))}
+        </AccountSelect>
+      </AccountFilterBar>
+
       {error ? <ErrorPanel message={error} onRetry={reload} /> : null}
       {notice ? <NoticePanel><NoticeLeft><NoticeIconWrap tone="info"><InfoIcon /></NoticeIconWrap><div><PanelTitle>{notice}</PanelTitle><PanelDesc>可在发布记录页查看后续状态。</PanelDesc></div></NoticeLeft></NoticePanel> : null}
 
@@ -72,7 +87,7 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
             <Summary>{loading ? '正在加载文章…' : `共 ${visible.length} 篇文章`}</Summary>
             <Button variant="secondary" onClick={reload}><RefreshIcon />刷新</Button>
           </Toolbar>
-          {loading ? <LoadingRows /> : <ArticleList articles={visible} onDelete={remove} onEdit={onEdit} onPublish={publish} publishingID={publishingID} />}
+          {loading ? <LoadingRows /> : <ArticleList accountsByID={accountsByID} articles={visible} onDelete={remove} onEdit={onEdit} onPublish={publish} publishingID={publishingID} />}
         </Panel>
       )}
     </Page>
@@ -81,6 +96,7 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
 
 function useArticles(currentTenantID: string) {
   const [articles, setArticles] = useState<Article[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -93,10 +109,11 @@ function useArticles(currentTenantID: string) {
     setError('')
     setNotice('')
 
-    listArticles(currentTenantID)
-      .then((items) => {
+    Promise.all([listArticles(currentTenantID), listAccounts(currentTenantID)])
+      .then(([articleItems, accountItems]) => {
         if (!active) return
-        setArticles(items)
+        setArticles(articleItems)
+        setAccounts(accountItems)
       })
       .catch((err: unknown) => {
         if (!active) return
@@ -139,16 +156,17 @@ function useArticles(currentTenantID: string) {
     }
   }
 
-  return { articles, loading, error, notice, publishingID, reload: () => setVersion((value) => value + 1), remove, publish }
+  return { articles, accounts, loading, error, notice, publishingID, reload: () => setVersion((value) => value + 1), remove, publish }
 }
 
-function ArticleList({ articles, onDelete, onEdit, onPublish, publishingID }: { articles: Article[]; onDelete: (article: Article) => void; onEdit: (id: number) => void; onPublish: (article: Article) => void; publishingID: number | null }) {
+function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publishingID }: { accountsByID: Map<number, Account>; articles: Article[]; onDelete: (article: Article) => void; onEdit: (id: number) => void; onPublish: (article: Article) => void; publishingID: number | null }) {
   if (articles.length === 0) return null
 
   return (
     <ArticleCards>
       {articles.map((article) => {
         const tone = statusTone(article.status)
+        const account = accountsByID.get(article.authorizer_id)
         return (
           <ArticleCard key={article.id}>
             <StatusStrip tone={tone} />
@@ -161,6 +179,7 @@ function ArticleList({ articles, onDelete, onEdit, onPublish, publishingID }: { 
                 <ArticleStatusBadge status={article.status} />
               </ArticleHead>
               <ArticleFoot>
+                <FootMeta><AccountDot />{accountDisplayName(account, article.authorizer_id)}</FootMeta>
                 <FootMeta><UserIcon />{article.author || '—'}</FootMeta>
                 <FootMeta><KeyGlyph />{article.authorizer_id}</FootMeta>
                 <FootMeta><ClockIcon />{formatTime(article.updated_at)}</FootMeta>
@@ -185,6 +204,7 @@ function canPublishArticle(article: Article) {
 }
 
 function KeyGlyph() { return <svg {...svgAttrs} width="15" height="15"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg> }
+function AccountDot() { return <svg {...svgAttrs} width="15" height="15"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 8h10" /><path d="M7 12h6" /><path d="M7 16h8" /></svg> }
 
 function statusTone(status: ArticleStatus): Tone {
   switch (status) {
@@ -347,6 +367,35 @@ const FilterCount = styled.span`
   &[data-active='true'] {
     background: ${({ theme }) => theme.colors.primary};
     color: ${({ theme }) => theme.colors.surface};
+  }
+`
+
+const AccountFilterBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.md};
+  flex-wrap: wrap;
+`
+
+const AccountFilterLabel = styled.label`
+  color: ${({ theme }) => theme.colors.text};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 750;
+`
+
+const AccountSelect = styled.select`
+  min-width: min(360px, 100%);
+  min-height: 40px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.md};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.text};
+  font: inherit;
+  padding: 0 ${({ theme }) => theme.space.md};
+
+  &:focus {
+    outline: 3px solid ${({ theme }) => theme.colors.primarySoft};
+    border-color: ${({ theme }) => theme.colors.primary};
   }
 `
 
