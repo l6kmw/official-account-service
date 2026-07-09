@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"official-account-service/internal/application"
 	"official-account-service/internal/domain/authorization"
@@ -269,6 +272,36 @@ func TestRoutesRejectOversizedBodies(t *testing.T) {
 	multipartRecorder := doOversizedMultipart(t, router, "/api/v1/materials/covers", "tenant-1")
 	require.Equal(t, http.StatusRequestEntityTooLarge, multipartRecorder.Code)
 	require.JSONEq(t, `{"error":"request_too_large"}`, multipartRecorder.Body.String())
+}
+
+func TestWriteServiceErrorLogsInternalErrorSafely(t *testing.T) {
+	core, observed := observer.New(zap.ErrorLevel)
+	logger := zap.New(core)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/articles/1/publish?access_token=query-secret", nil)
+	c.Request.Header.Set("X-Tenant-ID", "tenant-1")
+	c.Set(loggerContextKey, logger)
+
+	ok := writeServiceError(c, errors.New("submit failed: access_token=token-secret admin_api_key=admin-secret password=pw"))
+
+	require.False(t, ok)
+	require.Equal(t, http.StatusInternalServerError, recorder.Code)
+	require.JSONEq(t, `{"error":"internal_error"}`, recorder.Body.String())
+	entries := observed.FilterMessage("service internal error").All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	require.Equal(t, "internal_error", fields["error_code"])
+	require.Equal(t, "POST", fields["method"])
+	require.Equal(t, "/api/v1/articles/1/publish", fields["path"])
+	require.Equal(t, "tenant-1", fields["tenant_id"])
+	errorMessage, ok := fields["error"].(string)
+	require.True(t, ok)
+	require.Contains(t, errorMessage, "[REDACTED]")
+	require.NotContains(t, errorMessage, "token-secret")
+	require.NotContains(t, errorMessage, "admin-secret")
+	require.NotContains(t, errorMessage, "pw")
+	require.NotContains(t, fields["path"], "query-secret")
 }
 
 func TestArticleRoutesValidateInputAndTenantIsolation(t *testing.T) {

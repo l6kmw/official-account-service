@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,7 +15,13 @@ import (
 	"official-account-service/internal/application"
 )
 
-const maxRequestBodyBytes int64 = 10 << 20
+const (
+	maxRequestBodyBytes        int64 = 10 << 20
+	loggerContextKey                 = "logger"
+	maxLoggedErrorMessageRunes       = 1000
+)
+
+var sensitiveLogValuePattern = regexp.MustCompile(`(?i)("?(?:access[_-]?token|component[_-]?access[_-]?token|authorizer[_-]?access[_-]?token|refresh[_-]?token|admin[_-]?api[_-]?key|authorization|app[_-]?secret|appsecret|secret|password)"?\s*[:=]\s*"?)([^\s,"'&}]+)("?)`)
 
 // Dependencies contains HTTP adapter dependencies.
 type Dependencies struct {
@@ -34,8 +41,13 @@ type Dependencies struct {
 // NewRouter constructs the HTTP router.
 func NewRouter(deps Dependencies) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
+	logger := deps.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(attachLogger(logger))
 	r.Use(limitRequestBody(maxRequestBodyBytes))
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -303,10 +315,78 @@ func writeServiceError(c *gin.Context, err error) bool {
 		writeError(c, http.StatusNotImplemented, "not_implemented")
 		return false
 	}
+	logInternalServiceError(c, err)
 	writeError(c, http.StatusInternalServerError, "internal_error")
 	return false
 }
 
 func writeError(c *gin.Context, status int, code string) {
 	c.JSON(status, gin.H{"error": code})
+}
+
+func attachLogger(logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(loggerContextKey, logger)
+		c.Next()
+	}
+}
+
+func logInternalServiceError(c *gin.Context, err error) {
+	loggerFromContext(c).Error("service internal error",
+		zap.String("error_code", "internal_error"),
+		zap.String("method", requestMethod(c)),
+		zap.String("route", requestRoute(c)),
+		zap.String("path", requestPath(c)),
+		zap.String("tenant_id", strings.TrimSpace(c.GetHeader("X-Tenant-ID"))),
+		zap.String("error", safeLogError(err)),
+	)
+}
+
+func loggerFromContext(c *gin.Context) *zap.Logger {
+	if value, ok := c.Get(loggerContextKey); ok {
+		if logger, ok := value.(*zap.Logger); ok && logger != nil {
+			return logger
+		}
+	}
+	return zap.NewNop()
+}
+
+func requestMethod(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	return c.Request.Method
+}
+
+func requestRoute(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	return c.FullPath()
+}
+
+func requestPath(c *gin.Context) string {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return ""
+	}
+	return c.Request.URL.Path
+}
+
+func safeLogError(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := sensitiveLogValuePattern.ReplaceAllString(err.Error(), "${1}[REDACTED]${3}")
+	return truncateLogMessage(message, maxLoggedErrorMessageRunes)
+}
+
+func truncateLogMessage(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes]) + "...[truncated]"
 }

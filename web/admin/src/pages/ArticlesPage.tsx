@@ -124,7 +124,7 @@ function useArticles(currentTenantID: string) {
   }
 
   async function publish(article: Article) {
-    if (article.status === 'publishing') return
+    if (!canPublishArticle(article)) return
     try {
       setError('')
       setNotice('')
@@ -166,7 +166,9 @@ function ArticleList({ articles, onDelete, onEdit, onPublish, publishingID }: { 
                 <FootMeta><ClockIcon />{formatTime(article.updated_at)}</FootMeta>
                 <RowActions>
                   <Button variant="ghost" onClick={() => onEdit(article.id)}><EditIcon />编辑</Button>
-                  <Button disabled={publishingID === article.id || article.status === 'publishing'} variant="ghost" onClick={() => onPublish(article)}><SendIcon />{publishingID === article.id ? '提交中…' : '发布'}</Button>
+                  {canPublishArticle(article) ? (
+                    <Button disabled={publishingID === article.id || article.status === 'publishing'} variant="ghost" onClick={() => onPublish(article)}><SendIcon />{publishingID === article.id ? '提交中…' : '发布'}</Button>
+                  ) : null}
                   <Button variant="danger" onClick={() => onDelete(article)}><TrashIcon />删除</Button>
                 </RowActions>
               </ArticleFoot>
@@ -176,6 +178,10 @@ function ArticleList({ articles, onDelete, onEdit, onPublish, publishingID }: { 
       })}
     </ArticleCards>
   )
+}
+
+function canPublishArticle(article: Article) {
+  return article.status !== 'publishing' && article.status !== 'published'
 }
 
 function KeyGlyph() { return <svg {...svgAttrs} width="15" height="15"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg> }
