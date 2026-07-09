@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type ClipboardEvent } from 'react'
 import styled from '@emotion/styled'
 import { listAccounts, type Account } from '../api/accounts'
 import { createArticle, getArticle, updateArticle, type Article, type ArticleFormInput } from '../api/articles'
@@ -50,7 +50,13 @@ function extractArticleContentHTML(contentHTML: string) {
   const parsed = new DOMParser().parseFromString(trimmed, 'text/html')
   const wrappedContent = parsed.getElementById('content')
   const wrappedHTML = wrappedContent?.innerHTML.trim()
-  return wrappedHTML || trimmed
+  if (wrappedHTML) return wrappedHTML
+  if (/<html[\s>]/i.test(trimmed) || /<body[\s>]/i.test(trimmed)) return parsed.body.innerHTML.trim()
+  return trimmed
+}
+
+function looksLikeArticleHTML(contentHTML: string) {
+  return /<(section|p|h1|h2|h3|span|img)\b/i.test(contentHTML)
 }
 
 function buildArticlePreviewSrcDoc(contentHTML: string) {
@@ -96,6 +102,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   const fieldErrors = useMemo(() => validate(form, editing), [form, editing])
   const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading && !accountsLoading
   const previewSrcDoc = useMemo(() => buildArticlePreviewSrcDoc(form.content_html), [form.content_html])
+  const hasPlainTextContent = form.content_html.trim() !== '' && !looksLikeArticleHTML(form.content_html)
 
   useEffect(() => {
     onDirtyChange(dirty)
@@ -173,6 +180,40 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setForm((current) => ({ ...current, [key]: value }))
     setDirty(true)
     setSavedMessage('')
+  }
+
+  function applyContentHTML(contentHTML: string, message?: string) {
+    const extracted = extractArticleContentHTML(contentHTML)
+    update('content_html', extracted)
+    setError('')
+    if (message) setSavedMessage(message)
+  }
+
+  function pasteContentHTML(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const html = event.clipboardData.getData('text/html')
+    if (!html.trim()) return
+
+    event.preventDefault()
+    applyContentHTML(html, '已读取剪贴板里的富文本 HTML。')
+  }
+
+  async function importContentHTMLFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const extracted = extractArticleContentHTML(text)
+      if (!looksLikeArticleHTML(extracted)) {
+        setError('没有识别到可导入的 HTML，请选择 gzh 生成的正文 HTML 或预览 HTML 文件。')
+        return
+      }
+
+      applyContentHTML(extracted, `已导入 ${file.name}。`)
+    } catch (err: unknown) {
+      setError(getErrorMessage(err))
+    }
   }
 
   async function uploadMaterial(kind: 'inline' | 'cover', file: File | undefined) {
@@ -341,8 +382,22 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           <SectionLabel>正文 HTML</SectionLabel>
           <Field>
             <Label htmlFor="content-html">HTML 内容</Label>
-            <CodeTextarea id="content-html" rows={16} value={form.content_html} onChange={(event) => update('content_html', extractArticleContentHTML(event.target.value))} />
-            <Helper>可粘贴 gzh 正文 section；误粘完整预览页时会提取正文。不要粘贴 token、secret、refresh 等敏感内容。</Helper>
+            <ContentImportRow>
+              <ImportHTMLButton htmlFor="content-html-import"><UploadIcon />导入 gzh HTML</ImportHTMLButton>
+              <HiddenFileInput id="content-html-import" type="file" accept=".html,.htm,text/html" onChange={importContentHTMLFile} />
+            </ContentImportRow>
+            <CodeTextarea
+              id="content-html"
+              rows={16}
+              value={form.content_html}
+              onChange={(event) => update('content_html', extractArticleContentHTML(event.target.value))}
+              onPaste={pasteContentHTML}
+            />
+            {hasPlainTextContent ? (
+              <FieldError>当前内容是纯文本，无法还原 gzh 样式。请导入预览 HTML 文件，或从预览页复制富文本后粘贴。</FieldError>
+            ) : (
+              <Helper>可粘贴 gzh 正文 section；误粘完整预览页时会提取正文。不要粘贴 token、secret、refresh 等敏感内容。</Helper>
+            )}
           </Field>
         </FormPanel>
 
@@ -604,6 +659,43 @@ const CodeTextarea = styled(Textarea)`
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: ${({ theme }) => theme.typeScale.small};
   line-height: 1.6;
+`
+
+const ContentImportRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.md};
+  flex-wrap: wrap;
+`
+
+const ImportHTMLButton = styled.label`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: ${({ theme }) => theme.space.sm};
+  min-height: 40px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.md};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.text};
+  cursor: pointer;
+  font-weight: 650;
+  padding: 0 ${({ theme }) => theme.space.lg};
+  transition:
+    background ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut},
+    border-color ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut},
+    color ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut};
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.primary};
+    background: ${({ theme }) => theme.colors.primarySoft};
+    color: ${({ theme }) => theme.colors.primaryStrong};
+  }
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
 `
 
 const TwoColumns = styled.div`
