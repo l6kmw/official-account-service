@@ -141,7 +141,7 @@ func buildServices(ctx context.Context, cfg config.Config) (*application.Authori
 			return nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		callbackService := buildCallbackService(cfg, store, publishService, callbackDecryptor)
-		return application.NewAuthorizationServiceWithAuthorizationFlow(store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), application.NewAccountService(store), application.NewArticleService(store), materialService, publishService, tokenService, callbackService, func() {
+		return application.NewAuthorizationServiceWithAuthorizationFlow(store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), application.NewAccountService(store), application.NewArticleServiceWithAuthorizerRepository(store, store), materialService, publishService, tokenService, callbackService, func() {
 			closeStatusSync()
 			closeTokenRefreshScheduler()
 			closeTokenRefreshInfra()
@@ -203,7 +203,7 @@ func buildServices(ctx context.Context, cfg config.Config) (*application.Authori
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	callbackService := buildCallbackService(cfg, store, publishService, callbackDecryptor)
-	return application.NewAuthorizationServiceWithAuthorizationFlow(store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), application.NewAccountService(store), application.NewArticleService(store), materialService, publishService, tokenService, callbackService, func() {
+	return application.NewAuthorizationServiceWithAuthorizationFlow(store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), application.NewAccountService(store), application.NewArticleServiceWithAuthorizerRepository(store, store), materialService, publishService, tokenService, callbackService, func() {
 		closeStatusSync()
 		closeTokenRefreshScheduler()
 		closeTokenRefreshInfra()

@@ -7,16 +7,23 @@ import (
 	"strings"
 
 	"official-account-service/internal/domain/article"
+	"official-account-service/internal/domain/authorization"
 )
 
 // ArticleService manages platform article drafts.
 type ArticleService struct {
-	articles article.Repository
+	articles    article.Repository
+	authorizers authorization.Repository
 }
 
 // NewArticleService constructs an ArticleService.
 func NewArticleService(articles article.Repository) *ArticleService {
 	return &ArticleService{articles: articles}
+}
+
+// NewArticleServiceWithAuthorizerRepository constructs an ArticleService that validates authorizer ownership.
+func NewArticleServiceWithAuthorizerRepository(articles article.Repository, authorizers authorization.Repository) *ArticleService {
+	return &ArticleService{articles: articles, authorizers: authorizers}
 }
 
 // CreateArticleInput contains fields for creating a platform article draft.
@@ -53,6 +60,9 @@ func (s *ArticleService) CreateArticle(ctx context.Context, input CreateArticleI
 	}
 	if strings.TrimSpace(input.Title) == "" {
 		return article.Article{}, fmt.Errorf("validate article title: %w", ErrInvalidInput)
+	}
+	if err := s.validateAuthorizer(ctx, input.TenantID, input.AuthorizerID); err != nil {
+		return article.Article{}, err
 	}
 	draft := article.Article{
 		TenantID:     input.TenantID,
@@ -157,4 +167,21 @@ func (s *ArticleService) wrapArticleReadError(action string, err error) error {
 		return fmt.Errorf("%s: %w", action, ErrNotFound)
 	}
 	return fmt.Errorf("%s: %w", action, err)
+}
+
+func (s *ArticleService) validateAuthorizer(ctx context.Context, tenantID string, authorizerID int64) error {
+	if s.authorizers == nil {
+		return nil
+	}
+	account, err := s.authorizers.GetAccount(ctx, tenantID, authorizerID)
+	if errors.Is(err, authorization.ErrNotFound) {
+		return fmt.Errorf("validate article authorizer: %w", ErrInvalidInput)
+	}
+	if err != nil {
+		return fmt.Errorf("get article authorizer: %w", err)
+	}
+	if account.Status != authorization.AccountStatusActive {
+		return fmt.Errorf("validate article authorizer status: %w", ErrInvalidInput)
+	}
+	return nil
 }

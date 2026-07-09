@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"official-account-service/internal/domain/article"
+	"official-account-service/internal/domain/authorization"
 	"official-account-service/internal/infra/persistence/memory"
 )
 
@@ -68,6 +69,35 @@ func TestArticleServiceValidatesRequiredFields(t *testing.T) {
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
 	_, err = service.UpdateArticle(ctx, UpdateArticleInput{TenantID: "tenant", ID: 1, Title: ""})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+}
+
+func TestArticleServiceValidatesAuthorizerOwnership(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC) })
+	service := NewArticleServiceWithAuthorizerRepository(store, store)
+	active, err := store.SaveAccount(ctx, "tenant-1", authorization.Account{
+		AppID: "wx-active", Status: authorization.AccountStatusActive,
+	})
+	require.NoError(t, err)
+	revoked, err := store.SaveAccount(ctx, "tenant-1", authorization.Account{
+		AppID: "wx-revoked", Status: authorization.AccountStatusRevoked,
+	})
+	require.NoError(t, err)
+
+	_, err = service.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-1", AuthorizerID: active.ID, Title: "hello"})
+	require.NoError(t, err)
+
+	_, err = service.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-2", AuthorizerID: active.ID, Title: "hello"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+
+	_, err = service.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-1", AuthorizerID: revoked.ID, Title: "hello"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+
+	_, err = service.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-1", AuthorizerID: 999, Title: "hello"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
