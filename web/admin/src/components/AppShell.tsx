@@ -1,16 +1,7 @@
 import type { ReactNode } from 'react'
 import styled from '@emotion/styled'
-import { adminConfig } from '../config'
 
 export type PageID = 'dashboard' | 'accounts' | 'articles' | 'publishes' | 'wechat-setup'
-
-const pageTitles: Record<PageID, string> = {
-  dashboard: '首页',
-  accounts: '账号管理',
-  articles: '文章',
-  publishes: '发布记录',
-  'wechat-setup': '微信配置'
-}
 
 function NavIcon({ id }: { id: PageID }) {
   const common = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -74,13 +65,6 @@ export function AppShell({ children, currentPage, onNavigate }: { children: Reac
       </AppHeader>
 
       <MainArea>
-        <Topbar>
-          <Breadcrumb>{pageTitles[currentPage]}</Breadcrumb>
-          <TenantBadge>
-            <TenantDot />
-            {adminConfig.tenantID}
-          </TenantBadge>
-        </Topbar>
         <Main id="main-content">{children}</Main>
       </MainArea>
     </Shell>
@@ -221,49 +205,8 @@ const NavItemActive = styled.span`
   color: ${({ theme }) => theme.colors.primary};
 `
 
-const TenantDot = styled.span`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: ${({ theme }) => theme.colors.success};
-  flex-shrink: 0;
-`
-
 const MainArea = styled.div`
   min-width: 0;
-`
-
-const Topbar = styled.header`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: ${({ theme }) => theme.space.lg};
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-  background: oklch(100% 0 0 / 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  padding: ${({ theme }) => theme.space.md} clamp(1rem, 3vw, 2rem);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-`
-
-const Breadcrumb = styled.span`
-  color: ${({ theme }) => theme.colors.textMuted};
-  font-size: ${({ theme }) => theme.typeScale.small};
-  font-weight: 650;
-`
-
-const TenantBadge = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${({ theme }) => theme.space.sm};
-  border-radius: ${({ theme }) => theme.radii.pill};
-  background: ${({ theme }) => theme.colors.surfaceMuted};
-  color: ${({ theme }) => theme.colors.text};
-  font-size: ${({ theme }) => theme.typeScale.caption};
-  font-weight: 650;
-  padding: ${({ theme }) => theme.space.xs} ${({ theme }) => theme.space.md};
 `
 
 const Main = styled.main`
