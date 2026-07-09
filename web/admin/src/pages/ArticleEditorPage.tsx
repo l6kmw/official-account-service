@@ -422,7 +422,7 @@ function UploadControl({ id, title, note, disabled, loading, onFile }: { id: str
           <span>{note}</span>
         </UploadText>
       </UploadMain>
-      <UploadButton htmlFor={id} aria-disabled={disabled}>{loading ? '处理中' : '选择文件'}</UploadButton>
+      <UploadButton htmlFor={id} aria-disabled={disabled}>{loading ? '处理中' : disabled ? '保存后可上传' : '选择文件'}</UploadButton>
       <HiddenFileInput
         id={id}
         disabled={disabled}
@@ -707,7 +707,10 @@ const TwoColumns = styled.div`
   }
 `
 
-const UploadGrid = styled(TwoColumns)``
+const UploadGrid = styled.div`
+  display: grid;
+  gap: ${({ theme }) => theme.space.md};
+`
 
 const Helper = styled.p`
   margin: 0;
@@ -725,31 +728,36 @@ const UploadBox = styled.div`
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: ${({ theme }) => theme.space.lg};
-  min-height: 78px;
+  min-height: 94px;
   border: 1px dashed ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radii.lg};
+  border-radius: ${({ theme }) => theme.radii.md};
   background: ${({ theme }) => theme.colors.surface};
   padding: ${({ theme }) => theme.space.lg};
-  transition: border-color ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut}, background ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut};
+  transition:
+    border-color ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut},
+    background ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut},
+    box-shadow ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut};
 
-  &:hover {
+  &:not([data-disabled='true']):hover {
     border-color: ${({ theme }) => theme.colors.primary};
     background: ${({ theme }) => theme.colors.primarySoft};
+    box-shadow: inset 0 0 0 1px ${({ theme }) => theme.colors.primarySoft};
   }
 
   &[data-disabled='true'] {
+    border-color: ${({ theme }) => theme.colors.border};
     background: ${({ theme }) => theme.colors.surfaceMuted};
-    opacity: 0.72;
   }
 
   @media (max-width: 560px) {
     grid-template-columns: 1fr;
+    align-items: stretch;
   }
 `
 
 const UploadMain = styled.div`
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
   gap: ${({ theme }) => theme.space.md};
 `
@@ -757,8 +765,8 @@ const UploadMain = styled.div`
 const UploadIconWrap = styled.span`
   display: grid;
   flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   place-items: center;
   border-radius: ${({ theme }) => theme.radii.md};
   background: ${({ theme }) => theme.colors.primarySoft};
@@ -773,12 +781,13 @@ const UploadText = styled.div`
   strong {
     color: ${({ theme }) => theme.colors.text};
     font-weight: 750;
+    line-height: 1.35;
   }
 
   span {
     color: ${({ theme }) => theme.colors.textMuted};
     font-size: ${({ theme }) => theme.typeScale.small};
-    line-height: 1.5;
+    line-height: 1.55;
   }
 `
 
@@ -796,9 +805,14 @@ const UploadButton = styled.label`
   padding: 0 ${({ theme }) => theme.space.lg};
   white-space: nowrap;
 
+  @media (max-width: 560px) {
+    width: 100%;
+  }
+
   &[aria-disabled='true'] {
     cursor: not-allowed;
-    opacity: 0.55;
+    background: ${({ theme }) => theme.colors.surface};
+    color: ${({ theme }) => theme.colors.textFaint};
     pointer-events: none;
   }
 `
