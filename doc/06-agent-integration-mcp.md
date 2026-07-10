@@ -8,7 +8,12 @@ MCP server 只调用本服务已有 HTTP API，不直接接触微信 AppSecret�
 
 ## MCP Server
 
-本仓库提供 stdio MCP server：
+本仓库提供两种 MCP transport：
+
+- `stdio`：本机 agent 直接拉起进程，默认模式。
+- `streamable-http`：线上部署为 HTTPS MCP endpoint，适合远程 agent 调用。
+
+本机 stdio 启动：
 
 ```bash
 go run ./cmd/mcp-server
@@ -20,6 +25,30 @@ go run ./cmd/mcp-server
 go build -trimpath -ldflags="-s -w" -o official-account-mcp ./cmd/mcp-server
 ```
 
+线上 Streamable HTTP 启动：
+
+```bash
+OFFICIAL_ACCOUNT_MCP_TRANSPORT="streamable-http"
+OFFICIAL_ACCOUNT_MCP_ADDR="127.0.0.1:8091"
+OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
+OFFICIAL_ACCOUNT_MCP_TOKEN="replace-with-a-long-random-mcp-token"
+./official-account-mcp
+```
+
+公网连接地址：
+
+```text
+URL: https://mp.example.com/mcp
+Header: Authorization: Bearer <MCP_TOKEN>
+Transport: streamable-http
+```
+
+健康检查地址：
+
+```text
+https://mp.example.com/mcp/healthz
+```
+
 ## 环境变量
 
 ```bash
@@ -29,6 +58,10 @@ OFFICIAL_ACCOUNT_COMPONENT_APP_ID="wx_component_appid"
 OFFICIAL_ACCOUNT_TENANT_ID="tenant-1"
 OFFICIAL_ACCOUNT_ADMIN_API_KEY="replace-with-a-long-server-side-api-key"
 OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT="/path/to/agent/workspace"
+OFFICIAL_ACCOUNT_MCP_TRANSPORT="stdio"
+OFFICIAL_ACCOUNT_MCP_ADDR="127.0.0.1:8091"
+OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
+OFFICIAL_ACCOUNT_MCP_TOKEN="replace-with-a-long-random-mcp-token"
 ```
 
 说明：
@@ -39,10 +72,20 @@ OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT="/path/to/agent/workspace"
 - `OFFICIAL_ACCOUNT_TENANT_ID`：MCP 固定绑定的租户。多租户建议启动多个 MCP server，而不是让 agent 任意传 tenant。
 - `OFFICIAL_ACCOUNT_ADMIN_API_KEY`：MCP 调用后台 API 使用的服务端密钥。不要放进前端运行时配置，也不要交给模型上下文。
 - `OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT`：可选。限制 `file_path` 图片上传只能读取该目录下的文件；目录外图片可以用 `content_base64` 传入。
+- `OFFICIAL_ACCOUNT_MCP_TRANSPORT`：默认 `stdio`；线上远程连接使用 `streamable-http`。
+- `OFFICIAL_ACCOUNT_MCP_ADDR`：Streamable HTTP 监听地址。线上建议只监听 `127.0.0.1`，再由 Nginx 提供 HTTPS。
+- `OFFICIAL_ACCOUNT_MCP_PATH`：Streamable HTTP MCP 路径，默认 `/mcp`。
+- `OFFICIAL_ACCOUNT_MCP_TOKEN`：远程 MCP 访问令牌，只给受信任 agent 使用。它不是后台 `admin_api_key`。
 
 ## API Key
 
-MCP 本身通过 stdio 和本机 agent 通信，不需要给 agent 暴露一个 MCP API key。
+stdio 模式通过本机进程通信，不需要给 agent 暴露 MCP API key。
+
+streamable-http 模式会暴露公网 HTTPS endpoint，必须配置 `OFFICIAL_ACCOUNT_MCP_TOKEN`，agent 连接时用：
+
+```text
+Authorization: Bearer <MCP_TOKEN>
+```
 
 但 MCP 需要调用受保护的管理后台 API，所以线上服务应配置 `security.admin_api_key`，并通过 `OFFICIAL_ACCOUNT_ADMIN_API_KEY` 注入 MCP 进程。这样 agent 只能调用 MCP 工具，不能直接拿到后台 API key。
 
