@@ -9,6 +9,7 @@ import { ArticleEditorPage } from './pages/ArticleEditorPage'
 import { ArticlesPage } from './pages/ArticlesPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
+import { MCPConfigPage } from './pages/MCPConfigPage'
 import { PublishRecordsPage } from './pages/PublishRecordsPage'
 import { WechatSetupPage } from './pages/WechatSetupPage'
 
@@ -18,6 +19,7 @@ type View =
   | { page: 'articles' }
   | { page: 'publishes' }
   | { page: 'wechat-setup' }
+  | { page: 'mcp-config' }
   | { page: 'article-new' }
   | { page: 'article-edit'; id: number }
 
@@ -155,6 +157,7 @@ export function App() {
       {view.page === 'accounts' ? <AccountsPage /> : null}
       {view.page === 'publishes' ? <PublishRecordsPage /> : null}
       {view.page === 'wechat-setup' ? <WechatSetupPage /> : null}
+      {view.page === 'mcp-config' ? <MCPConfigPage /> : null}
       {view.page === 'articles' ? (
         <ArticlesPage
           onCreate={() => navigate({ page: 'article-new' })}
@@ -198,6 +201,8 @@ function parseHashView(hash: string): View {
       return { page: 'publishes' }
     case '/wechat-setup':
       return { page: 'wechat-setup' }
+    case '/mcp-config':
+      return { page: 'mcp-config' }
   }
 
   const editMatch = path.match(/^\/articles\/(\d+)\/edit$/)
@@ -233,6 +238,8 @@ function viewToHash(view: View) {
       return '#/publishes'
     case 'wechat-setup':
       return '#/wechat-setup'
+    case 'mcp-config':
+      return '#/mcp-config'
   }
 }
 
