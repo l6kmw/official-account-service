@@ -118,7 +118,8 @@ func newStreamableHTTPMux(server *mcp.Server, cfg streamableHTTPConfig) http.Han
 	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{
-		JSONResponse: true,
+		JSONResponse:               true,
+		DisableLocalhostProtection: true,
 	})
 	protected := auth.RequireBearerToken(staticTokenVerifier(cfg.Token), nil)(streamable)
 
