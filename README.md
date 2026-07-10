@@ -1,27 +1,23 @@
 # Official Account Service
 
-Official Account Service 是一个微信公众号第三方平台微服务，用来完成公众号授权、账号管理、文章草稿、素材上传、发布、发布状态同步，以及给外部 Agent 使用的 MCP 工具接入。
+这是一个微信公众号第三方平台服务，用来做：
 
-它由几部分组成：
+- 公众号扫码授权
+- 管理多个公众号账号
+- 创建、编辑、删除文章
+- 上传正文图片和封面
+- 发布文章、同步发布状态、删除已发布内容
+- 给外部 Agent 提供 MCP 工具
 
-- 后端 HTTP API：`cmd/server`，默认监听 `:8080`。
-- 管理后台前端：`web/admin`，React + Vite，构建后作为静态文件部署。
-- MCP Server：`cmd/mcp-server`，支持本地 `stdio` 和线上 `streamable-http`。
-- PostgreSQL：生产环境持久化文章、账号、发布记录、微信回调审计数据。
-- Redis：生产环境用于 token 刷新锁、跨实例 token 缓存和 asynq 异步队列。
+服务由三部分组成：
 
-核心文档：
+- 后端 API：Go 服务，默认 `:8080`
+- 管理后台：`web/admin` 静态前端
+- MCP 服务：单独进程，默认 `127.0.0.1:8091/mcp`
 
-- `doc/official-account-service-product-design-v1.0.md`
-- `doc/02-AI协作开发约束规范.md`
-- `doc/03-development-gap-and-roadmap.md`
-- `doc/04-frontend-development-guide.md`
-- `doc/05-frontend-ui-design-spec.md`
-- `doc/06-agent-integration-mcp.md`
+## 1. 本地开发
 
-## 快速本地运行
-
-本地开发可以不接 PostgreSQL、Redis 和真实微信配置。空 `database.dsn` 会使用内存存储，空 `redis.addr` 会关闭异步队列和分布式 token 缓存。
+后端：
 
 ```bash
 cp config.yaml.example config.yaml
@@ -29,19 +25,7 @@ make test
 make run
 ```
 
-服务默认读取 `config.yaml`，也可以显式指定：
-
-```bash
-go run ./cmd/server -config config.yaml
-```
-
-重新生成 wire 注入代码：
-
-```bash
-make generate
-```
-
-前端本地开发：
+前端：
 
 ```bash
 cd web/admin
@@ -49,69 +33,58 @@ npm install
 npm run dev
 ```
 
-Vite 开发服务默认运行在 `http://localhost:5173`，并把 `/api` 和 `/wechat` 代理到本地 Go 服务 `http://localhost:8080`。
-
-前端构建检查：
-
-```bash
-cd web/admin
-npm run build
-```
-
-## 部署前准备
-
-推荐生产部署使用一个公网 HTTPS 域名承载管理后台、后端 API、微信授权入口、微信回调和 MCP，例如：
+本地前端默认运行在：
 
 ```text
-PUBLIC_BASE_URL=https://mp.example.com
+http://localhost:5173
+```
+
+本地后端默认运行在：
+
+```text
+http://localhost:8080
+```
+
+本地开发时，`database.dsn` 和 `redis.addr` 可以为空。为空时后端会使用内存存储，不适合生产。
+
+## 2. 生产部署要准备什么
+
+你需要准备：
+
+- 一台 Linux 服务器
+- 一个公网 HTTPS 域名，例如 `https://mp.example.com`
+- Docker 和 Docker Compose
+- PostgreSQL
+- Redis
+- 微信开放平台第三方平台配置
+- 管理员账号密码
+- MCP token
+
+建议先统一一个公网地址：
+
+```text
 PUBLIC_DOMAIN=mp.example.com
+PUBLIC_BASE_URL=https://mp.example.com
 ```
 
-如果管理后台和授权入口拆成不同域名，必须确保 `wechat-authorize.html` 所在域名、授权回调页所在域名、微信第三方平台里填写的授权发起页域名完全一致。为了减少微信授权域名不一致的问题，第一版部署建议使用单域名。
+第一版部署建议管理后台、后端 API、微信授权入口、微信回调、MCP 都走同一个域名。这样最不容易踩微信授权域名不一致的问题。
 
-部署前需要准备：
+## 3. 配置 YAML
 
-- 一台 Linux 服务器。
-- Docker 和 Docker Compose，或 Go/Node 运行环境。
-- 一个已配置 HTTPS 的公网域名。
-- 微信开放平台第三方平台的 `Component AppID`、`AppSecret`、`Verify Token`、`EncodingAESKey`。
-- PostgreSQL 14+。
-- Redis 6+。
-- 管理员账号密码。
-- 一个给 MCP 远程 Agent 使用的长随机 token。
+本地真实配置文件不会提交到 Git。
 
-生成推荐密钥：
+这里有两个文件名，内容结构一样：
 
-```bash
-openssl rand -base64 32
-openssl rand -base64 48
-```
+- `config.yaml`：本地运行、二进制部署、MCP 默认会读它。
+- `config.docker.yaml`：仓库里的 `docker-compose.yml` 默认会把它挂载到容器内 `/app/config.yaml`。
 
-生成管理员密码 bcrypt hash：
-
-```bash
-htpasswd -bnBC 12 "" "your-admin-password" | tr -d ':\n'
-```
-
-`htpasswd` 通常来自 `apache2-utils` 或 `httpd-tools`。
-
-## 配置文件
-
-应用配置统一使用 YAML。真实环境不要使用 `.env` 作为主要配置来源。
-
-本地开发：
-
-```bash
-cp config.yaml.example config.yaml
-```
-
-Docker Compose：
+如果你用 Docker Compose 部署后端，先复制：
 
 ```bash
 cp config.docker.yaml.example config.docker.yaml
 ```
 
-生产配置模板：
+生产环境最少需要填这些：
 
 ```yaml
 app:
@@ -130,9 +103,9 @@ redis:
   addr: "redis:6379"
 
 security:
-  admin_api_key: "<LONG_RANDOM_ADMIN_API_KEY_FOR_SERVER_SIDE_CALLS>"
+  admin_api_key: "<LONG_RANDOM_ADMIN_API_KEY>"
   admin_username: "admin"
-  admin_password_hash: "<BCRYPT_HASH>"
+  admin_password_hash: "<BCRYPT_PASSWORD_HASH>"
   admin_session_secret: "<LONG_RANDOM_SESSION_SECRET>"
 
 wechat:
@@ -148,27 +121,54 @@ mcp:
   path: "/mcp"
 ```
 
-字段说明：
+生成随机密钥：
 
-- `app.env`：生产环境设为 `prod`。`prod` 下必须配置后台鉴权。
-- `http.addr`：后端 HTTP API 监听地址。
-- `database.dsn`：PostgreSQL DSN。为空时仅适合本地内存模式。
-- `redis.addr`：Redis 地址。为空时关闭 Redis 锁、缓存和异步队列。
-- `security.admin_api_key`：服务端脚本或 MCP 调用管理 API 时使用，不要放进前端。
-- `security.admin_username`、`security.admin_password_hash`、`security.admin_session_secret`：管理后台登录配置，三个字段需要一起配置。
-- `wechat.component_app_id`：微信开放平台第三方平台 Component AppID。
-- `wechat.component_app_secret`：微信开放平台第三方平台 AppSecret。
-- `wechat.component_verify_token`：微信回调校验 Token。
-- `wechat.component_encoding_aes_key`：微信消息加解密 EncodingAESKey。
-- `wechat.refresh_token_encryption_key`：base64 编码的 32 字节密钥，用于加密保存 authorizer refresh token。
-- `mcp.token`：远程 MCP 的访问 token。管理台 MCP 配置页会以掩码方式展示它，但不要写入前端静态配置。
-- `mcp.path`：Streamable HTTP MCP 路径，默认 `/mcp`。
+```bash
+openssl rand -base64 32
+openssl rand -base64 48
+```
 
-## 数据库初始化
+生成管理员密码 hash：
 
-如果使用仓库里的 `docker-compose.yml` 启动内置 PostgreSQL，首次创建数据库卷时会自动执行 `migrations/*.sql`。
+```bash
+htpasswd -bnBC 12 "" "your-admin-password" | tr -d ':\n'
+```
 
-如果使用外部或已有 PostgreSQL，需要手动按文件名顺序执行迁移：
+重点区分两个 token：
+
+- `security.admin_api_key`：给服务端脚本和 MCP 进程调用后端 API 用。
+- `mcp.token`：给外部 Agent 连接 MCP 用。
+
+不要把这两个 token 写进前端 `admin-config.js`。
+
+## 4. 启动后端、PostgreSQL、Redis
+
+仓库里的 `docker-compose.yml` 会启动：
+
+- `app`：后端 API
+- `postgres`：数据库
+- `redis`：队列、锁和 token 缓存
+
+启动：
+
+```bash
+docker compose up -d --build
+curl http://127.0.0.1:8080/healthz
+```
+
+看到下面结果就说明后端活着：
+
+```json
+{"status":"ok"}
+```
+
+停止：
+
+```bash
+docker compose down
+```
+
+如果你用外部 PostgreSQL，不用 compose 内置数据库，需要手动执行迁移：
 
 ```bash
 export DATABASE_DSN='postgres://official_account:<DB_PASSWORD>@127.0.0.1:5432/official_account?sslmode=disable'
@@ -178,79 +178,11 @@ for f in migrations/*.sql; do
 done
 ```
 
-当前项目没有单独的迁移命令，后端启动时只连接并检查数据库，不会自动建表。
+注意：当前后端启动时不会自动建表。
 
-## Docker 部署后端
+## 5. 构建并部署管理后台
 
-仓库内置的 `docker-compose.yml` 会启动后端、PostgreSQL 和 Redis。
-
-```bash
-cp config.docker.yaml.example config.docker.yaml
-```
-
-编辑 `config.docker.yaml`，至少填入：
-
-- `app.env: prod`
-- `security.admin_api_key`
-- 管理员登录三项配置
-- 微信第三方平台配置
-- `wechat.refresh_token_encryption_key`
-- `mcp.token`
-
-启动：
-
-```bash
-docker compose up -d --build
-curl http://127.0.0.1:8080/healthz
-```
-
-停止：
-
-```bash
-docker compose down
-```
-
-生产环境注意：
-
-- 默认 compose 把 PostgreSQL `5432` 和 Redis `6379` 映射到宿主机，正式上线建议用防火墙限制访问，或移除端口映射只保留 Docker 内网访问。
-- 当前 compose 只包含后端 HTTP API、PostgreSQL 和 Redis，不包含管理后台静态文件服务，也不包含远程 MCP 进程。
-- Redis 配置当前只支持地址，不支持密码字段。生产环境应让 Redis 只在可信内网或 Docker 网络内可访问。
-
-## 二进制部署后端
-
-不用 Docker 部署后端时，可以直接构建二进制：
-
-```bash
-go build -trimpath -ldflags="-s -w" -o /opt/official-account-service/bin/official-account-service ./cmd/server
-```
-
-systemd 示例：
-
-```ini
-[Unit]
-Description=Official Account Service API
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/official-account-service
-ExecStart=/opt/official-account-service/bin/official-account-service -config /opt/official-account-service/config.yaml
-Restart=always
-RestartSec=3
-User=official-account
-
-[Install]
-WantedBy=multi-user.target
-```
-
-启动后检查：
-
-```bash
-curl http://127.0.0.1:8080/healthz
-```
-
-## 管理后台部署
-
-管理后台是静态前端，需要单独构建和部署。
+构建前端：
 
 ```bash
 cd web/admin
@@ -258,14 +190,14 @@ npm ci
 npm run build
 ```
 
-把 `web/admin/dist` 发布到 Nginx 静态目录，例如：
+把构建产物放到 Nginx 静态目录：
 
 ```bash
 mkdir -p /var/www/official-account-admin
 cp -R web/admin/dist/. /var/www/official-account-admin/
 ```
 
-前端运行时配置在部署目录里的 `admin-config.js`。换服务器或换域名时，优先改这个文件，不需要重新构建前端。
+修改线上静态目录里的 `admin-config.js`：
 
 ```js
 window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
@@ -276,26 +208,19 @@ window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
 }
 ```
 
-字段说明：
+这里不要填真实密钥。它只放浏览器可以看到的公开配置。
 
-- `tenantID`：当前管理后台默认租户 ID。
-- `publicBaseURL`：公网 HTTPS 地址，用来生成授权入口页和微信回调地址。
-- `componentAppID`：微信第三方平台 Component AppID。
-- `adminAPIKey`：兼容旧部署的可选字段。公开站点不要使用它作为主要鉴权方式，生产环境使用管理员登录会话。
+## 6. 启动 MCP 服务
 
-不要把管理员密码、AppSecret、Verify Token、EncodingAESKey、refresh token、`security.admin_api_key`、`mcp.token` 或任何数据库密码写入 `admin-config.js`。
+远程 MCP 是单独进程，不是后端 API 里自带的路由。
 
-## 远程 MCP 部署
-
-远程 Agent 接入使用 `cmd/mcp-server` 的 `streamable-http` 模式。它是独立进程，不是 `cmd/server` 里的普通 HTTP 路由。
-
-构建：
+先构建：
 
 ```bash
 go build -trimpath -ldflags="-s -w" -o /opt/official-account-service/bin/official-account-mcp ./cmd/mcp-server
 ```
 
-启动所需环境变量：
+启动前设置环境变量：
 
 ```bash
 export OFFICIAL_ACCOUNT_MCP_TRANSPORT="streamable-http"
@@ -305,43 +230,13 @@ export OFFICIAL_ACCOUNT_BASE_URL="http://127.0.0.1:8080"
 export OFFICIAL_ACCOUNT_PUBLIC_BASE_URL="https://<PUBLIC_DOMAIN>"
 export OFFICIAL_ACCOUNT_COMPONENT_APP_ID="<WX_COMPONENT_APPID>"
 export OFFICIAL_ACCOUNT_TENANT_ID="tenant-1"
-export OFFICIAL_ACCOUNT_ADMIN_API_KEY="<LONG_RANDOM_ADMIN_API_KEY_FOR_SERVER_SIDE_CALLS>"
-export OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT="/opt/official-account-service/uploads"
+export OFFICIAL_ACCOUNT_ADMIN_API_KEY="<LONG_RANDOM_ADMIN_API_KEY>"
 ```
 
 启动：
 
 ```bash
-/opt/official-account-service/bin/official-account-mcp -config /opt/official-account-service/config.yaml
-```
-
-`mcp.token` 建议保存在 `config.yaml`，不要分散到环境变量里。`OFFICIAL_ACCOUNT_MCP_TOKEN` 仍作为兼容环境变量可用，但线上建议以 YAML 为准。
-
-systemd 示例：
-
-```ini
-[Unit]
-Description=Official Account Service MCP
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/official-account-service
-Environment=OFFICIAL_ACCOUNT_MCP_TRANSPORT=streamable-http
-Environment=OFFICIAL_ACCOUNT_MCP_ADDR=127.0.0.1:8091
-Environment=OFFICIAL_ACCOUNT_MCP_PATH=/mcp
-Environment=OFFICIAL_ACCOUNT_BASE_URL=http://127.0.0.1:8080
-Environment=OFFICIAL_ACCOUNT_PUBLIC_BASE_URL=https://<PUBLIC_DOMAIN>
-Environment=OFFICIAL_ACCOUNT_COMPONENT_APP_ID=<WX_COMPONENT_APPID>
-Environment=OFFICIAL_ACCOUNT_TENANT_ID=tenant-1
-Environment=OFFICIAL_ACCOUNT_ADMIN_API_KEY=<LONG_RANDOM_ADMIN_API_KEY_FOR_SERVER_SIDE_CALLS>
-Environment=OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT=/opt/official-account-service/uploads
-ExecStart=/opt/official-account-service/bin/official-account-mcp -config /opt/official-account-service/config.yaml
-Restart=always
-RestartSec=3
-User=official-account
-
-[Install]
-WantedBy=multi-user.target
+/opt/official-account-service/bin/official-account-mcp -config /opt/official-account-service/config.docker.yaml
 ```
 
 检查：
@@ -350,9 +245,17 @@ WantedBy=multi-user.target
 curl http://127.0.0.1:8091/mcp/healthz
 ```
 
-## Nginx 示例
+看到：
 
-下面示例使用同一个域名承载管理后台、后端 API、微信回调和 MCP。
+```json
+{"status":"ok"}
+```
+
+就说明 MCP 进程活着。
+
+## 7. Nginx 配置
+
+下面是最小可用示例。把 `<PUBLIC_DOMAIN>` 替换成你的域名。
 
 ```nginx
 server {
@@ -373,6 +276,12 @@ server {
 
     client_max_body_size 12m;
 
+    location = /healthz {
+        proxy_pass http://127.0.0.1:8080/healthz;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
     location /api/ {
         proxy_pass http://127.0.0.1:8080/api/;
         proxy_set_header Host $host;
@@ -388,23 +297,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
-    location = /healthz {
-        proxy_pass http://127.0.0.1:8080/healthz;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-    }
-
     location = /mcp {
-        proxy_pass http://127.0.0.1:8091/mcp;
-        proxy_http_version 1.1;
-        proxy_buffering off;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header Authorization $http_authorization;
-    }
-
-    location = /mcp/ {
         proxy_pass http://127.0.0.1:8091/mcp;
         proxy_http_version 1.1;
         proxy_buffering off;
@@ -431,16 +324,13 @@ server {
 ```bash
 nginx -t
 systemctl reload nginx
-curl https://<PUBLIC_DOMAIN>/healthz
 curl https://<PUBLIC_DOMAIN>/api/v1/healthz
 curl https://<PUBLIC_DOMAIN>/mcp/healthz
 ```
 
-`/healthz` 如果由前端静态站点接管，可能返回前端页面；后端健康检查以 `/api/v1/healthz` 为准。
+## 8. 微信第三方平台要填什么
 
-## 微信第三方平台配置
-
-在微信开放平台第三方平台中配置以下地址。所有 `<PUBLIC_DOMAIN>` 都替换为同一个公网域名。
+在微信开放平台第三方平台里填这些。
 
 ```text
 授权发起页域名:
@@ -456,48 +346,43 @@ https://<PUBLIC_DOMAIN>/wechat/authorizer/$APPID$/callback
 https://<PUBLIC_DOMAIN>/api/v1/wechat/authorization-callback?tenant_id=tenant-1&component_appid=<WX_COMPONENT_APPID>
 ```
 
-注意：
+授权入口页是：
 
-- 授权入口页是 `https://<PUBLIC_DOMAIN>/wechat-authorize.html?tenant_id=tenant-1&component_appid=<WX_COMPONENT_APPID>`。
-- `wechat-authorize.html` 会在浏览器中生成真实微信授权 URL，并跳转到微信二维码页。
-- 授权入口页所在域名、授权后回调页所在域名、微信第三方平台填写的授权发起页域名必须一致。
-- `component_verify_token` 和 `component_encoding_aes_key` 必须和微信平台页面填写的一致。
-- 后端收到 `component_verify_ticket` 后，才能生成真实 `pre_auth_code`。
+```text
+https://<PUBLIC_DOMAIN>/wechat-authorize.html?tenant_id=tenant-1&component_appid=<WX_COMPONENT_APPID>
+```
 
-授权成功后，`GET /api/v1/wechat/authorization-callback` 会保存公众号账号。管理后台账号页应能看到新授权的公众号。
+最重要的一点：
 
-## MCP 客户端连接
+```text
+wechat-authorize.html 所在域名
+= 授权回调 URL 所在域名
+= 微信平台填写的授权发起页域名
+```
 
-Streamable HTTP MCP 连接信息：
+这三个必须一致，否则微信会报授权入口域名错误。
+
+## 9. Agent 如何连接 MCP
+
+Streamable HTTP 配置：
 
 ```text
 URL: https://<PUBLIC_DOMAIN>/mcp
 Transport: streamable-http
-Header name: Authorization
-Header value: Bearer <MCP_TOKEN>
+Header: Authorization=Bearer <MCP_TOKEN>
 ```
 
-推荐 MCP URL 使用 `/mcp`，不要主动加尾部斜杠。上面的 Nginx 示例兼容 `/mcp/`，但不同客户端对重定向和路径规范化的处理不完全一致。
-
-部分客户端使用 API Key Header 模板，也可以这样填：
+如果客户端是 API Key Header 模板，也可以填：
 
 ```text
 Header name: X-API-Key
 Header value: <MCP_TOKEN>
 ```
 
-Cherry Studio 等客户端常见写法：
-
-```text
-Authorization=Bearer <MCP_TOKEN>
-```
-
-MCP token 来自 `config.yaml` 的 `mcp.token`。管理后台登录后可以在 MCP 配置页查看连接模板，默认以掩码展示 token。
-
-MCP 暴露的工具：
+常用工具：
 
 - `official_account_list_accounts`
-- `official_account_list_articles`
+- `official_account_get_authorization_entry`
 - `official_account_create_article`
 - `official_account_update_article`
 - `official_account_upload_image`
@@ -506,190 +391,107 @@ MCP 暴露的工具：
 - `official_account_list_publish_records`
 - `official_account_sync_publish_status`
 - `official_account_delete_published_record`
-- `official_account_get_authorization_entry`
-- `official_account_generate_authorization_url`
 
-推荐 Agent 流程：
+典型流程：
 
-1. 调 `official_account_list_accounts` 查看是否已有授权公众号。
-2. 没有账号时，调 `official_account_get_authorization_entry`，把返回链接或二维码给用户扫码授权。
-3. 调 `official_account_create_article` 创建本地草稿。
-4. 如有正文图或封面图，调 `official_account_upload_image` 上传。
-5. 调 `official_account_update_article` 写入最终标题、摘要、正文 HTML 和封面素材 ID。
-6. 发布前让用户确认标题、公众号、封面和摘要。
-7. 调 `official_account_publish_article`，必须传 `confirm_publish=true`。
-8. 调 `official_account_sync_publish_status` 和 `official_account_list_publish_records` 核对结果。
+1. `official_account_list_accounts` 看有没有公众号。
+2. 没有就用 `official_account_get_authorization_entry` 生成授权链接。
+3. 创建文章草稿。
+4. 上传封面和正文图片。
+5. 更新文章内容。
+6. 发布前让用户确认。
+7. 调 `official_account_publish_article` 发布，必须传 `confirm_publish=true`。
+8. 同步发布状态。
 
-删除约束：
+## 10. 上线后怎么检查
 
-- `official_account_delete_article` 只删除本地 `draft` / `failed` 文章，必须传 `confirm_delete="DELETE"`。
-- `publishing` / `published` 文章需要先用 `official_account_delete_published_record` 删除公众号侧内容。
-- `official_account_delete_published_record` 也必须传 `confirm_delete="DELETE"`。
+按顺序检查：
 
-## 管理 API 鉴权
-
-管理后台推荐使用管理员登录：
-
-- `POST /api/v1/admin/session` 登录。
-- 服务端签发 HttpOnly + SameSite cookie。
-- 写操作需要 `X-CSRF-Token`。
-
-服务端脚本和 MCP 进程可以使用：
-
-```text
-X-Admin-API-Key: <security.admin_api_key>
+```bash
+curl https://<PUBLIC_DOMAIN>/api/v1/healthz
+curl https://<PUBLIC_DOMAIN>/mcp/healthz
 ```
 
-或：
+然后检查：
 
-```text
-Authorization: Bearer <security.admin_api_key>
-```
-
-`security.admin_api_key` 和 `mcp.token` 是两个不同 token：
-
-- `security.admin_api_key` 用于调用后端管理 API。
-- `mcp.token` 用于远程 Agent 连接 MCP endpoint。
-
-## API 概览
-
-HTTP API 文档位于 `api/openapi.yaml`。
-
-常用入口：
-
-- `GET /api/v1/healthz`
-- `POST /api/v1/admin/session`
-- `GET /api/v1/accounts`
-- `GET /api/v1/articles`
-- `POST /api/v1/articles`
-- `PUT /api/v1/articles/:id`
-- `DELETE /api/v1/articles/:id`
-- `POST /api/v1/materials/inline-images`
-- `POST /api/v1/materials/covers`
-- `POST /api/v1/articles/:id/publish`
-- `GET /api/v1/publish-records`
-- `POST /api/v1/publish-records/:id/sync-status`
-- `POST /api/v1/publish-records/:id/delete-published`
-- `GET /api/v1/admin/mcp-config`
-- `GET /api/v1/wechat/authorization-url`
-- `GET /api/v1/wechat/authorization-callback`
-- `POST /wechat/component/callback`
-- `POST /wechat/authorizer/:app_id/callback`
-
-所有管理接口都需要 `X-Tenant-ID`。启用鉴权后，还需要管理员登录会话或后台 API key。
-
-## 发布行为说明
-
-- 未配置微信密钥时，真实微信能力会返回 `501 not_implemented`。
-- 配置 `wechat.component_app_secret` 并收到 `component_verify_ticket` 后，服务会获取 `component_access_token` 和 `pre_auth_code`。
-- 授权回调落库前会加密保存 `authorizer_refresh_token`。
-- 配置 `redis.addr` 后，服务会启用 token 刷新锁、跨实例缓存和 asynq 队列。
-- 配置 `wechat.component_app_id` 后，素材上传会调用微信接口。
-- `POST /api/v1/articles/:id/publish` 会创建微信草稿并提交发布。
-- 已发布文章再次发布会提交修订版；修订版发布成功后，会自动删除同一文章的上一版已发布内容。
-- 删除文章时，如果本地保存了微信 `article_id`，后端会先调用微信 `freepublish/delete` 删除公众号侧图文，再删除本地文章。
-- 正在发布中的文章会拒绝删除，避免微信异步发布结果变成孤儿内容。
-- 已经删除本地文章但公众号侧仍存在的历史内容，可以通过发布记录页或 `POST /api/v1/publish-records/:id/delete-published` 删除。
-
-## 上线检查清单
-
-上线前确认：
-
-- `config.yaml` 或 `config.docker.yaml` 不在 Git 暂存区。
-- `app.env` 已设为 `prod`。
-- 管理员登录已配置，且密码 hash 不是明文密码。
-- `security.admin_api_key` 是长随机值，并且只给服务端脚本或 MCP 进程使用。
-- `mcp.token` 是长随机值，并且只给受信任 Agent 使用。
-- PostgreSQL 迁移已执行。
-- Redis 只允许可信网络访问。
-- Nginx 已启用 HTTPS。
-- `/api/v1/healthz` 返回 `{"status":"ok"}`。
-- `/mcp/healthz` 返回 `{"status":"ok"}`。
-- `admin-config.js` 只包含可公开配置。
-- 微信第三方平台的授权发起页域名与 `wechat-authorize.html` 的域名一致。
-- 微信第三方平台的 Token、EncodingAESKey 和 YAML 配置一致。
-- 管理后台能登录，账号页能生成授权入口。
-- MCP 客户端能 `tools/list`。
+- 能打开管理后台。
+- 能登录管理员账号。
+- 账号页能生成公众号授权入口。
+- 扫码授权后，账号页能看到公众号。
+- MCP 客户端能连接并列出工具。
+- 发布测试文章后，发布记录能同步状态。
 
 ## 常见问题
 
-### 微信提示授权入口域名不一致
+### MCP 能用，但 config.yaml 里没有 mcp 配置
 
-检查三处是否完全一致：
-
-- 微信第三方平台填写的授权发起页域名。
-- 浏览器打开的 `wechat-authorize.html` 所在域名。
-- 授权回调地址 `redirect_uri` 所在域名。
-
-推荐统一为：
+可能是 MCP token 来自环境变量：
 
 ```text
-https://<PUBLIC_DOMAIN>/wechat-authorize.html
-https://<PUBLIC_DOMAIN>/api/v1/wechat/authorization-callback
+OFFICIAL_ACCOUNT_MCP_TOKEN
 ```
 
-### MCP 返回的授权入口不是预期域名
+也可能是旧进程还没重启。长期部署建议把它写回 YAML：
 
-检查 MCP 进程的：
-
-```text
-OFFICIAL_ACCOUNT_PUBLIC_BASE_URL
-OFFICIAL_ACCOUNT_COMPONENT_APP_ID
-OFFICIAL_ACCOUNT_TENANT_ID
+```yaml
+mcp:
+  token: "<LONG_RANDOM_MCP_TOKEN>"
+  path: "/mcp"
 ```
 
-`official_account_get_authorization_entry` 使用 `OFFICIAL_ACCOUNT_PUBLIC_BASE_URL` 生成 `wechat-authorize.html` 链接。
+### MCP 401
 
-### MCP 连接 401
-
-检查客户端请求头：
+检查请求头是不是：
 
 ```text
 Authorization: Bearer <MCP_TOKEN>
 ```
 
-或：
+注意这里是 `mcp.token`，不是管理员密码，也不是 `security.admin_api_key`。
+
+### MCP 工具能连，但创建文章或发布失败
+
+检查 MCP 进程环境变量：
 
 ```text
-X-API-Key: <MCP_TOKEN>
+OFFICIAL_ACCOUNT_ADMIN_API_KEY
 ```
 
-这里的 `<MCP_TOKEN>` 是 `mcp.token`，不是管理员登录密码，也不是 `security.admin_api_key`。
+它必须等于 YAML 里的：
 
-### MCP 工具能连上但写接口失败
+```text
+security.admin_api_key
+```
 
-MCP 进程调用后端管理 API 时需要 `OFFICIAL_ACCOUNT_ADMIN_API_KEY`，它应等于 YAML 里的 `security.admin_api_key`。
-
-### 管理后台连接异常
+### 授权入口没有跳到微信二维码
 
 检查：
 
-- `/api/v1/healthz` 是否可访问。
-- Nginx `/api/` 是否代理到 `127.0.0.1:8080`。
-- 浏览器是否已经登录管理员账号。
-- 写操作是否携带服务端返回的 CSRF token。
+- `wechat.component_app_secret` 是否配置。
+- 微信是否已经推送 `component_verify_ticket`。
+- `wechat.component_verify_token` 和 `wechat.component_encoding_aes_key` 是否和微信平台一致。
+- 授权入口页域名和回调域名是否一致。
 
 ### 授权成功后页面只显示 JSON
 
-这是当前授权回调接口的正常返回。确认管理后台账号页是否出现新公众号；如果没有，检查后端日志、数据库连接和 `authorizer_refresh_token` 加密密钥。
+这是当前正常行为。授权成功后去管理后台账号页看公众号是否出现。
 
-### 修改已发布文章后公众号不会自动刷新
+### 修改已发布文章后公众号没有自动变化
 
-微信公众号已发布内容不会因为本地草稿修改自动刷新。需要再次发布修订版；修订版发布成功后，系统会自动删除上一版已发布内容。
+公众号已发布内容不会因为本地文章修改而自动刷新。需要再次发布修订版。修订版发布成功后，系统会自动删除上一版已发布内容。
 
-### 删除本地文章后公众号里还存在
+### 本地删了文章，公众号里还在
 
-本地删除不一定代表公众号侧已删除。对于已经发布的内容，应在发布记录页执行删除公众号侧内容，或调用：
+已经发布到公众号的内容，需要通过发布记录删除公众号侧内容：
 
 ```text
 POST /api/v1/publish-records/:id/delete-published
 ```
 
-## 安全注意事项
+## 安全提醒
 
-- 不要提交 `config.yaml`、`config.docker.yaml` 或任何真实密钥。
-- 不要把 `mcp.token`、`security.admin_api_key`、AppSecret、EncodingAESKey、数据库密码写入前端静态文件。
-- 不要让 PostgreSQL 和 Redis 暴露到公网。
-- 远程 MCP 必须放在 HTTPS 后面，并配置长随机 token。
-- 管理后台建议只对可信人员开放；如果部署在公网，至少启用管理员登录和 HTTPS。
-- 日志中不要主动打印 token、secret、refresh token 或微信回调原文。
+- 不要提交 `config.yaml`、`config.docker.yaml`。
+- 不要把 AppSecret、EncodingAESKey、数据库密码、`security.admin_api_key`、`mcp.token` 放进前端。
+- 不要把 PostgreSQL 和 Redis 暴露到公网。
+- MCP 必须走 HTTPS，并且必须配置长随机 token。
+- 生产环境必须开启管理员登录或后台 API key。
