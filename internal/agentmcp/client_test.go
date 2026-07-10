@@ -38,6 +38,59 @@ func TestClientCreatesArticleWithTenantAndAdminHeaders(t *testing.T) {
 	require.Equal(t, "draft", article.Status)
 }
 
+func TestClientDeletesDraftArticle(t *testing.T) {
+	var deleted bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "tenant-test", r.Header.Get("X-Tenant-ID"))
+		require.Equal(t, "admin-key", r.Header.Get("X-Admin-API-Key"))
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles/12":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":12,"tenant_id":"tenant-test","authorizer_id":7,"title":"hello","status":"draft"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/articles/12":
+			deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test", AdminAPIKey: "admin-key"})
+	require.NoError(t, err)
+
+	article, err := client.DeleteArticle(context.Background(), 12)
+
+	require.NoError(t, err)
+	require.True(t, deleted)
+	require.Equal(t, int64(12), article.ID)
+	require.Equal(t, "draft", article.Status)
+}
+
+func TestClientRefusesToDeletePublishedArticle(t *testing.T) {
+	var deleteRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "tenant-test", r.Header.Get("X-Tenant-ID"))
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles/12":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":12,"tenant_id":"tenant-test","authorizer_id":7,"title":"hello","status":"published"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/articles/12":
+			deleteRequests++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	_, err = client.DeleteArticle(context.Background(), 12)
+
+	require.ErrorContains(t, err, `status is "published"`)
+	require.Zero(t, deleteRequests)
+}
+
 func TestClientUploadsImageAsMultipart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)

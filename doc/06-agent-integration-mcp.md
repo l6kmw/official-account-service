@@ -126,6 +126,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_update_article`
 - `official_account_upload_image`
 - `official_account_publish_article`
+- `official_account_delete_article`
 - `official_account_list_publish_records`
 - `official_account_sync_publish_status`
 - `official_account_delete_published_record`
@@ -135,6 +136,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 安全约束：
 
 - `official_account_publish_article` 必须传 `confirm_publish=true`。
+- `official_account_delete_article` 只删除本地 `draft` / `failed` 文章，必须传 `confirm_delete="DELETE"`；`publishing` / `published` 文章会拒绝删除。
 - `official_account_delete_published_record` 必须传 `confirm_delete="DELETE"`。
 - 所有工具都复用现有后台 API，不返回 token、secret、refresh token。
 

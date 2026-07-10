@@ -202,6 +202,15 @@ func (c *Client) ListArticles(ctx context.Context) ([]Article, error) {
 	return out.Items, nil
 }
 
+// GetArticle returns one tenant-scoped article.
+func (c *Client) GetArticle(ctx context.Context, id int64) (Article, error) {
+	var out Article
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v1/articles/%d", id), nil, &out, http.StatusOK); err != nil {
+		return Article{}, err
+	}
+	return out, nil
+}
+
 // CreateArticle creates a draft article.
 func (c *Client) CreateArticle(ctx context.Context, input CreateArticleInput) (Article, error) {
 	var out Article
@@ -218,6 +227,30 @@ func (c *Client) UpdateArticle(ctx context.Context, id int64, input UpdateArticl
 		return Article{}, err
 	}
 	return out, nil
+}
+
+// DeleteArticle deletes one local draft or failed article.
+func (c *Client) DeleteArticle(ctx context.Context, id int64) (Article, error) {
+	article, err := c.GetArticle(ctx, id)
+	if err != nil {
+		return Article{}, err
+	}
+	if !canDeleteLocalArticle(article.Status) {
+		return Article{}, fmt.Errorf("article %d status is %q; delete published or publishing content with official_account_delete_published_record first", id, article.Status)
+	}
+	if err := c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/api/v1/articles/%d", id), nil, nil, http.StatusNoContent); err != nil {
+		return Article{}, err
+	}
+	return article, nil
+}
+
+func canDeleteLocalArticle(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "draft", "failed":
+		return true
+	default:
+		return false
+	}
 }
 
 // UploadImage uploads a body image or cover image.

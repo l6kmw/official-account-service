@@ -125,6 +125,21 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_delete_article",
+		Title:       "Delete local article",
+		Description: "Delete one local draft or failed article. Refuses publishing/published articles; delete real WeChat content with official_account_delete_published_record first. Requires confirm_delete=\"DELETE\".",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteArticleToolInput) (*mcp.CallToolResult, any, error) {
+		if input.ConfirmDelete != "DELETE" {
+			return nil, nil, fmt.Errorf("confirm_delete must be DELETE before deleting a local article")
+		}
+		article, err := client.DeleteArticle(ctx, input.ArticleID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"deleted_article": article}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_publish_records",
 		Title:       "List publish records",
 		Description: "List WeChat publish records for the configured tenant.",
@@ -225,6 +240,11 @@ type uploadImageToolInput struct {
 type publishArticleToolInput struct {
 	ArticleID      int64 `json:"article_id" jsonschema:"Local article id to publish."`
 	ConfirmPublish bool  `json:"confirm_publish" jsonschema:"Must be true to publish real WeChat content."`
+}
+
+type deleteArticleToolInput struct {
+	ArticleID     int64  `json:"article_id" jsonschema:"Local article id to delete."`
+	ConfirmDelete string `json:"confirm_delete" jsonschema:"Must be DELETE to delete the local article."`
 }
 
 type syncPublishStatusToolInput struct {
