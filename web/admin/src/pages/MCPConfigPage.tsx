@@ -31,14 +31,16 @@ export function MCPConfigPage() {
   const endpointPath = config?.path || defaultMCPPath
   const token = config?.token || ''
   const tokenValue = token || tokenPlaceholder
-  const headerName = config?.header_name || 'X-API-Key'
+  const headerName = config?.header_name || 'Authorization'
   const transport = config?.transport || 'streamable-http'
   const displayToken = token ? tokenVisible ? token : maskToken(token) : tokenPlaceholder
+  const headerValue = buildHeaderValue(headerName, tokenValue)
   const endpointURL = useMemo(() => new URL(endpointPath, `${baseURL}/`).toString(), [baseURL, endpointPath])
   const healthURL = useMemo(() => new URL(`${endpointPath}/healthz`, `${baseURL}/`).toString(), [baseURL, endpointPath])
   const visibleTokenValue = token ? tokenVisible ? token : maskToken(token) : tokenPlaceholder
-  const jsonConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, visibleTokenValue), [endpointURL, headerName, visibleTokenValue])
-  const copyableJSONConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, tokenValue), [endpointURL, headerName, tokenValue])
+  const visibleHeaderValue = buildHeaderValue(headerName, visibleTokenValue)
+  const jsonConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, visibleHeaderValue), [endpointURL, headerName, visibleHeaderValue])
+  const copyableJSONConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, headerValue), [endpointURL, headerName, headerValue])
 
   useEffect(() => {
     let active = true
@@ -107,7 +109,8 @@ export function MCPConfigPage() {
             <ConfigRow label="Header Name" value={headerName} />
             <SecretRow
               label="Header Value"
-              value={displayToken}
+              value={visibleHeaderValue}
+              disabled={!token}
               loading={loading}
               visible={tokenVisible}
               onToggle={() => setTokenVisible((value) => !value)}
@@ -115,7 +118,7 @@ export function MCPConfigPage() {
           </FieldList>
           <ButtonRow>
             <Button onClick={() => copy('json', copyableJSONConfig)}><CopyIcon />{copied === 'json' ? '已复制' : '复制 JSON 模板'}</Button>
-            <Button variant="secondary" onClick={() => copy('header', `${headerName}: ${tokenValue}`)}><CopyIcon />复制 Header</Button>
+            <Button variant="secondary" onClick={() => copy('header', `${headerName}: ${headerValue}`)}><CopyIcon />复制 Header</Button>
           </ButtonRow>
         </ConfigPanel>
 
@@ -140,7 +143,7 @@ export function MCPConfigPage() {
           <SecurityList>
             <SecurityItem><TerminalIcon />不要选择 OAuth 登录流。</SecurityItem>
             <SecurityItem><ShieldIcon />不要把后台 admin API key 填给 agent。</SecurityItem>
-            <SecurityItem><KeyIcon />只把 MCP token 填到 API Key 字段。</SecurityItem>
+            <SecurityItem><KeyIcon />请求头使用 Authorization: Bearer MCP token。</SecurityItem>
           </SecurityList>
         </ConfigPanel>
       </ConfigGrid>
@@ -168,13 +171,13 @@ function ConfigRow({ label, value, muted }: { label: string; value: string; mute
   )
 }
 
-function SecretRow({ label, value, loading, visible, onToggle }: { label: string; value: string; loading: boolean; visible: boolean; onToggle: () => void }) {
+function SecretRow({ label, value, disabled, loading, visible, onToggle }: { label: string; value: string; disabled: boolean; loading: boolean; visible: boolean; onToggle: () => void }) {
   return (
     <Row>
       <RowLabel>{label}</RowLabel>
       <SecretRowValue>
-        <RowValue $muted={!visible}>{loading ? '读取中…' : value}</RowValue>
-        <IconButton type="button" onClick={onToggle} disabled={loading || value === tokenPlaceholder} aria-label={visible ? '隐藏 MCP token' : '显示 MCP token'}>
+        <RowValue $muted={!visible || disabled}>{loading ? '读取中…' : value}</RowValue>
+        <IconButton type="button" onClick={onToggle} disabled={loading || disabled} aria-label={visible ? '隐藏 MCP token' : '显示 MCP token'}>
           {visible ? <EyeOffIcon /> : <EyeIcon />}
         </IconButton>
       </SecretRowValue>
@@ -189,18 +192,23 @@ function resolveDisplayBaseURL() {
   return normalizePublicBaseURL(adminConfig.publicBaseURL)
 }
 
-function buildMCPJSONConfig(endpointURL: string, headerName: string, token: string) {
+function buildMCPJSONConfig(endpointURL: string, headerName: string, headerValue: string) {
   return JSON.stringify({
     mcpServers: {
       'official-account': {
         transport: 'streamable-http',
         url: endpointURL,
         headers: {
-          [headerName]: token
+          [headerName]: headerValue
         }
       }
     }
   }, null, 2)
+}
+
+function buildHeaderValue(headerName: string, token: string) {
+  if (headerName.toLowerCase() !== 'authorization') return token
+  return token.startsWith('Bearer ') ? token : `Bearer ${token}`
 }
 
 function maskToken(token: string) {

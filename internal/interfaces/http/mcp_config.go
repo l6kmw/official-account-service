@@ -28,7 +28,7 @@ func registerMCPConfigRoutes(r gin.IRouter, cfg mcpConfig) {
 		c.JSON(http.StatusOK, mcpConfigResponse{
 			Transport:  "streamable-http",
 			Path:       normalizeMCPConfigPath(cfg.Path),
-			HeaderName: "X-API-Key",
+			HeaderName: "Authorization",
 			Token:      token,
 			Configured: token != "",
 		})

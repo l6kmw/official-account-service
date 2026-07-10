@@ -217,7 +217,7 @@ func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
 
 	mcpConfig := doJSONWithAdminKey(t, router, http.MethodGet, "/api/v1/admin/mcp-config", ``, "", "admin-key")
 	require.Equal(t, http.StatusOK, mcpConfig.Code)
-	require.JSONEq(t, `{"transport":"streamable-http","path":"/mcp","header_name":"X-API-Key","token":"mcp-token","configured":true}`, mcpConfig.Body.String())
+	require.JSONEq(t, `{"transport":"streamable-http","path":"/mcp","header_name":"Authorization","token":"mcp-token","configured":true}`, mcpConfig.Body.String())
 
 	bearer := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "admin-key")
 	require.Equal(t, http.StatusOK, bearer.Code)

@@ -173,7 +173,7 @@ openssl rand -base64 32
 
 当 `app.env` 为 `prod` 时，必须配置 `security.admin_api_key`，或同时配置 `security.admin_username`、`security.admin_password_hash` 和 `security.admin_session_secret`。配置管理员登录后，管理台会通过 `POST /api/v1/admin/session` 登录，服务端签发 HttpOnly + SameSite cookie；写操作还需要 `X-CSRF-Token`。保留 `security.admin_api_key` 时，管理 API 仍兼容请求头 `X-Admin-API-Key: <admin_api_key>` 或 `Authorization: Bearer <admin_api_key>`，适合网关或脚本调用。
 
-`mcp.token` 是远程 MCP endpoint 给受信任 agent 使用的访问令牌。它会通过已登录管理员接口展示在管理台的 MCP 配置页；不要写入前端静态运行时配置 `admin-config.js`。
+`mcp.token` 是远程 MCP endpoint 给受信任 agent 使用的访问令牌。它会通过已登录管理员接口展示在管理台的 MCP 配置页，并默认生成 `Authorization: Bearer <mcp.token>` 连接模板；不要写入前端静态运行时配置 `admin-config.js`。
 
 HTTP 服务会统一限制请求体最大 10 MiB，超限返回 `413 request_too_large`。微信 component/authorizer 回调正文解析仍按 1 MiB 上限处理。
 

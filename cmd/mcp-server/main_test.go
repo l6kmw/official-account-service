@@ -55,6 +55,29 @@ func TestStreamableHTTPRequiresBearerToken(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "no bearer token")
 }
 
+func TestStreamableHTTPAcceptsBearerAuthorizationHeader(t *testing.T) {
+	client, err := agentmcp.NewClient(agentmcp.Config{
+		BaseURL:  "https://mp.example.com",
+		TenantID: "tenant-test",
+	})
+	require.NoError(t, err)
+	handler := newStreamableHTTPMux(agentmcp.NewServer(client, agentmcp.ServerConfig{}), streamableHTTPConfig{
+		Path:  "/mcp",
+		Token: "mcp-token",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}`))
+	req.Header.Set("Authorization", "Bearer mcp-token")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "official-account-service")
+}
+
 func TestStreamableHTTPAcceptsAPIKeyHeader(t *testing.T) {
 	client, err := agentmcp.NewClient(agentmcp.Config{
 		BaseURL:  "https://mp.example.com",

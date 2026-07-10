@@ -48,8 +48,9 @@ mcp:
 
 ```text
 URL: https://mp.example.com/mcp
-Header: Authorization: Bearer <MCP_TOKEN>
 Transport: streamable-http
+Header name: Authorization
+Header value: Bearer <MCP_TOKEN>
 ```
 
 如果客户端只提供 API Key Header 配置，也可以使用：
