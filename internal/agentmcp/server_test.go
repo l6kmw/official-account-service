@@ -44,6 +44,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	}
 	require.True(t, names["official_account_list_accounts"])
 	require.True(t, names["official_account_publish_article"])
+	require.True(t, names["official_account_get_authorization_entry"])
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "official_account_list_accounts",

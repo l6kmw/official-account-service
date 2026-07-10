@@ -22,27 +22,33 @@ const (
 
 // Config contains the HTTP settings for the Official Account MCP adapter.
 type Config struct {
-	BaseURL     string
-	TenantID    string
-	AdminAPIKey string
-	HTTPClient  *http.Client
+	BaseURL        string
+	PublicBaseURL  string
+	ComponentAppID string
+	TenantID       string
+	AdminAPIKey    string
+	HTTPClient     *http.Client
 }
 
 // ConfigFromEnv reads MCP adapter settings from environment variables.
 func ConfigFromEnv() Config {
 	return Config{
-		BaseURL:     os.Getenv("OFFICIAL_ACCOUNT_BASE_URL"),
-		TenantID:    os.Getenv("OFFICIAL_ACCOUNT_TENANT_ID"),
-		AdminAPIKey: os.Getenv("OFFICIAL_ACCOUNT_ADMIN_API_KEY"),
+		BaseURL:        os.Getenv("OFFICIAL_ACCOUNT_BASE_URL"),
+		PublicBaseURL:  os.Getenv("OFFICIAL_ACCOUNT_PUBLIC_BASE_URL"),
+		ComponentAppID: os.Getenv("OFFICIAL_ACCOUNT_COMPONENT_APP_ID"),
+		TenantID:       os.Getenv("OFFICIAL_ACCOUNT_TENANT_ID"),
+		AdminAPIKey:    os.Getenv("OFFICIAL_ACCOUNT_ADMIN_API_KEY"),
 	}
 }
 
 // Client calls the existing Official Account Service HTTP API.
 type Client struct {
-	baseURL     string
-	tenantID    string
-	adminAPIKey string
-	httpClient  *http.Client
+	baseURL        string
+	publicBaseURL  string
+	componentAppID string
+	tenantID       string
+	adminAPIKey    string
+	httpClient     *http.Client
 }
 
 // NewClient constructs a tenant-scoped HTTP API client.
@@ -55,6 +61,14 @@ func NewClient(cfg Config) (*Client, error) {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return nil, fmt.Errorf("validate official account base url: %w", ErrInvalidConfig)
 	}
+	publicBaseURL := strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
+	if publicBaseURL == "" {
+		publicBaseURL = baseURL
+	}
+	parsedPublic, err := url.Parse(publicBaseURL)
+	if err != nil || parsedPublic.Scheme == "" || parsedPublic.Host == "" {
+		return nil, fmt.Errorf("validate official account public base url: %w", ErrInvalidConfig)
+	}
 	tenantID := strings.TrimSpace(cfg.TenantID)
 	if tenantID == "" {
 		tenantID = defaultTenant
@@ -64,10 +78,12 @@ func NewClient(cfg Config) (*Client, error) {
 		httpClient = &http.Client{Timeout: 20 * time.Second}
 	}
 	return &Client{
-		baseURL:     baseURL,
-		tenantID:    tenantID,
-		adminAPIKey: strings.TrimSpace(cfg.AdminAPIKey),
-		httpClient:  httpClient,
+		baseURL:        baseURL,
+		publicBaseURL:  publicBaseURL,
+		componentAppID: strings.TrimSpace(cfg.ComponentAppID),
+		tenantID:       tenantID,
+		adminAPIKey:    strings.TrimSpace(cfg.AdminAPIKey),
+		httpClient:     httpClient,
 	}, nil
 }
 
@@ -131,6 +147,13 @@ type PublishRecord struct {
 type AuthorizationURL struct {
 	AuthorizationURL        string `json:"authorization_url"`
 	PreAuthCodeExpiresInSec int    `json:"pre_auth_code_expires_in_sec"`
+}
+
+type AuthorizationEntry struct {
+	AuthorizationEntryURL string `json:"authorization_entry_url"`
+	QRCodePayloadURL      string `json:"qr_code_payload_url"`
+	TenantID              string `json:"tenant_id"`
+	ComponentAppID        string `json:"component_appid"`
 }
 
 type CreateArticleInput struct {
@@ -282,6 +305,14 @@ func (c *Client) DeletePublishedRecord(ctx context.Context, recordID int64) (Pub
 
 // GenerateAuthorizationURL returns a WeChat component authorization URL.
 func (c *Client) GenerateAuthorizationURL(ctx context.Context, componentAppID, redirectURI string, authType int, bizAppID string) (AuthorizationURL, error) {
+	componentAppID = c.resolveComponentAppID(componentAppID)
+	if componentAppID == "" {
+		return AuthorizationURL{}, fmt.Errorf("validate component appid: %w", ErrInvalidConfig)
+	}
+	redirectURI = strings.TrimSpace(redirectURI)
+	if redirectURI == "" {
+		redirectURI = c.authorizationCallbackURL(componentAppID)
+	}
 	query := url.Values{}
 	query.Set("component_appid", componentAppID)
 	query.Set("redirect_uri", redirectURI)
@@ -296,6 +327,48 @@ func (c *Client) GenerateAuthorizationURL(ctx context.Context, componentAppID, r
 		return AuthorizationURL{}, err
 	}
 	return out, nil
+}
+
+// AuthorizationEntry returns the public authorization entry link suitable for a QR code.
+func (c *Client) AuthorizationEntry(componentAppID string) (AuthorizationEntry, error) {
+	componentAppID = c.resolveComponentAppID(componentAppID)
+	if componentAppID == "" {
+		return AuthorizationEntry{}, fmt.Errorf("validate component appid: %w", ErrInvalidConfig)
+	}
+	entryURL, err := url.Parse(c.publicBaseURL + "/wechat-authorize.html")
+	if err != nil {
+		return AuthorizationEntry{}, fmt.Errorf("build authorization entry url: %w", err)
+	}
+	query := entryURL.Query()
+	query.Set("tenant_id", c.tenantID)
+	query.Set("component_appid", componentAppID)
+	entryURL.RawQuery = query.Encode()
+	return AuthorizationEntry{
+		AuthorizationEntryURL: entryURL.String(),
+		QRCodePayloadURL:      entryURL.String(),
+		TenantID:              c.tenantID,
+		ComponentAppID:        componentAppID,
+	}, nil
+}
+
+func (c *Client) resolveComponentAppID(componentAppID string) string {
+	componentAppID = strings.TrimSpace(componentAppID)
+	if componentAppID != "" {
+		return componentAppID
+	}
+	return c.componentAppID
+}
+
+func (c *Client) authorizationCallbackURL(componentAppID string) string {
+	callbackURL, err := url.Parse(c.publicBaseURL + "/api/v1/wechat/authorization-callback")
+	if err != nil {
+		return ""
+	}
+	query := callbackURL.Query()
+	query.Set("tenant_id", c.tenantID)
+	query.Set("component_appid", componentAppID)
+	callbackURL.RawQuery = query.Encode()
+	return callbackURL.String()
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, out any, wantStatus int) error {

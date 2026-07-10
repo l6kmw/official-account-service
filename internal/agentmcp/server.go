@@ -164,9 +164,21 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_get_authorization_entry",
+		Title:       "Get authorization entry",
+		Description: "Return the public authorization entry URL for adding an official account. Use authorization_entry_url as the link, or qr_code_payload_url as the QR code payload.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input authorizationEntryToolInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.AuthorizationEntry(input.ComponentAppID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"authorization_entry": result}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_generate_authorization_url",
 		Title:       "Generate authorization URL",
-		Description: "Generate a WeChat third-party-platform authorization URL for adding an official account.",
+		Description: "Generate a direct WeChat third-party-platform authorization URL for adding an official account. If component_appid or redirect_uri is omitted, the MCP environment defaults are used.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input authorizationURLToolInput) (*mcp.CallToolResult, any, error) {
 		result, err := client.GenerateAuthorizationURL(ctx, input.ComponentAppID, input.RedirectURI, input.AuthType, input.BizAppID)
 		if err != nil {
@@ -224,9 +236,13 @@ type deletePublishedToolInput struct {
 	ConfirmDelete   string `json:"confirm_delete" jsonschema:"Must be DELETE to remove real WeChat content."`
 }
 
+type authorizationEntryToolInput struct {
+	ComponentAppID string `json:"component_appid,omitempty" jsonschema:"Optional WeChat third-party-platform component appid. Defaults to OFFICIAL_ACCOUNT_COMPONENT_APP_ID."`
+}
+
 type authorizationURLToolInput struct {
-	ComponentAppID string `json:"component_appid" jsonschema:"WeChat third-party-platform component appid."`
-	RedirectURI    string `json:"redirect_uri" jsonschema:"Public HTTPS redirect URI configured in WeChat open platform."`
+	ComponentAppID string `json:"component_appid,omitempty" jsonschema:"Optional WeChat third-party-platform component appid. Defaults to OFFICIAL_ACCOUNT_COMPONENT_APP_ID."`
+	RedirectURI    string `json:"redirect_uri,omitempty" jsonschema:"Optional public HTTPS redirect URI configured in WeChat open platform. Defaults to the service authorization callback URL."`
 	AuthType       int    `json:"auth_type,omitempty" jsonschema:"Optional WeChat authorization type: 1 official account, 2 mini program, 3 all."`
 	BizAppID       string `json:"biz_appid,omitempty" jsonschema:"Optional authorizer appid to preselect."`
 }

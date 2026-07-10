@@ -115,7 +115,7 @@ make docker-down
 
 该层只依赖 application 层，返回 DTO 不包含 token、secret、refresh token 等敏感字段。
 
-如需接入外部 agent，优先使用 stdio MCP 适配层 `cmd/mcp-server`。它通过现有 HTTP API 调用本服务，不直接暴露微信密钥、数据库密码或 refresh token。详细接入方式见 `doc/06-agent-integration-mcp-skill.md`。
+如需接入外部 agent，使用 stdio MCP 适配层 `cmd/mcp-server`。它通过现有 HTTP API 调用本服务，不直接暴露微信密钥、数据库密码或 refresh token。详细接入方式见 `doc/06-agent-integration-mcp.md`。
 
 ## OpenAPI
 

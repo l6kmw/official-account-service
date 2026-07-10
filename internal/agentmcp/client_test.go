@@ -85,6 +85,46 @@ func TestOpenUploadContentHonorsAllowedRoot(t *testing.T) {
 	require.ErrorContains(t, err, "OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT")
 }
 
+func TestAuthorizationEntryUsesConfiguredPublicURL(t *testing.T) {
+	client, err := NewClient(Config{
+		BaseURL:        "https://mp.example.com",
+		PublicBaseURL:  "https://public.example.com/",
+		TenantID:       "tenant-test",
+		ComponentAppID: "wx-component",
+	})
+	require.NoError(t, err)
+
+	entry, err := client.AuthorizationEntry("")
+	require.NoError(t, err)
+	require.Equal(t, "tenant-test", entry.TenantID)
+	require.Equal(t, "wx-component", entry.ComponentAppID)
+	require.Equal(t, "https://public.example.com/wechat-authorize.html?component_appid=wx-component&tenant_id=tenant-test", entry.AuthorizationEntryURL)
+	require.Equal(t, entry.AuthorizationEntryURL, entry.QRCodePayloadURL)
+}
+
+func TestGenerateAuthorizationURLUsesConfiguredDefaults(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/wechat/authorization-url", r.URL.Path)
+		require.Equal(t, "wx-component", r.URL.Query().Get("component_appid"))
+		require.Equal(t, "https://public.example.com/api/v1/wechat/authorization-callback?component_appid=wx-component&tenant_id=tenant-test", r.URL.Query().Get("redirect_uri"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"authorization_url":"https://mp.weixin.qq.com/authorize","pre_auth_code_expires_in_sec":600}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{
+		BaseURL:        server.URL,
+		PublicBaseURL:  "https://public.example.com",
+		TenantID:       "tenant-test",
+		ComponentAppID: "wx-component",
+	})
+	require.NoError(t, err)
+
+	result, err := client.GenerateAuthorizationURL(context.Background(), "", "", 0, "")
+	require.NoError(t, err)
+	require.Equal(t, "https://mp.weixin.qq.com/authorize", result.AuthorizationURL)
+	require.Equal(t, 600, result.PreAuthCodeExpiresInSec)
+}
+
 func TestOpenUploadContentDecodesBase64(t *testing.T) {
 	content, filename, err := openUploadContent(uploadImageToolInput{
 		Usage:         "inline_image",
