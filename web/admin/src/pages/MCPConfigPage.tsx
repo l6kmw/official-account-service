@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import styled from '@emotion/styled'
+import { getErrorMessage } from '../api/client'
+import { getMCPConfig, type MCPConnectionConfig } from '../api/mcpConfig'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
@@ -13,16 +15,51 @@ function KeyIcon() { return <svg {...svgAttrs} width="18" height="18"><circle cx
 function ShieldIcon() { return <svg {...svgAttrs} width="18" height="18"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.68 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.8 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></svg> }
 function TerminalIcon() { return <svg {...svgAttrs} width="18" height="18"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg> }
 function ServerIcon() { return <svg {...svgAttrs} width="18" height="18"><rect x="3" y="4" width="18" height="8" rx="2" /><rect x="3" y="12" width="18" height="8" rx="2" /><path d="M7 8h.01" /><path d="M7 16h.01" /></svg> }
+function EyeIcon() { return <svg {...svgAttrs} width="17" height="17"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg> }
+function EyeOffIcon() { return <svg {...svgAttrs} width="17" height="17"><path d="m2 2 20 20" /><path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58" /><path d="M9.88 4.24A9.8 9.8 0 0 1 12 4c6.5 0 10 8 10 8a18.5 18.5 0 0 1-3.1 4.44" /><path d="M6.61 6.61C3.63 8.62 2 12 2 12s3.5 8 10 8a9.6 9.6 0 0 0 5.39-1.61" /></svg> }
 
 const tokenPlaceholder = '<OFFICIAL_ACCOUNT_MCP_TOKEN>'
+const defaultMCPPath = '/mcp'
 
 export function MCPConfigPage() {
   const [copied, setCopied] = useState('')
+  const [config, setConfig] = useState<MCPConnectionConfig | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [tokenVisible, setTokenVisible] = useState(false)
   const baseURL = useMemo(resolveDisplayBaseURL, [])
-  const endpointURL = useMemo(() => new URL('/mcp', `${baseURL}/`).toString(), [baseURL])
-  const healthURL = useMemo(() => new URL('/mcp/healthz', `${baseURL}/`).toString(), [baseURL])
-  const jsonConfig = useMemo(() => buildMCPJSONConfig(endpointURL), [endpointURL])
-  const tokenCommand = `ssh -i /Users/CHANGE_ME/.ssh/deploy_ed25519 root@203.0.113.10 'sed -n "s/^OFFICIAL_ACCOUNT_MCP_TOKEN=//p" /opt/official-account-service/mcp.env'`
+  const endpointPath = config?.path || defaultMCPPath
+  const token = config?.token || ''
+  const tokenValue = token || tokenPlaceholder
+  const headerName = config?.header_name || 'X-API-Key'
+  const transport = config?.transport || 'streamable-http'
+  const displayToken = token ? tokenVisible ? token : maskToken(token) : tokenPlaceholder
+  const endpointURL = useMemo(() => new URL(endpointPath, `${baseURL}/`).toString(), [baseURL, endpointPath])
+  const healthURL = useMemo(() => new URL(`${endpointPath}/healthz`, `${baseURL}/`).toString(), [baseURL, endpointPath])
+  const visibleTokenValue = token ? tokenVisible ? token : maskToken(token) : tokenPlaceholder
+  const jsonConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, visibleTokenValue), [endpointURL, headerName, visibleTokenValue])
+  const copyableJSONConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, tokenValue), [endpointURL, headerName, tokenValue])
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    getMCPConfig()
+      .then((next) => {
+        if (!active) return
+        setConfig(next)
+        setError('')
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        setError(getErrorMessage(err))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   async function copy(label: string, value: string) {
     await navigator.clipboard?.writeText(value)
@@ -36,16 +73,16 @@ export function MCPConfigPage() {
         <HeaderText>
           <Eyebrow>MCP endpoint</Eyebrow>
           <Title>Agent 连接配置</Title>
-          <Description>远程 MCP 已通过 HTTPS 暴露，后台只展示连接参数；访问令牌保留在服务器环境文件中。</Description>
+          <Description>远程 MCP 已通过 HTTPS 暴露；访问令牌来自服务端 config.yaml，默认遮罩展示。</Description>
         </HeaderText>
-        <StatusBadge tone="success">已部署</StatusBadge>
+        <StatusBadge tone={config?.configured ? 'success' : 'warning'}>{config?.configured ? '已配置 token' : loading ? '读取中' : '待配置 token'}</StatusBadge>
       </Header>
 
       <HeroCard>
         <HeroContent>
           <HeroIcon><ServerIcon /></HeroIcon>
           <HeroMain>
-            <HeroLabel>Streamable HTTP</HeroLabel>
+            <HeroLabel>{transportLabel(transport)}</HeroLabel>
             <EndpointValue>{endpointURL}</EndpointValue>
           </HeroMain>
         </HeroContent>
@@ -61,19 +98,24 @@ export function MCPConfigPage() {
             <PanelIcon><KeyIcon /></PanelIcon>
             <div>
               <PanelTitle>客户端字段</PanelTitle>
-              <PanelDesc>适合 Cherry Studio 或支持远程 MCP 的 agent。</PanelDesc>
+              <PanelDesc>多数客户端只需要 URL 和一个请求头。</PanelDesc>
             </div>
           </PanelHead>
           <FieldList>
-            <ConfigRow label="Transport" value="Streamable HTTP" />
+            <ConfigRow label="Transport" value={transportLabel(transport)} />
             <ConfigRow label="URL" value={endpointURL} />
-            <ConfigRow label="Auth Type" value="API Key" />
-            <ConfigRow label="Header Name" value="X-API-Key" />
-            <ConfigRow label="API Key" value={tokenPlaceholder} muted />
+            <ConfigRow label="Header Name" value={headerName} />
+            <SecretRow
+              label="Header Value"
+              value={displayToken}
+              loading={loading}
+              visible={tokenVisible}
+              onToggle={() => setTokenVisible((value) => !value)}
+            />
           </FieldList>
           <ButtonRow>
-            <Button onClick={() => copy('json', jsonConfig)}><CopyIcon />{copied === 'json' ? '已复制' : '复制 JSON 模板'}</Button>
-            <Button variant="secondary" onClick={() => copy('header', `X-API-Key: ${tokenPlaceholder}`)}><CopyIcon />复制 Header</Button>
+            <Button onClick={() => copy('json', copyableJSONConfig)}><CopyIcon />{copied === 'json' ? '已复制' : '复制 JSON 模板'}</Button>
+            <Button variant="secondary" onClick={() => copy('header', `${headerName}: ${tokenValue}`)}><CopyIcon />复制 Header</Button>
           </ButtonRow>
         </ConfigPanel>
 
@@ -81,14 +123,20 @@ export function MCPConfigPage() {
           <PanelHead>
             <PanelIcon $tone="warning"><ShieldIcon /></PanelIcon>
             <div>
-              <PanelTitle>令牌位置</PanelTitle>
-              <PanelDesc>token 不进入前端运行时配置。</PanelDesc>
+              <PanelTitle>令牌展示</PanelTitle>
+              <PanelDesc>来自 config.yaml 的 mcp.token。</PanelDesc>
             </div>
           </PanelHead>
-          <CommandBox>
-            <CommandText>{tokenCommand}</CommandText>
-            <Button variant="secondary" onClick={() => copy('command', tokenCommand)}><CopyIcon />{copied === 'command' ? '已复制' : '复制命令'}</Button>
-          </CommandBox>
+          <SecretPanel>
+            <SecretValue $empty={!token}>{loading ? '读取中…' : displayToken}</SecretValue>
+            <SecretActions>
+              <IconButton type="button" onClick={() => setTokenVisible((value) => !value)} disabled={!token || loading} aria-label={tokenVisible ? '隐藏 MCP token' : '显示 MCP token'}>
+                {tokenVisible ? <EyeOffIcon /> : <EyeIcon />}
+              </IconButton>
+              <Button variant="secondary" onClick={() => copy('token', tokenValue)} disabled={!token}><CopyIcon />{copied === 'token' ? '已复制' : '复制 token'}</Button>
+            </SecretActions>
+          </SecretPanel>
+          {error ? <ErrorText role="alert">{error}</ErrorText> : null}
           <SecurityList>
             <SecurityItem><TerminalIcon />不要选择 OAuth 登录流。</SecurityItem>
             <SecurityItem><ShieldIcon />不要把后台 admin API key 填给 agent。</SecurityItem>
@@ -102,7 +150,7 @@ export function MCPConfigPage() {
           <PanelIcon><TerminalIcon /></PanelIcon>
           <div>
             <PanelTitle>JSON 配置模板</PanelTitle>
-            <PanelDesc>将占位符替换为服务器上的 MCP token。</PanelDesc>
+            <PanelDesc>{token ? '已使用当前 MCP token 生成，可直接复制到 agent。' : '配置 mcp.token 后这里会生成可用模板。'}</PanelDesc>
           </div>
         </PanelHead>
         <CodeBlock>{jsonConfig}</CodeBlock>
@@ -120,6 +168,20 @@ function ConfigRow({ label, value, muted }: { label: string; value: string; mute
   )
 }
 
+function SecretRow({ label, value, loading, visible, onToggle }: { label: string; value: string; loading: boolean; visible: boolean; onToggle: () => void }) {
+  return (
+    <Row>
+      <RowLabel>{label}</RowLabel>
+      <SecretRowValue>
+        <RowValue $muted={!visible}>{loading ? '读取中…' : value}</RowValue>
+        <IconButton type="button" onClick={onToggle} disabled={loading || value === tokenPlaceholder} aria-label={visible ? '隐藏 MCP token' : '显示 MCP token'}>
+          {visible ? <EyeOffIcon /> : <EyeIcon />}
+        </IconButton>
+      </SecretRowValue>
+    </Row>
+  )
+}
+
 function resolveDisplayBaseURL() {
   if (window.location.origin && /^https?:\/\//i.test(window.location.origin)) {
     return normalizePublicBaseURL(window.location.origin)
@@ -127,18 +189,27 @@ function resolveDisplayBaseURL() {
   return normalizePublicBaseURL(adminConfig.publicBaseURL)
 }
 
-function buildMCPJSONConfig(endpointURL: string) {
+function buildMCPJSONConfig(endpointURL: string, headerName: string, token: string) {
   return JSON.stringify({
     mcpServers: {
       'official-account': {
         transport: 'streamable-http',
         url: endpointURL,
         headers: {
-          'X-API-Key': tokenPlaceholder
+          [headerName]: token
         }
       }
     }
   }, null, 2)
+}
+
+function maskToken(token: string) {
+  if (!token) return tokenPlaceholder
+  return '*'.repeat(Math.min(16, Math.max(8, token.length)))
+}
+
+function transportLabel(transport: string) {
+  return transport === 'streamable-http' ? 'Streamable HTTP' : transport
 }
 
 const Page = styled.div`
@@ -329,24 +400,72 @@ const ButtonRow = styled.div`
   flex-wrap: wrap;
 `
 
-const CommandBox = styled.div`
+const SecretRowValue = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.space.md};
+  min-width: 0;
+`
+
+const SecretPanel = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.space.md};
 `
 
-const CommandText = styled.pre`
-  max-width: 100%;
+const SecretValue = styled.div<{ $empty?: boolean }>`
   margin: 0;
-  overflow-x: auto;
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radii.md};
   padding: ${({ theme }) => theme.space.lg};
   background: ${({ theme }) => theme.colors.surfaceMuted};
-  color: ${({ theme }) => theme.colors.text};
+  color: ${({ theme, $empty }) => $empty ? theme.colors.textFaint : theme.colors.text};
   font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 720;
   line-height: 1.55;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+`
+
+const SecretActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.md};
+  flex-wrap: wrap;
+`
+
+const IconButton = styled.button`
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.md};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.textMuted};
+  flex-shrink: 0;
+  transition:
+    background ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut},
+    color ${({ theme }) => theme.motion.fast} ${({ theme }) => theme.motion.easeOut};
+
+  &:hover:not(:disabled) {
+    background: ${({ theme }) => theme.colors.primarySoft};
+    color: ${({ theme }) => theme.colors.primaryStrong};
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+  }
+`
+
+const ErrorText = styled.div`
+  border: 1px solid ${({ theme }) => theme.colors.dangerSoft};
+  border-radius: ${({ theme }) => theme.radii.md};
+  padding: ${({ theme }) => theme.space.md} ${({ theme }) => theme.space.lg};
+  background: ${({ theme }) => theme.colors.dangerSoft};
+  color: ${({ theme }) => theme.colors.danger};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 650;
 `
 
 const SecurityList = styled.div`

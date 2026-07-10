@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"official-account-service/internal/agentmcp"
+	"official-account-service/internal/config"
 )
 
 const (
@@ -28,16 +30,19 @@ const (
 )
 
 func main() {
+	configPath := flag.String("config", config.DefaultPath, "YAML config file path used as fallback for MCP settings")
+	flag.Parse()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx); err != nil {
+	if err := run(ctx, *configPath); err != nil {
 		log.Printf("official account mcp server stopped: %v", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context, configPath string) error {
 	client, err := agentmcp.NewClient(agentmcp.ConfigFromEnv())
 	if err != nil {
 		return fmt.Errorf("init official account mcp client: %w", err)
@@ -62,18 +67,40 @@ func run(ctx context.Context) error {
 		if addr == "" {
 			addr = defaultMCPAddr
 		}
-		token := strings.TrimSpace(os.Getenv("OFFICIAL_ACCOUNT_MCP_TOKEN"))
-		if token == "" {
-			return fmt.Errorf("OFFICIAL_ACCOUNT_MCP_TOKEN must be set for %s transport", httpMCPTransport)
+		streamableConfig, err := mcpStreamableHTTPConfig(configPath)
+		if err != nil {
+			return err
 		}
-		return runStreamableHTTP(ctx, server, streamableHTTPConfig{
-			Addr:  addr,
-			Path:  envOrDefault("OFFICIAL_ACCOUNT_MCP_PATH", defaultMCPPath),
-			Token: token,
-		})
+		if streamableConfig.Token == "" {
+			return fmt.Errorf("OFFICIAL_ACCOUNT_MCP_TOKEN or mcp.token must be set for %s transport", httpMCPTransport)
+		}
+		streamableConfig.Addr = addr
+		return runStreamableHTTP(ctx, server, streamableConfig)
 	default:
 		return fmt.Errorf("unsupported OFFICIAL_ACCOUNT_MCP_TRANSPORT %q", transport)
 	}
+}
+
+func mcpStreamableHTTPConfig(configPath string) (streamableHTTPConfig, error) {
+	token := strings.TrimSpace(os.Getenv("OFFICIAL_ACCOUNT_MCP_TOKEN"))
+	path := strings.TrimSpace(os.Getenv("OFFICIAL_ACCOUNT_MCP_PATH"))
+	if token != "" && path != "" {
+		return streamableHTTPConfig{Path: path, Token: token}, nil
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		if token != "" {
+			if path == "" {
+				path = defaultMCPPath
+			}
+			return streamableHTTPConfig{Path: path, Token: token}, nil
+		}
+		return streamableHTTPConfig{}, fmt.Errorf("load MCP settings from config: %w", err)
+	}
+	if token := strings.TrimSpace(os.Getenv("OFFICIAL_ACCOUNT_MCP_TOKEN")); token != "" {
+		return streamableHTTPConfig{Path: envOrDefault("OFFICIAL_ACCOUNT_MCP_PATH", cfg.MCPPath), Token: token}, nil
+	}
+	return streamableHTTPConfig{Path: envOrDefault("OFFICIAL_ACCOUNT_MCP_PATH", cfg.MCPPath), Token: strings.TrimSpace(cfg.MCPToken)}, nil
 }
 
 type streamableHTTPConfig struct {

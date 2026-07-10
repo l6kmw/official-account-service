@@ -79,6 +79,8 @@ func main() {
 	deps.AdminUsername = cfg.AdminUsername
 	deps.AdminPasswordHash = cfg.AdminPasswordHash
 	deps.AdminSessionSecret = cfg.AdminSessionSecret
+	deps.MCPToken = cfg.MCPToken
+	deps.MCPPath = cfg.MCPPath
 	router := httpapi.NewRouter(deps)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}
 

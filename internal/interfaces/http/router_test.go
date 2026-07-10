@@ -190,6 +190,8 @@ func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
 	router := NewRouter(Dependencies{
 		Logger:        zap.NewNop(),
 		AdminAPIKey:   "admin-key",
+		MCPToken:      "mcp-token",
+		MCPPath:       "/mcp",
 		Authorization: application.NewAuthorizationService(store, fixedRouteTime),
 		Accounts:      application.NewAccountService(store),
 	})
@@ -204,11 +206,18 @@ func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, missingKey.Code)
 	require.JSONEq(t, `{"error":"unauthorized"}`, missingKey.Body.String())
 
+	missingMCPKey := doJSON(t, router, http.MethodGet, "/api/v1/admin/mcp-config", ``, "")
+	require.Equal(t, http.StatusUnauthorized, missingMCPKey.Code)
+
 	wrongKey := doJSONWithAdminKey(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "wrong-key")
 	require.Equal(t, http.StatusUnauthorized, wrongKey.Code)
 
 	headerKey := doJSONWithAdminKey(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "admin-key")
 	require.Equal(t, http.StatusOK, headerKey.Code)
+
+	mcpConfig := doJSONWithAdminKey(t, router, http.MethodGet, "/api/v1/admin/mcp-config", ``, "", "admin-key")
+	require.Equal(t, http.StatusOK, mcpConfig.Code)
+	require.JSONEq(t, `{"transport":"streamable-http","path":"/mcp","header_name":"X-API-Key","token":"mcp-token","configured":true}`, mcpConfig.Body.String())
 
 	bearer := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", "admin-key")
 	require.Equal(t, http.StatusOK, bearer.Code)

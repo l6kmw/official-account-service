@@ -31,9 +31,18 @@ go build -trimpath -ldflags="-s -w" -o official-account-mcp ./cmd/mcp-server
 OFFICIAL_ACCOUNT_MCP_TRANSPORT="streamable-http"
 OFFICIAL_ACCOUNT_MCP_ADDR="127.0.0.1:8091"
 OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
-OFFICIAL_ACCOUNT_MCP_TOKEN="replace-with-a-long-random-mcp-token"
-./official-account-mcp
+./official-account-mcp -config /opt/official-account-service/config.yaml
 ```
+
+远程 MCP token 建议保存在服务端 `config.yaml`：
+
+```yaml
+mcp:
+  token: "replace-with-a-long-random-mcp-token"
+  path: "/mcp"
+```
+
+`OFFICIAL_ACCOUNT_MCP_TOKEN` 仍可作为兼容环境变量使用；线上建议以 YAML 为准，避免 token 分散在多个位置。
 
 公网连接地址：
 
@@ -68,7 +77,6 @@ OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT="/path/to/agent/workspace"
 OFFICIAL_ACCOUNT_MCP_TRANSPORT="stdio"
 OFFICIAL_ACCOUNT_MCP_ADDR="127.0.0.1:8091"
 OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
-OFFICIAL_ACCOUNT_MCP_TOKEN="replace-with-a-long-random-mcp-token"
 ```
 
 说明：
@@ -82,13 +90,13 @@ OFFICIAL_ACCOUNT_MCP_TOKEN="replace-with-a-long-random-mcp-token"
 - `OFFICIAL_ACCOUNT_MCP_TRANSPORT`：默认 `stdio`；线上远程连接使用 `streamable-http`。
 - `OFFICIAL_ACCOUNT_MCP_ADDR`：Streamable HTTP 监听地址。线上建议只监听 `127.0.0.1`，再由 Nginx 提供 HTTPS。
 - `OFFICIAL_ACCOUNT_MCP_PATH`：Streamable HTTP MCP 路径，默认 `/mcp`。
-- `OFFICIAL_ACCOUNT_MCP_TOKEN`：远程 MCP 访问令牌，只给受信任 agent 使用。它不是后台 `admin_api_key`。
+- `OFFICIAL_ACCOUNT_MCP_TOKEN`：可选兼容环境变量。远程 MCP 访问令牌优先建议配置在 `mcp.token`，只给受信任 agent 使用。它不是后台 `admin_api_key`。
 
 ## API Key
 
 stdio 模式通过本机进程通信，不需要给 agent 暴露 MCP API key。
 
-streamable-http 模式会暴露公网 HTTPS endpoint，必须配置 `OFFICIAL_ACCOUNT_MCP_TOKEN`，agent 连接时用：
+streamable-http 模式会暴露公网 HTTPS endpoint，必须配置 `mcp.token`，agent 连接时用：
 
 ```text
 Authorization: Bearer <MCP_TOKEN>

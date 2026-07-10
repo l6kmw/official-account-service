@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,22 @@ import (
 
 	"official-account-service/internal/agentmcp"
 )
+
+func TestMCPStreamableHTTPConfigFallsBackToYAMLConfig(t *testing.T) {
+	t.Setenv("OFFICIAL_ACCOUNT_MCP_TOKEN", "")
+	t.Setenv("OFFICIAL_ACCOUNT_MCP_PATH", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`mcp:
+  token: yaml-token
+  path: /wechat-mcp
+`), 0o600))
+
+	cfg, err := mcpStreamableHTTPConfig(path)
+
+	require.NoError(t, err)
+	require.Equal(t, "yaml-token", cfg.Token)
+	require.Equal(t, "/wechat-mcp", cfg.Path)
+}
 
 func TestStreamableHTTPRequiresBearerToken(t *testing.T) {
 	client, err := agentmcp.NewClient(agentmcp.Config{

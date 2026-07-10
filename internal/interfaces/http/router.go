@@ -39,6 +39,8 @@ type Dependencies struct {
 	AdminUsername      string
 	AdminPasswordHash  string
 	AdminSessionSecret string
+	MCPToken           string
+	MCPPath            string
 }
 
 // NewRouter constructs the HTTP router.
@@ -78,6 +80,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerTokenRoutes(adminV1, deps.Tokens)
 	registerTaskQueueRoutes(adminV1, deps.TaskQueues)
 	registerDashboardRoutes(adminV1, deps.Dashboard)
+	registerMCPConfigRoutes(adminV1, mcpConfig{
+		Token: deps.MCPToken,
+		Path:  deps.MCPPath,
+	})
 	return r
 }
 

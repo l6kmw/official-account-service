@@ -32,3 +32,8 @@ wechat:
   component_encoding_aes_key: ""
   # base64 encoded 32-byte key, e.g. `openssl rand -base64 32`
   refresh_token_encryption_key: ""
+
+mcp:
+  # Remote MCP access token for trusted agents. Do not put this in admin-config.js.
+  token: ""
+  path: "/mcp"

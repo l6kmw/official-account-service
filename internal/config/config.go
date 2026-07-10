@@ -29,6 +29,8 @@ type Config struct {
 	WeChatComponentToken     string
 	WeChatComponentAESKey    string
 	WeChatRefreshTokenKey    string
+	MCPToken                 string
+	MCPPath                  string
 }
 
 // Load reads service configuration from a YAML file.
@@ -60,6 +62,8 @@ func Load(path string) (Config, error) {
 		WeChatComponentToken:     v.GetString("wechat.component_verify_token"),
 		WeChatComponentAESKey:    v.GetString("wechat.component_encoding_aes_key"),
 		WeChatRefreshTokenKey:    v.GetString("wechat.refresh_token_encryption_key"),
+		MCPToken:                 v.GetString("mcp.token"),
+		MCPPath:                  v.GetString("mcp.path"),
 	}
 	if err := validator.New().Struct(cfg); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
@@ -114,4 +118,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("wechat.component_verify_token", "")
 	v.SetDefault("wechat.component_encoding_aes_key", "")
 	v.SetDefault("wechat.refresh_token_encryption_key", "")
+	v.SetDefault("mcp.token", "")
+	v.SetDefault("mcp.path", "/mcp")
 }

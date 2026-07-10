@@ -32,6 +32,9 @@ wechat:
   component_verify_token: "verify-token"
   component_encoding_aes_key: "encoding-key"
   refresh_token_encryption_key: "refresh-key"
+mcp:
+  token: "mcp-token"
+  path: "/mcp"
 `), 0o600)
 	require.NoError(t, err)
 
@@ -52,6 +55,8 @@ wechat:
 	require.Equal(t, "verify-token", cfg.WeChatComponentToken)
 	require.Equal(t, "encoding-key", cfg.WeChatComponentAESKey)
 	require.Equal(t, "refresh-key", cfg.WeChatRefreshTokenKey)
+	require.Equal(t, "mcp-token", cfg.MCPToken)
+	require.Equal(t, "/mcp", cfg.MCPPath)
 }
 
 func TestLoadAppliesYAMLDefaults(t *testing.T) {
@@ -70,6 +75,8 @@ func TestLoadAppliesYAMLDefaults(t *testing.T) {
 	require.Empty(t, cfg.AdminUsername)
 	require.Empty(t, cfg.AdminPasswordHash)
 	require.Empty(t, cfg.AdminSessionSecret)
+	require.Empty(t, cfg.MCPToken)
+	require.Equal(t, "/mcp", cfg.MCPPath)
 }
 
 func TestLoadRequiresAdminAPIKeyInProd(t *testing.T) {
