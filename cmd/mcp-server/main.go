@@ -121,7 +121,7 @@ func newStreamableHTTPMux(server *mcp.Server, cfg streamableHTTPConfig) http.Han
 		JSONResponse:               true,
 		DisableLocalhostProtection: true,
 	})
-	protected := auth.RequireBearerToken(staticTokenVerifier(cfg.Token), nil)(streamable)
+	protected := normalizeMCPAuthHeader(auth.RequireBearerToken(staticTokenVerifier(cfg.Token), nil)(streamable))
 
 	mux := http.NewServeMux()
 	mux.Handle(path, protected)
@@ -143,6 +143,29 @@ func staticTokenVerifier(expected string) auth.TokenVerifier {
 			UserID:     "official-account-agent",
 		}, nil
 	}
+}
+
+func normalizeMCPAuthHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		if authHeader == "" {
+			if token := firstHeaderValue(r, "X-API-Key", "X-MCP-Token"); token != "" {
+				r.Header.Set("Authorization", "Bearer "+token)
+			}
+		} else if !strings.Contains(authHeader, " ") {
+			r.Header.Set("Authorization", "Bearer "+authHeader)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func firstHeaderValue(r *http.Request, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(r.Header.Get(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

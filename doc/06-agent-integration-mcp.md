@@ -43,6 +43,13 @@ Header: Authorization: Bearer <MCP_TOKEN>
 Transport: streamable-http
 ```
 
+如果客户端只提供 API Key Header 配置，也可以使用：
+
+```text
+Header name: X-API-Key
+Header value: <MCP_TOKEN>
+```
+
 健康检查地址：
 
 ```text
@@ -86,6 +93,8 @@ streamable-http 模式会暴露公网 HTTPS endpoint，必须配置 `OFFICIAL_AC
 ```text
 Authorization: Bearer <MCP_TOKEN>
 ```
+
+部分 MCP 客户端把 API key 作为 `X-API-Key` 发送；服务端也兼容这种格式。不要选择 OAuth 登录流，除非后续单独实现 OAuth 授权服务器。
 
 但 MCP 需要调用受保护的管理后台 API，所以线上服务应配置 `security.admin_api_key`，并通过 `OFFICIAL_ACCOUNT_ADMIN_API_KEY` 注入 MCP 进程。这样 agent 只能调用 MCP 工具，不能直接拿到后台 API key。
 
