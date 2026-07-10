@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="color-scheme" content="light" />
+    <title>微信授权跳转</title>
+    <style>
+      :root {
+        color: oklch(25% 0.02 75);
+        background: oklch(97.5% 0.008 75);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100dvh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      main {
+        width: min(100%, 520px);
+        display: grid;
+        gap: 16px;
+        border: 1px solid oklch(90% 0.008 75);
+        border-radius: 18px;
+        background: oklch(100% 0 0);
+        padding: 28px;
+        box-shadow: 0 2px 8px oklch(25% 0.02 75 / 0.06);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.2;
+      }
+
+      p {
+        margin: 0;
+        color: oklch(48% 0.015 75);
+        line-height: 1.7;
+      }
+
+      button,
+      a {
+        width: fit-content;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid oklch(52% 0.13 155);
+        border-radius: 12px;
+        background: oklch(52% 0.13 155);
+        color: oklch(100% 0 0);
+        cursor: pointer;
+        font: inherit;
+        font-weight: 650;
+        padding: 0 16px;
+        text-decoration: none;
+      }
+
+      code {
+        color: oklch(25% 0.02 75);
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">正在打开微信授权</h1>
+      <p id="message">正在生成公众号授权二维码，请稍候。</p>
+      <button id="retry" type="button" hidden>重试</button>
+    </main>
+
+    <script>
+      (function () {
+        var title = document.getElementById('title')
+        var message = document.getElementById('message')
+        var retry = document.getElementById('retry')
+        var params = new URLSearchParams(window.location.search)
+
+        function value(name) {
+          return (params.get(name) || '').trim()
+        }
+
+        function setError(text) {
+          title.textContent = '无法打开微信授权'
+          message.textContent = text
+          retry.hidden = false
+        }
+
+        function buildURL() {
+          var tenantID = value('tenant_id')
+          var componentAppID = value('component_appid')
+          if (!tenantID) throw new Error('缺少 tenant_id 参数。')
+          if (!componentAppID) throw new Error('缺少 component_appid 参数。')
+
+          var callbackURL = new URL('/api/v1/wechat/authorization-callback', window.location.origin)
+          callbackURL.searchParams.set('tenant_id', tenantID)
+          callbackURL.searchParams.set('component_appid', componentAppID)
+
+          var apiURL = new URL('/api/v1/wechat/authorization-url', window.location.origin)
+          apiURL.searchParams.set('component_appid', componentAppID)
+          apiURL.searchParams.set('redirect_uri', callbackURL.toString())
+
+          var authType = value('auth_type')
+          var bizAppID = value('biz_appid')
+          if (authType) apiURL.searchParams.set('auth_type', authType)
+          if (bizAppID) apiURL.searchParams.set('biz_appid', bizAppID)
+          return apiURL
+        }
+
+        async function openAuthorization() {
+          retry.hidden = true
+          title.textContent = '正在打开微信授权'
+          message.textContent = '正在生成公众号授权二维码，请稍候。'
+
+          try {
+            var apiURL = buildURL()
+            var response = await fetch(apiURL.toString(), {
+              credentials: 'same-origin',
+              headers: { Accept: 'application/json' }
+            })
+            var payload = await response.json().catch(function () { return {} })
+            if (!response.ok) {
+              throw new Error(payload.error || '授权 URL 生成失败。')
+            }
+            if (!payload.authorization_url) {
+              throw new Error('授权 URL 响应为空。')
+            }
+            message.innerHTML = '即将跳转到微信授权页面：<br /><code>' + escapeHTML(payload.authorization_url) + '</code>'
+            window.location.replace(payload.authorization_url)
+          } catch (error) {
+            setError(error instanceof Error ? error.message : '授权入口暂时不可用。')
+          }
+        }
+
+        function escapeHTML(text) {
+          return String(text).replace(/[&<>"']/g, function (char) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]
+          })
+        }
+
+        retry.addEventListener('click', openAuthorization)
+        openAuthorization()
+      })()
+    </script>
+  </body>
+</html>
