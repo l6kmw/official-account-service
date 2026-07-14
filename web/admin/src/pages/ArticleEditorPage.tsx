@@ -572,6 +572,7 @@ function validate(form: ArticleFormInput, editing: boolean): FieldErrors {
 const Page = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.space.xl};
+  min-width: 0;
 `
 
 const TopBar = styled.div`
@@ -588,6 +589,7 @@ const TopBar = styled.div`
   position: sticky;
   top: ${({ theme }) => theme.space.lg};
   z-index: 5;
+  min-width: 0;
 `
 
 const TopBarLeft = styled.div`
@@ -625,7 +627,12 @@ const EditorGrid = styled.div`
 const FormPanel = styled(Card)`
   display: grid;
   gap: ${({ theme }) => theme.space.lg};
+  min-width: 0;
   padding: ${({ theme }) => theme.space.xl};
+
+  > * {
+    min-width: 0;
+  }
 `
 
 const RequirementSummary = styled.div`
@@ -711,6 +718,7 @@ const SectionLabel = styled.div`
 const Field = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.space.sm};
+  min-width: 0;
 `
 
 const Label = styled.label`
@@ -735,6 +743,8 @@ const OptionalText = styled.span`
 `
 
 const Input = styled.input`
+  width: 100%;
+  min-width: 0;
   min-height: 44px;
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radii.md};
@@ -755,6 +765,8 @@ const Input = styled.input`
 `
 
 const Select = styled.select`
+  width: 100%;
+  min-width: 0;
   min-height: 44px;
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radii.md};
@@ -801,6 +813,8 @@ const ReadonlyAccount = styled.div`
 `
 
 const Textarea = styled.textarea`
+  width: 100%;
+  min-width: 0;
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radii.md};
   padding: ${({ theme }) => theme.space.md};
@@ -936,6 +950,12 @@ const MaterialMeta = styled.div`
     font-size: ${({ theme }) => theme.typeScale.small};
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    @media (max-width: 560px) {
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+      white-space: normal;
+    }
   }
 `
 
