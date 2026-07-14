@@ -110,17 +110,21 @@ type GetArticleMetricsInput struct {
 // GetArticleMetrics reads current WeChat article metrics for one publish date.
 func (s *OfficialContentService) GetArticleMetrics(ctx context.Context, input GetArticleMetricsInput) (officialcontent.ArticleMetricsResult, error) {
 	dateString := strings.TrimSpace(input.Date)
-	date, err := time.Parse("2006-01-02", dateString)
-	if err != nil || strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 {
+	if strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 {
 		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("validate article metrics input: %w", ErrInvalidInput)
 	}
 	now := time.Now
 	if s != nil && s.now != nil {
 		now = s.now
 	}
-	minimumDate := time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)
-	today := now().In(time.Local)
-	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.Local)
+	current := now()
+	location := current.Location()
+	date, err := time.ParseInLocation("2006-01-02", dateString, location)
+	if err != nil {
+		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("validate article metrics input: %w", ErrInvalidInput)
+	}
+	minimumDate := time.Date(2025, 11, 1, 0, 0, 0, 0, location)
+	today := time.Date(current.Year(), current.Month(), current.Day(), 0, 0, 0, 0, location)
 	if date.Before(minimumDate) || !date.Before(today) {
 		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("validate article metrics date: %w", ErrInvalidInput)
 	}

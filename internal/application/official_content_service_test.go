@@ -72,7 +72,8 @@ func TestOfficialContentServiceGetsArticleMetrics(t *testing.T) {
 
 func TestOfficialContentServiceRejectsTodayMetrics(t *testing.T) {
 	service := NewOfficialContentService(&fakeOfficialContentReader{}, &fakeOfficialContentTokenProvider{}, "wx-component")
-	service.now = func() time.Time { return time.Date(2026, 7, 14, 12, 0, 0, 0, time.Local) }
+	west := time.FixedZone("test-west", -8*60*60)
+	service.now = func() time.Time { return time.Date(2026, 7, 14, 12, 0, 0, 0, west) }
 
 	_, err := service.GetArticleMetrics(context.Background(), GetArticleMetricsInput{
 		TenantID: "tenant-1", AuthorizerID: 1, Date: "2026-07-14",
