@@ -5,6 +5,7 @@ import "context"
 // PublishedArticle is one article inside a WeChat published message.
 type PublishedArticle struct {
 	ArticleID          string `json:"article_id"`
+	MsgID              string `json:"msgid,omitempty"`
 	Index              int    `json:"index"`
 	UpdateTime         int64  `json:"update_time"`
 	Title              string `json:"title"`

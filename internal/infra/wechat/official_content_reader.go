@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"context"
+	"net/url"
 	"strings"
 
 	"official-account-service/internal/domain/officialcontent"
@@ -23,7 +24,8 @@ func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken strin
 	for _, message := range response.Items {
 		for index, article := range message.Content.NewsItems {
 			items = append(items, officialcontent.PublishedArticle{
-				ArticleID: message.ArticleID, Index: index, UpdateTime: message.UpdateTime,
+				ArticleID: message.ArticleID, MsgID: publishedArticleMsgID(article.URL),
+				Index: index, UpdateTime: message.UpdateTime,
 				Title: article.Title, Author: article.Author, Digest: article.Digest,
 				ContentHTML: article.Content, ContentSourceURL: article.ContentSourceURL,
 				ThumbMediaID: article.ThumbMediaID, ThumbURL: article.ThumbURL, URL: article.URL,
@@ -36,6 +38,19 @@ func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken strin
 	return officialcontent.PublishedArticleBatch{
 		TotalMessageCount: response.TotalCount, FetchedMessageCount: response.ItemCount, Items: items,
 	}, nil
+}
+
+func publishedArticleMsgID(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	mid := strings.TrimSpace(parsed.Query().Get("mid"))
+	index := strings.TrimSpace(parsed.Query().Get("idx"))
+	if !isDecimalDigits(mid) || !isDecimalDigits(index) || index == "0" {
+		return ""
+	}
+	return mid + "_" + index
 }
 
 // GetArticleMetrics reads live cumulative article metrics for one publish date.

@@ -154,7 +154,7 @@ func TestPublisherListsLivePublishedArticles(t *testing.T) {
 			"total_count":3,"item_count":1,"item":[{
 				"article_id":"article-1","update_time":1784000000,
 				"content":{"news_item":[
-					{"title":"first","author":"me","digest":"one","content":"<p>one</p>","thumb_media_id":"thumb-1","thumb_url":"https://img/1","url":"https://mp/1","need_open_comment":1},
+					{"title":"first","author":"me","digest":"one","content":"<p>one</p>","thumb_media_id":"thumb-1","thumb_url":"https://img/1","url":"https://mp.weixin.qq.com/s?mid=2247483683&idx=1","need_open_comment":1},
 					{"title":"second","is_deleted":true,"only_fans_can_comment":1}
 				]}
 			}]}`))
@@ -172,6 +172,8 @@ func TestPublisherListsLivePublishedArticles(t *testing.T) {
 	require.Equal(t, 1, result.FetchedMessageCount)
 	require.Len(t, result.Items, 2)
 	require.Equal(t, "article-1", result.Items[1].ArticleID)
+	require.Equal(t, "2247483683_1", result.Items[0].MsgID)
+	require.Empty(t, result.Items[1].MsgID)
 	require.Equal(t, 1, result.Items[1].Index)
 	require.True(t, result.Items[0].NeedOpenComment)
 	require.True(t, result.Items[1].OnlyFansCanComment)

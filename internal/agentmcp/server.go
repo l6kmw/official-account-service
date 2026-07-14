@@ -55,7 +55,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_published_articles",
 		Title:       "List live WeChat published articles",
-		Description: "Read the current published article list directly from WeChat, including articles published outside this service. Required: authorizer_id. Pagination offset/count applies to WeChat messages; one message may contain multiple returned articles. count must be 1-20. Body HTML and deleted entries are omitted by default.",
+		Description: "Read the current published article list directly from WeChat, including articles published outside this service. Required: authorizer_id. Pagination offset/count applies to WeChat messages; one message may contain multiple returned articles. count must be 1-20. Body HTML and deleted entries are omitted by default. When available, each article includes msgid for immediate use with official_account_list_article_comments.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listPublishedArticlesToolInput) (*mcp.CallToolResult, any, error) {
 		count := input.Count
 		if count == 0 {
@@ -83,7 +83,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_article_comments",
 		Title:       "List WeChat article comments",
-		Description: "List live comments for one published WeChat article. Required: authorizer_id and msgid returned by official_account_get_article_metrics. Optional begin, count (1-49, default 20), and type (0 all, 1 ordinary, 2 selected). User OpenIDs are never returned.",
+		Description: "List live comments for one published WeChat article. Required: authorizer_id and msgid returned by official_account_list_published_articles or official_account_get_article_metrics. Optional begin, count (1-49, default 20), and type (0 all, 1 ordinary, 2 selected). User OpenIDs are never returned.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listArticleCommentsToolInput) (*mcp.CallToolResult, any, error) {
 		count := input.Count
 		if count == 0 {
@@ -270,7 +270,7 @@ type getArticleMetricsToolInput struct {
 
 type listArticleCommentsToolInput struct {
 	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
-	MsgID        string `json:"msgid" jsonschema:"Required. Article msgid returned by official_account_get_article_metrics, for example 2247490098_1."`
+	MsgID        string `json:"msgid" jsonschema:"Required. Article msgid returned by official_account_list_published_articles or official_account_get_article_metrics, for example 2247490098_1."`
 	Begin        int    `json:"begin,omitempty" jsonschema:"Comment offset. Defaults to 0."`
 	Count        int    `json:"count,omitempty" jsonschema:"Number of comments to fetch, 1-49. Defaults to 20."`
 	Type         int    `json:"type,omitempty" jsonschema:"Comment filter: 0 all, 1 ordinary, 2 selected. Defaults to 0."`

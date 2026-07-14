@@ -303,7 +303,7 @@ components:
     PublishedArticle:
       type: object
       required: [article_id, index, title, deleted]
-      properties: {article_id: {type: string}, index: {type: integer, minimum: 0}, update_time: {type: integer, format: int64}, title: {type: string}, author: {type: string}, digest: {type: string}, content_html: {type: string}, content_source_url: {type: string}, thumb_media_id: {type: string}, thumb_url: {type: string}, url: {type: string}, need_open_comment: {type: boolean}, only_fans_can_comment: {type: boolean}, deleted: {type: boolean}}
+      properties: {article_id: {type: string}, msgid: {type: string, description: Message data id and one-based article ordinal, usable by the comments endpoint.}, index: {type: integer, minimum: 0}, update_time: {type: integer, format: int64}, title: {type: string}, author: {type: string}, digest: {type: string}, content_html: {type: string}, content_source_url: {type: string}, thumb_media_id: {type: string}, thumb_url: {type: string}, url: {type: string}, need_open_comment: {type: boolean}, only_fans_can_comment: {type: boolean}, deleted: {type: boolean}}
     ArticleMetricsResult:
       type: object
       required: [date, delayed, items]
