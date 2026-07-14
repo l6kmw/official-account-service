@@ -180,6 +180,16 @@ done
 
 注意：当前后端启动时不会自动建表。
 
+如果使用 Docker Compose，并且 `postgres_data` 已经存在，PostgreSQL 不会自动重新执行新加入的 migration。每次更新代码后先备份数据库，再执行：
+
+```bash
+for f in migrations/*.sql; do
+  docker compose exec -T postgres psql -U official_account -d official_account < "$f"
+done
+```
+
+本次安全更新至少需要应用 `008_authorization_state.sql` 和 `009_publish_in_progress_unique.sql`，再重启后端。
+
 ## 5. 构建并部署管理后台
 
 构建前端：

@@ -184,7 +184,9 @@
 - freepublish.submit：已完成 `Publisher.SubmitFreePublish`
 - 异步发布状态处理：已完成主动轮询 `freepublish/get` 并更新本地发布记录
 - 发布失败原因记录：已完成失败状态写入 `error_code` / `error_message`
-- 发布幂等控制：已完成同一文章已有 `publishing` 记录时直接返回现有记录
+- 发布幂等控制：已完成数据库部分唯一索引和 memory 原子约束，同一 tenant/article 只能存在一条 `publishing` intent，并发请求只允许一个调用微信
+- 发布 intent 持久化：已完成微信 `draft.add` 前先创建本地记录并同步文章状态；微信拒绝时记录和文章一起进入 `failed`
+- 队列故障恢复：已完成 publish_id 落库后再入队；入队失败保留 publishing 记录，重复发布请求只重新入队，不重复调用微信
 
 缺失：无，P1-4 已完成基础闭环；发布结果回调处理归入 P1-5。
 
