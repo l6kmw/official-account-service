@@ -8,6 +8,8 @@ import (
 	"official-account-service/internal/domain/officialcontent"
 )
 
+const maxOfficialContentResponseBytes int64 = 8 << 20
+
 // ListPublishedArticles reads one live page from WeChat freepublish/batchget.
 func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken string, offset, count int, includeContent bool) (officialcontent.PublishedArticleBatch, error) {
 	var response freePublishBatchGetResponse
@@ -15,9 +17,9 @@ func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken strin
 	if includeContent {
 		noContent = 0
 	}
-	if err := p.postJSON(ctx, "freepublish_batchget", "/freepublish/batchget", accessToken, freePublishBatchGetRequest{
+	if err := p.postJSONWithResponseLimit(ctx, "freepublish_batchget", "/freepublish/batchget", accessToken, freePublishBatchGetRequest{
 		Offset: offset, Count: count, NoContent: noContent,
-	}, &response); err != nil {
+	}, &response, maxOfficialContentResponseBytes); err != nil {
 		return officialcontent.PublishedArticleBatch{}, err
 	}
 	items := make([]officialcontent.PublishedArticle, 0)
@@ -89,7 +91,7 @@ func (p *Publisher) ListArticleComments(ctx context.Context, accessToken string,
 func (p *Publisher) postJSONFromAPIRoot(ctx context.Context, operation, path, accessToken string, body any, out wechatPublishResponse) error {
 	client := *p
 	client.baseURL = strings.TrimSuffix(client.baseURL, "/cgi-bin")
-	return client.postJSON(ctx, operation, path, accessToken, body, out)
+	return client.postJSONWithResponseLimit(ctx, operation, path, accessToken, body, out, maxOfficialContentResponseBytes)
 }
 
 type freePublishBatchGetRequest struct {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -178,6 +179,35 @@ func TestPublisherListsLivePublishedArticles(t *testing.T) {
 	require.True(t, result.Items[0].NeedOpenComment)
 	require.True(t, result.Items[1].OnlyFansCanComment)
 	require.True(t, result.Items[1].Deleted)
+}
+
+func TestPublisherAllowsLargePublishedArticlePages(t *testing.T) {
+	newsItems := make([]map[string]any, 0, 8)
+	for index := 0; index < 8; index++ {
+		newsItems = append(newsItems, map[string]any{
+			"title": "article", "content": strings.Repeat("x", 8<<10),
+		})
+	}
+	messages := make([]map[string]any, 0, 20)
+	for index := 0; index < 20; index++ {
+		messages = append(messages, map[string]any{
+			"article_id": "message", "content": map[string]any{"news_item": newsItems},
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"total_count": 20, "item_count": 20, "item": messages,
+		}))
+	}))
+	defer server.Close()
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	result, err := publisher.ListPublishedArticles(context.Background(), "authorizer-token", 0, 20, true)
+
+	require.NoError(t, err)
+	require.Len(t, result.Items, 160)
+	require.Len(t, result.Items[0].ContentHTML, 8<<10)
 }
 
 func TestPublisherGetsArticleMetrics(t *testing.T) {

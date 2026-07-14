@@ -122,11 +122,18 @@ func (p *Publisher) DeleteFreePublish(ctx context.Context, authorizerAccessToken
 }
 
 func (p *Publisher) postJSON(ctx context.Context, operation string, path string, accessToken string, body any, out wechatPublishResponse) error {
+	return p.postJSONWithResponseLimit(ctx, operation, path, accessToken, body, out, maxResponseBytes)
+}
+
+func (p *Publisher) postJSONWithResponseLimit(ctx context.Context, operation string, path string, accessToken string, body any, out wechatPublishResponse, responseLimit int64) error {
 	if p == nil || p.httpClient == nil {
 		return fmt.Errorf("validate publisher: %w", publish.ErrPublisherUnavailable)
 	}
 	if strings.TrimSpace(accessToken) == "" {
 		return fmt.Errorf("validate authorizer access token: %w", publish.ErrPublisherUnavailable)
+	}
+	if responseLimit <= 0 {
+		responseLimit = maxResponseBytes
 	}
 	var lastErr error
 	for attempt := 0; attempt <= p.maxRetries; attempt++ {
@@ -135,7 +142,7 @@ func (p *Publisher) postJSON(ctx context.Context, operation string, path string,
 				return fmt.Errorf("wait before retry %s: %w", operation, err)
 			}
 		}
-		err := p.postJSONOnce(ctx, operation, path, accessToken, body, out)
+		err := p.postJSONOnce(ctx, operation, path, accessToken, body, out, responseLimit)
 		if err == nil {
 			return nil
 		}
@@ -147,7 +154,7 @@ func (p *Publisher) postJSON(ctx context.Context, operation string, path string,
 	return lastErr
 }
 
-func (p *Publisher) postJSONOnce(ctx context.Context, operation string, path string, accessToken string, body any, out wechatPublishResponse) error {
+func (p *Publisher) postJSONOnce(ctx context.Context, operation string, path string, accessToken string, body any, out wechatPublishResponse, responseLimit int64) error {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal %s request: %w", operation, err)
@@ -166,9 +173,12 @@ func (p *Publisher) postJSONOnce(ctx context.Context, operation string, path str
 		return retryableError{err: fmt.Errorf("send %s request: %w", operation, publish.ErrPublishFailed)}
 	}
 	defer resp.Body.Close()
-	responseBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	responseBytes, err := io.ReadAll(io.LimitReader(resp.Body, responseLimit+1))
 	if err != nil {
 		return fmt.Errorf("read %s response: %w", operation, publish.ErrPublishFailed)
+	}
+	if int64(len(responseBytes)) > responseLimit {
+		return fmt.Errorf("read %s response: response exceeds %d bytes: %w", operation, responseLimit, publish.ErrPublishFailed)
 	}
 	if resp.StatusCode >= http.StatusInternalServerError {
 		return retryableError{err: fmt.Errorf("%s response status %d: %w", operation, resp.StatusCode, publish.ErrPublishFailed)}
