@@ -1,4 +1,4 @@
-import { postForm } from './client'
+import { getJSON, postForm } from './client'
 
 export type MaterialAsset = {
   id: number
@@ -16,6 +16,15 @@ type UploadInput = {
   authorizerID: number
   articleID: number
   file: File
+}
+
+type MaterialListResponse = {
+  items: MaterialAsset[]
+}
+
+export async function listMaterials(articleID: number, tenantID?: string): Promise<MaterialAsset[]> {
+  const response = await getJSON<MaterialListResponse>(`/api/v1/materials?article_id=${articleID}`, tenantID)
+  return response.items
 }
 
 export function uploadInlineImage(input: UploadInput, tenantID?: string): Promise<MaterialAsset> {

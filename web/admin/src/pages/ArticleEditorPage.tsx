@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent, type ClipboardEvent } f
 import styled from '@emotion/styled'
 import { listAccounts, type Account } from '../api/accounts'
 import { createArticle, getArticle, updateArticle, type Article, type ArticleFormInput } from '../api/articles'
-import { uploadCover, uploadInlineImage } from '../api/materials'
+import { listMaterials, uploadCover, uploadInlineImage, type MaterialAsset } from '../api/materials'
 import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
@@ -93,12 +93,16 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   const [loading, setLoading] = useState(editing)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<'inline' | 'cover' | ''>('')
+  const [materials, setMaterials] = useState<MaterialAsset[]>([])
+  const [materialsLoading, setMaterialsLoading] = useState(editing)
+  const [materialsError, setMaterialsError] = useState('')
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
   const [dirty, setDirty] = useState(false)
   const activeAccounts = useMemo(() => accounts.filter((account) => account.status === 'active'), [accounts])
   const accountsByID = useMemo(() => accountByID(accounts), [accounts])
   const selectedAccount = accountsByID.get(form.authorizer_id)
+  const coverMaterials = useMemo(() => materials.filter((asset) => asset.usage === 'cover'), [materials])
   const fieldErrors = useMemo(() => validate(form, editing), [form, editing])
   const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading && !accountsLoading
   const previewSrcDoc = useMemo(() => buildArticlePreviewSrcDoc(form.content_html), [form.content_html])
@@ -168,6 +172,33 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   }, [articleID, editing])
 
   useEffect(() => {
+    if (!editing || articleID === undefined) {
+      setMaterials([])
+      setMaterialsLoading(false)
+      setMaterialsError('')
+      return
+    }
+    let active = true
+    setMaterialsLoading(true)
+    setMaterialsError('')
+
+    listMaterials(articleID, tenantID)
+      .then((items) => {
+        if (active) setMaterials(items)
+      })
+      .catch((err: unknown) => {
+        if (active) setMaterialsError(getErrorMessage(err))
+      })
+      .finally(() => {
+        if (active) setMaterialsLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [articleID, editing])
+
+  useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
       if (!dirty) return
       event.preventDefault()
@@ -225,15 +256,18 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
 
     setUploading(kind)
     setError('')
+    setMaterialsError('')
     setSavedMessage('')
 
     try {
       if (kind === 'inline') {
         const asset = await uploadInlineImage({ authorizerID: form.authorizer_id, articleID, file }, tenantID)
+        setMaterials((items) => [...items, asset])
         update('content_html', `${form.content_html}\n<p><img src="${asset.wechat_url}" alt="" /></p>`)
         setSavedMessage('正文图片已上传，已插入 HTML，请保存文章。')
       } else {
         const asset = await uploadCover({ authorizerID: form.authorizer_id, articleID, file }, tenantID)
+        setMaterials((items) => [...items, asset])
         update('cover_media_asset_id', asset.id)
         setSavedMessage('封面已上传，已写入封面素材 ID，请保存文章。')
       }
@@ -338,14 +372,20 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           </Field>
           <Field>
             <Label htmlFor="cover-media-asset-id">封面素材 ID</Label>
-            <Input
+            <Select
               id="cover-media-asset-id"
-              min="0"
-              type="number"
               value={form.cover_media_asset_id || ''}
               onChange={(event) => update('cover_media_asset_id', Number(event.target.value))}
-            />
-            {fieldErrors.cover_media_asset_id ? <FieldError>{fieldErrors.cover_media_asset_id}</FieldError> : <Helper>没有封面时留空；上传封面后会自动写入本地素材 ID。</Helper>}
+            >
+              <option value="">未选择封面</option>
+              {form.cover_media_asset_id > 0 && !coverMaterials.some((asset) => asset.id === form.cover_media_asset_id) ? (
+                <option value={form.cover_media_asset_id}>当前素材 #{form.cover_media_asset_id}</option>
+              ) : null}
+              {coverMaterials.map((asset) => (
+                <option key={asset.id} value={asset.id}>素材 #{asset.id} · {asset.local_url}</option>
+              ))}
+            </Select>
+            {fieldErrors.cover_media_asset_id ? <FieldError>{fieldErrors.cover_media_asset_id}</FieldError> : <Helper>上传封面后会自动选中，也可以切换当前文章已有的封面素材。</Helper>}
           </Field>
 
           <Divider />
@@ -376,6 +416,30 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
             </Field>
           </UploadGrid>
           {uploading ? <Helper>正在上传{uploading === 'inline' ? '正文图片' : '封面'}…</Helper> : null}
+          <MaterialInventory aria-live="polite">
+            <MaterialInventoryHeader>
+              <strong>当前文章素材</strong>
+              <span>{materialsLoading ? '加载中' : `${materials.length} 个`}</span>
+            </MaterialInventoryHeader>
+            {materialsError ? <FieldError>{materialsError}</FieldError> : null}
+            {!materialsLoading && !materialsError && materials.length === 0 ? (
+              <MaterialEmpty>{editing ? '还没有素材，上传后会在这里显示素材 ID。' : '保存文章后，可以上传并查看素材 ID。'}</MaterialEmpty>
+            ) : null}
+            {materials.length > 0 ? (
+              <MaterialRows>
+                {materials.map((asset) => (
+                  <MaterialRow key={asset.id}>
+                    <MaterialID>#{asset.id}</MaterialID>
+                    <MaterialMeta>
+                      <strong>{asset.usage === 'cover' ? '封面图' : '正文图片'}</strong>
+                      <span>{asset.local_url}</span>
+                    </MaterialMeta>
+                    <MaterialState>{asset.usage === 'cover' && form.cover_media_asset_id === asset.id ? '当前封面' : '已同步微信'}</MaterialState>
+                  </MaterialRow>
+                ))}
+              </MaterialRows>
+            ) : null}
+          </MaterialInventory>
 
           <Divider />
 
@@ -710,6 +774,83 @@ const TwoColumns = styled.div`
 const UploadGrid = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.space.md};
+`
+
+const MaterialInventory = styled.section`
+  display: grid;
+  gap: ${({ theme }) => theme.space.sm};
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+  padding-top: ${({ theme }) => theme.space.md};
+`
+
+const MaterialInventoryHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.space.md};
+  color: ${({ theme }) => theme.colors.text};
+
+  span {
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: ${({ theme }) => theme.typeScale.small};
+  }
+`
+
+const MaterialRows = styled.div`
+  display: grid;
+`
+
+const MaterialRow = styled.div`
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.md};
+  min-height: 58px;
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+
+  @media (max-width: 560px) {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+`
+
+const MaterialID = styled.strong`
+  color: ${({ theme }) => theme.colors.primary};
+  font-variant-numeric: tabular-nums;
+`
+
+const MaterialMeta = styled.div`
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+
+  strong {
+    color: ${({ theme }) => theme.colors.text};
+    font-size: ${({ theme }) => theme.typeScale.small};
+  }
+
+  span {
+    overflow: hidden;
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: ${({ theme }) => theme.typeScale.small};
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`
+
+const MaterialState = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  white-space: nowrap;
+
+  @media (max-width: 560px) {
+    grid-column: 2;
+  }
+`
+
+const MaterialEmpty = styled.p`
+  margin: 0;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.typeScale.small};
 `
 
 const Helper = styled.p`
