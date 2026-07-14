@@ -177,6 +177,7 @@ func preparePublishingRecord(t *testing.T, ctx context.Context, store *memory.St
 type fakeAuthorizerCallbackDecryptor struct {
 	plaintext []byte
 	lastInput authorization.ComponentCallbackDecryptInput
+	mu        sync.Mutex
 }
 
 func encryptedAuthorizerCallbackInput() HandleAuthorizerCallbackInput {
@@ -191,6 +192,8 @@ func encryptedAuthorizerCallbackInput() HandleAuthorizerCallbackInput {
 }
 
 func (d *fakeAuthorizerCallbackDecryptor) DecryptComponentCallback(_ context.Context, input authorization.ComponentCallbackDecryptInput) ([]byte, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.lastInput = input
 	return d.plaintext, nil
 }
