@@ -85,16 +85,18 @@ function buildArticlePreviewSrcDoc(contentHTML: string) {
 }
 
 export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articleID?: number; onBack: (options?: BackOptions) => void; onDirtyChange: (dirty: boolean) => void }) {
-  const editing = articleID !== undefined
+  const existingArticle = articleID !== undefined
+  const [workingArticleID, setWorkingArticleID] = useState(articleID)
+  const editing = workingArticleID !== undefined
   const [form, setForm] = useState<ArticleFormInput>(emptyForm)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [loaded, setLoaded] = useState<Article | null>(null)
-  const [loading, setLoading] = useState(editing)
+  const [loading, setLoading] = useState(existingArticle)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<'inline' | 'cover' | ''>('')
   const [materials, setMaterials] = useState<MaterialAsset[]>([])
-  const [materialsLoading, setMaterialsLoading] = useState(editing)
+  const [materialsLoading, setMaterialsLoading] = useState(existingArticle)
   const [materialsError, setMaterialsError] = useState('')
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
@@ -104,7 +106,10 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   const selectedAccount = accountsByID.get(form.authorizer_id)
   const coverMaterials = useMemo(() => materials.filter((asset) => asset.usage === 'cover'), [materials])
   const fieldErrors = useMemo(() => validate(form, editing), [form, editing])
-  const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading && !accountsLoading
+  const canSave = Object.keys(fieldErrors).length === 0 && !saving && !loading && !accountsLoading && uploading === ''
+  const formBusy = saving || uploading !== ''
+  const canCreateForUpload = form.authorizer_id > 0 && form.title.trim() !== ''
+  const uploadDisabled = uploading !== '' || saving || loading || accountsLoading || (!editing && !canCreateForUpload)
   const previewSrcDoc = useMemo(() => buildArticlePreviewSrcDoc(form.content_html), [form.content_html])
   const hasPlainTextContent = form.content_html.trim() !== '' && !looksLikeArticleHTML(form.content_html)
 
@@ -121,7 +126,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         if (!active) return
         setAccounts(items)
         const activeItems = items.filter((account) => account.status === 'active')
-        if (!editing && activeItems.length === 1) {
+        if (!existingArticle && activeItems.length === 1) {
           setForm((current) => current.authorizer_id > 0 ? current : { ...current, authorizer_id: activeItems[0].id })
         }
       })
@@ -136,10 +141,10 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     return () => {
       active = false
     }
-  }, [editing])
+  }, [existingArticle])
 
   useEffect(() => {
-    if (!editing || articleID === undefined) return
+    if (!existingArticle || articleID === undefined) return
     let active = true
     setLoading(true)
     setError('')
@@ -169,10 +174,10 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     return () => {
       active = false
     }
-  }, [articleID, editing])
+  }, [articleID, existingArticle])
 
   useEffect(() => {
-    if (!editing || articleID === undefined) {
+    if (!existingArticle || articleID === undefined) {
       setMaterials([])
       setMaterialsLoading(false)
       setMaterialsError('')
@@ -196,7 +201,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     return () => {
       active = false
     }
-  }, [articleID, editing])
+  }, [articleID, existingArticle])
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -248,9 +253,13 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   }
 
   async function uploadMaterial(kind: 'inline' | 'cover', file: File | undefined) {
-    if (!file || articleID === undefined) return
+    if (!file) return
     if (form.authorizer_id <= 0) {
       setError('请先选择公众号。')
+      return
+    }
+    if (!form.title.trim()) {
+      setError('请先填写文章标题。')
       return
     }
 
@@ -259,20 +268,52 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setMaterialsError('')
     setSavedMessage('')
 
+    let targetArticleID = workingArticleID
+    let createdDraft = false
+    let uploaded = false
+
     try {
+      if (targetArticleID === undefined) {
+        const created = await createArticle(form, tenantID)
+        targetArticleID = created.id
+        createdDraft = true
+        setWorkingArticleID(created.id)
+        setLoaded(created)
+        setDirty(false)
+        replaceArticleEditHash(created.id)
+      }
+
       if (kind === 'inline') {
-        const asset = await uploadInlineImage({ authorizerID: form.authorizer_id, articleID, file }, tenantID)
+        const asset = await uploadInlineImage({ authorizerID: form.authorizer_id, articleID: targetArticleID, file }, tenantID)
+        uploaded = true
         setMaterials((items) => [...items, asset])
-        update('content_html', `${form.content_html}\n<p><img src="${asset.wechat_url}" alt="" /></p>`)
-        setSavedMessage('正文图片已上传，已插入 HTML，请保存文章。')
+        const nextForm = { ...form, content_html: `${form.content_html}\n<p><img src="${asset.wechat_url}" alt="" /></p>` }
+        setForm(nextForm)
+        setDirty(true)
+        const updated = await updateArticle(targetArticleID, nextForm, tenantID)
+        setLoaded(updated)
+        setDirty(false)
+        setSavedMessage(createdDraft ? '草稿已创建，正文图片已上传并保存。' : '正文图片已上传并保存。')
       } else {
-        const asset = await uploadCover({ authorizerID: form.authorizer_id, articleID, file }, tenantID)
+        const asset = await uploadCover({ authorizerID: form.authorizer_id, articleID: targetArticleID, file }, tenantID)
+        uploaded = true
         setMaterials((items) => [...items, asset])
-        update('cover_media_asset_id', asset.id)
-        setSavedMessage('封面已上传，已写入封面素材 ID，请保存文章。')
+        const nextForm = { ...form, cover_media_asset_id: asset.id }
+        setForm(nextForm)
+        setDirty(true)
+        const updated = await updateArticle(targetArticleID, nextForm, tenantID)
+        setLoaded(updated)
+        setDirty(false)
+        setSavedMessage(createdDraft ? '草稿已创建，封面已上传并保存。' : '封面已上传并保存。')
       }
     } catch (err: unknown) {
-      setError(getErrorMessage(err))
+      if (uploaded) {
+        setError(`图片已上传，但文章未能自动保存。${getErrorMessage(err)} 请点击保存重试。`)
+      } else if (createdDraft) {
+        setError(`草稿已创建，但图片上传失败。${getErrorMessage(err)} 可以直接重新选择图片。`)
+      } else {
+        setError(`图片上传失败。${getErrorMessage(err)}`)
+      }
     } finally {
       setUploading('')
     }
@@ -287,15 +328,17 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setSavedMessage('')
 
     try {
-      if (editing && articleID !== undefined) {
-        await updateArticle(articleID, form, tenantID)
+      if (workingArticleID !== undefined) {
+        const updated = await updateArticle(workingArticleID, form, tenantID)
+        setLoaded(updated)
       } else {
         const created = await createArticle(form, tenantID)
-        if (form.cover_media_asset_id > 0) await updateArticle(created.id, form, tenantID)
+        setWorkingArticleID(created.id)
+        setLoaded(created)
+        replaceArticleEditHash(created.id)
       }
       setDirty(false)
       setSavedMessage(editing ? '文章已保存。' : '文章已创建。')
-      if (!editing) onBack({ skipDirtyCheck: true })
     } catch (err: unknown) {
       setError(getErrorMessage(err))
     } finally {
@@ -314,7 +357,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         <Button disabled={!canSave} onClick={save}>{saving ? '保存中…' : '保存'}</Button>
       </TopBar>
 
-      {error ? <Notice $danger role="alert"><NoticeIconWrap $danger><AlertIcon /></NoticeIconWrap><div><PanelTitle>保存失败</PanelTitle><PanelDesc>{error}</PanelDesc></div></Notice> : null}
+      {error ? <Notice $danger role="alert"><NoticeIconWrap $danger><AlertIcon /></NoticeIconWrap><div><PanelTitle>操作未完成</PanelTitle><PanelDesc>{error}</PanelDesc></div></Notice> : null}
       {savedMessage ? <Notice><NoticeIconWrap><CheckIcon /></NoticeIconWrap><div><PanelTitle>{savedMessage}</PanelTitle><PanelDesc>可以返回列表查看最新更新时间。</PanelDesc></div></Notice> : null}
 
       <EditorGrid>
@@ -327,6 +370,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           <BigTitleWrap>
             <BigTitleLabel htmlFor="article-title">文章标题 <RequiredText>必填</RequiredText></BigTitleLabel>
             <BigTitleInput
+              disabled={formBusy}
               id="article-title"
               placeholder="输入文章标题…"
               value={form.title}
@@ -348,7 +392,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
                 </ReadonlyAccount>
               ) : (
                 <Select
-                  disabled={accountsLoading || activeAccounts.length === 0}
+                  disabled={formBusy || accountsLoading || activeAccounts.length === 0}
                   id="authorizer-id"
                   value={form.authorizer_id || ''}
                   onChange={(event) => update('authorizer_id', Number(event.target.value))}
@@ -367,17 +411,18 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
             </Field>
             <Field>
               <Label htmlFor="article-author">作者 <OptionalText>选填</OptionalText></Label>
-              <Input id="article-author" value={form.author} onChange={(event) => update('author', event.target.value)} />
+              <Input disabled={formBusy} id="article-author" value={form.author} onChange={(event) => update('author', event.target.value)} />
             </Field>
           </TwoColumns>
           <Field>
             <Label htmlFor="article-digest">摘要 <OptionalText>选填</OptionalText></Label>
-            <Textarea id="article-digest" rows={3} value={form.digest} onChange={(event) => update('digest', event.target.value)} />
+            <Textarea disabled={formBusy} id="article-digest" rows={3} value={form.digest} onChange={(event) => update('digest', event.target.value)} />
             <Helper>列表页和微信摘要展示用。</Helper>
           </Field>
           <Field>
             <Label htmlFor="cover-media-asset-id">封面素材 <PublishRequiredText>发布前必填</PublishRequiredText></Label>
             <Select
+              disabled={formBusy}
               id="cover-media-asset-id"
               value={form.cover_media_asset_id || ''}
               onChange={(event) => update('cover_media_asset_id', Number(event.target.value))}
@@ -400,10 +445,11 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
             <Field>
               <Label>正文图片</Label>
               <UploadControl
-                disabled={!editing || uploading !== ''}
+                disabled={uploadDisabled}
+                disabledLabel={editing ? '暂不可用' : '填写必填项'}
                 id="inline-image-upload"
                 loading={uploading === 'inline'}
-                note={editing ? '上传成功后会把 wechat_url 插入正文 HTML。' : '请先保存文章，再上传正文图片。'}
+                note={editing ? '上传后会插入正文 HTML 并自动保存。' : canCreateForUpload ? '选择后会自动创建草稿、插入正文并保存。' : '填写公众号和文章标题后可上传。'}
                 title="选择正文图片"
                 onFile={(file) => uploadMaterial('inline', file)}
               />
@@ -411,10 +457,11 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
             <Field>
               <Label>封面图</Label>
               <UploadControl
-                disabled={!editing || uploading !== ''}
+                disabled={uploadDisabled}
+                disabledLabel={editing ? '暂不可用' : '填写必填项'}
                 id="cover-upload"
                 loading={uploading === 'cover'}
-                note={editing ? '上传成功后会把本地素材 ID 写入封面字段。' : '请先保存文章，再上传封面。'}
+                note={editing ? '上传后会绑定封面素材 ID 并自动保存。' : canCreateForUpload ? '选择后会自动创建草稿、绑定封面并保存。' : '填写公众号和文章标题后可上传。'}
                 title="选择封面图"
                 onFile={(file) => uploadMaterial('cover', file)}
               />
@@ -428,7 +475,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
             </MaterialInventoryHeader>
             {materialsError ? <FieldError>{materialsError}</FieldError> : null}
             {!materialsLoading && !materialsError && materials.length === 0 ? (
-              <MaterialEmpty>{editing ? '还没有素材，上传后会在这里显示素材 ID。' : '保存文章后，可以上传并查看素材 ID。'}</MaterialEmpty>
+              <MaterialEmpty>{editing ? '还没有素材，上传后会在这里显示素材 ID。' : '填写必填项后即可上传，系统会自动创建草稿。'}</MaterialEmpty>
             ) : null}
             {materials.length > 0 ? (
               <MaterialRows>
@@ -452,10 +499,11 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           <Field>
             <Label htmlFor="content-html">正文 HTML <PublishRequiredText>发布前必填</PublishRequiredText></Label>
             <ContentImportRow>
-              <ImportHTMLButton htmlFor="content-html-import"><UploadIcon />导入 gzh HTML</ImportHTMLButton>
-              <HiddenFileInput id="content-html-import" type="file" accept=".html,.htm,text/html" onChange={importContentHTMLFile} />
+              <ImportHTMLButton aria-disabled={formBusy} htmlFor="content-html-import"><UploadIcon />导入 gzh HTML</ImportHTMLButton>
+              <HiddenFileInput disabled={formBusy} id="content-html-import" type="file" accept=".html,.htm,text/html" onChange={importContentHTMLFile} />
             </ContentImportRow>
             <CodeTextarea
+              disabled={formBusy}
               id="content-html"
               rows={16}
               value={form.content_html}
@@ -481,7 +529,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   )
 }
 
-function UploadControl({ id, title, note, disabled, loading, onFile }: { id: string; title: string; note: string; disabled: boolean; loading: boolean; onFile: (file: File) => void }) {
+function UploadControl({ id, title, note, disabled, disabledLabel, loading, onFile }: { id: string; title: string; note: string; disabled: boolean; disabledLabel: string; loading: boolean; onFile: (file: File) => void }) {
   return (
     <UploadBox data-disabled={disabled}>
       <UploadMain>
@@ -491,7 +539,7 @@ function UploadControl({ id, title, note, disabled, loading, onFile }: { id: str
           <span>{note}</span>
         </UploadText>
       </UploadMain>
-      <UploadButton htmlFor={id} aria-disabled={disabled}>{loading ? '处理中' : disabled ? '保存后可上传' : '选择文件'}</UploadButton>
+      <UploadButton htmlFor={id} aria-disabled={disabled}>{loading ? '处理中' : disabled ? disabledLabel : '选择文件'}</UploadButton>
       <HiddenFileInput
         id={id}
         disabled={disabled}
@@ -505,6 +553,12 @@ function UploadControl({ id, title, note, disabled, loading, onFile }: { id: str
       />
     </UploadBox>
   )
+}
+
+function replaceArticleEditHash(articleID: number) {
+  const url = new URL(window.location.href)
+  url.hash = `#/articles/${articleID}/edit`
+  window.history.replaceState(null, '', url)
 }
 
 function validate(form: ArticleFormInput, editing: boolean): FieldErrors {
@@ -796,6 +850,12 @@ const ImportHTMLButton = styled.label`
     border-color: ${({ theme }) => theme.colors.primary};
     background: ${({ theme }) => theme.colors.primarySoft};
     color: ${({ theme }) => theme.colors.primaryStrong};
+  }
+
+  &[aria-disabled='true'] {
+    cursor: not-allowed;
+    color: ${({ theme }) => theme.colors.textFaint};
+    pointer-events: none;
   }
 
   svg {
