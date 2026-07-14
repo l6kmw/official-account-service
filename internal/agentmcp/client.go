@@ -229,28 +229,16 @@ func (c *Client) UpdateArticle(ctx context.Context, id int64, input UpdateArticl
 	return out, nil
 }
 
-// DeleteArticle deletes one local draft or failed article.
+// DeleteArticle deletes one article and lets the backend remove any published WeChat copies first.
 func (c *Client) DeleteArticle(ctx context.Context, id int64) (Article, error) {
 	article, err := c.GetArticle(ctx, id)
 	if err != nil {
 		return Article{}, err
 	}
-	if !canDeleteLocalArticle(article.Status) {
-		return Article{}, fmt.Errorf("article %d status is %q; delete published or publishing content with official_account_delete_published_record first", id, article.Status)
-	}
 	if err := c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/api/v1/articles/%d", id), nil, nil, http.StatusNoContent); err != nil {
 		return Article{}, err
 	}
 	return article, nil
-}
-
-func canDeleteLocalArticle(status string) bool {
-	switch strings.TrimSpace(status) {
-	case "draft", "failed":
-		return true
-	default:
-		return false
-	}
 }
 
 // UploadImage uploads a body image or cover image.

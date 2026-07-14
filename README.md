@@ -404,6 +404,11 @@ Header value: <MCP_TOKEN>
 - `official_account_sync_publish_status`
 - `official_account_delete_published_record`
 
+删除时注意区分：
+
+- `official_account_delete_article`：完整删除文章。后端会先删除所有已发布的微信内容，再删除本地文章和素材；发布记录会保留为 `deleted` 供审计。
+- `official_account_delete_published_record`：只下线指定发布记录对应的微信内容，本地文章继续保留。
+
 上传图片时，`file_path`、`content_base64`、`image_url` 必须三选一。线上 Agent 应把用户附件的临时公网 HTTPS 下载地址传给 `image_url`；服务端最多下载 8 MiB，并拒绝私网地址、危险重定向和非图片内容。
 
 典型流程：

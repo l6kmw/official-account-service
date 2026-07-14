@@ -76,14 +76,14 @@ func requiredToolFields(t *testing.T, tool *mcp.Tool) []string {
 	return schema.Required
 }
 
-func TestMCPServerDeletesLocalArticle(t *testing.T) {
+func TestMCPServerDeletesPublishedArticleCompletely(t *testing.T) {
 	var deleted bool
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "tenant-test", r.Header.Get("X-Tenant-ID"))
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles/12":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":12,"tenant_id":"tenant-test","authorizer_id":1,"title":"draft","status":"draft"}`))
+			_, _ = w.Write([]byte(`{"id":12,"tenant_id":"tenant-test","authorizer_id":1,"title":"published","status":"published"}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/articles/12":
 			deleted = true
 			w.WriteHeader(http.StatusNoContent)

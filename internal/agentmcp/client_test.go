@@ -66,7 +66,7 @@ func TestClientDeletesDraftArticle(t *testing.T) {
 	require.Equal(t, "draft", article.Status)
 }
 
-func TestClientRefusesToDeletePublishedArticle(t *testing.T) {
+func TestClientDeletesPublishedArticleViaBackend(t *testing.T) {
 	var deleteRequests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "tenant-test", r.Header.Get("X-Tenant-ID"))
@@ -85,10 +85,11 @@ func TestClientRefusesToDeletePublishedArticle(t *testing.T) {
 	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
 	require.NoError(t, err)
 
-	_, err = client.DeleteArticle(context.Background(), 12)
+	article, err := client.DeleteArticle(context.Background(), 12)
 
-	require.ErrorContains(t, err, `status is "published"`)
-	require.Zero(t, deleteRequests)
+	require.NoError(t, err)
+	require.Equal(t, "published", article.Status)
+	require.Equal(t, 1, deleteRequests)
 }
 
 func TestClientUploadsImageAsMultipart(t *testing.T) {

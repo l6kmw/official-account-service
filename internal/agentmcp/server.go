@@ -128,11 +128,11 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_delete_article",
-		Title:       "Delete local article",
-		Description: "Delete one local draft or failed article. Refuses publishing/published articles; delete real WeChat content with official_account_delete_published_record first. Requires confirm_delete=\"DELETE\".",
+		Title:       "Delete article completely",
+		Description: "Delete one article completely. The backend removes all published WeChat copies before deleting the local article and its materials; deleted publish records remain for audit. Requires confirm_delete=\"DELETE\".",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteArticleToolInput) (*mcp.CallToolResult, any, error) {
 		if input.ConfirmDelete != "DELETE" {
-			return nil, nil, fmt.Errorf("confirm_delete must be DELETE before deleting a local article")
+			return nil, nil, fmt.Errorf("confirm_delete must be DELETE before deleting an article and its published WeChat content")
 		}
 		article, err := client.DeleteArticle(ctx, input.ArticleID)
 		if err != nil {
@@ -168,7 +168,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_delete_published_record",
 		Title:       "Delete published WeChat content",
-		Description: "Delete the WeChat article referenced by a publish record. Requires confirm_delete=\"DELETE\" because this removes real public WeChat content.",
+		Description: "Delete only the WeChat article referenced by one publish record while keeping the local article. Requires confirm_delete=\"DELETE\" because this removes real public WeChat content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deletePublishedToolInput) (*mcp.CallToolResult, any, error) {
 		if input.ConfirmDelete != "DELETE" {
 			return nil, nil, fmt.Errorf("confirm_delete must be DELETE before deleting real WeChat content")
