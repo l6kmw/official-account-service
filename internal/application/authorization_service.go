@@ -27,6 +27,7 @@ type AuthorizationService struct {
 	tickets           authorization.ComponentVerifyTicketRepository
 	accounts          authorization.Repository
 	bindings          authorization.AuthorizerTenantBindingRepository
+	states            authorization.AuthorizationStateRepository
 	preAuthCodes      authorization.PreAuthCodeCreator
 	callbackDecryptor authorization.ComponentCallbackDecryptor
 	authorizers       authorization.AuthorizerClient
@@ -51,11 +52,21 @@ func NewAuthorizationServiceWithDependencies(tickets authorization.ComponentVeri
 
 // NewAuthorizationServiceWithAuthorizationFlow constructs an AuthorizationService with authorization callback dependencies.
 func NewAuthorizationServiceWithAuthorizationFlow(tickets authorization.ComponentVerifyTicketRepository, accounts authorization.Repository, preAuthCodes authorization.PreAuthCodeCreator, callbackDecryptor authorization.ComponentCallbackDecryptor, authorizers authorization.AuthorizerClient, refreshTokens authorization.RefreshTokenEncryptor, now func() time.Time) *AuthorizationService {
+	states, _ := tickets.(authorization.AuthorizationStateRepository)
+	if states == nil {
+		states, _ = accounts.(authorization.AuthorizationStateRepository)
+	}
+	return NewAuthorizationServiceWithSecureAuthorizationFlow(tickets, accounts, states, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, now)
+}
+
+// NewAuthorizationServiceWithSecureAuthorizationFlow constructs an AuthorizationService with one-time authorization state persistence.
+func NewAuthorizationServiceWithSecureAuthorizationFlow(tickets authorization.ComponentVerifyTicketRepository, accounts authorization.Repository, states authorization.AuthorizationStateRepository, preAuthCodes authorization.PreAuthCodeCreator, callbackDecryptor authorization.ComponentCallbackDecryptor, authorizers authorization.AuthorizerClient, refreshTokens authorization.RefreshTokenEncryptor, now func() time.Time) *AuthorizationService {
 	if now == nil {
 		now = time.Now
 	}
 	return &AuthorizationService{
 		tickets: tickets, accounts: accounts, bindings: bindingRepositoryFromDependencies(tickets, accounts),
+		states:       states,
 		preAuthCodes: preAuthCodes, callbackDecryptor: callbackDecryptor,
 		authorizers: authorizers, refreshTokens: refreshTokens, now: now,
 	}
@@ -79,14 +90,14 @@ type HandleComponentCallbackInput struct {
 
 // HandleAuthorizationCallbackInput contains a WeChat authorization redirect callback.
 type HandleAuthorizationCallbackInput struct {
-	TenantID       string
-	ComponentAppID string
-	AuthCode       string
-	ReceivedAt     time.Time
+	State      string
+	AuthCode   string
+	ReceivedAt time.Time
 }
 
 // GenerateAuthorizationURLInput contains fields for creating a WeChat component authorization URL.
 type GenerateAuthorizationURLInput struct {
+	TenantID       string
 	ComponentAppID string
 	RedirectURI    string
 	AuthType       int
@@ -104,16 +115,17 @@ func (s *AuthorizationService) HandleAuthorizationCallback(ctx context.Context, 
 	if err := s.validateAuthorizationFlowReady(); err != nil {
 		return authorization.Account{}, err
 	}
-	if strings.TrimSpace(input.TenantID) == "" {
-		return authorization.Account{}, fmt.Errorf("validate authorization callback tenant id: %w", ErrInvalidInput)
-	}
-	if strings.TrimSpace(input.ComponentAppID) == "" {
-		return authorization.Account{}, fmt.Errorf("validate authorization callback component app id: %w", ErrInvalidInput)
+	if strings.TrimSpace(input.State) == "" {
+		return authorization.Account{}, fmt.Errorf("validate authorization callback state: %w", ErrInvalidInput)
 	}
 	if strings.TrimSpace(input.AuthCode) == "" {
 		return authorization.Account{}, fmt.Errorf("validate authorization callback auth code: %w", ErrInvalidInput)
 	}
-	authorized, err := s.authorizers.QueryAuthorizerAuthorization(ctx, input.ComponentAppID, input.AuthCode)
+	state, err := s.consumeAuthorizationState(ctx, input.State)
+	if err != nil {
+		return authorization.Account{}, err
+	}
+	authorized, err := s.authorizers.QueryAuthorizerAuthorization(ctx, state.ComponentAppID, input.AuthCode)
 	if err != nil {
 		return authorization.Account{}, wrapAuthorizerClientError("query authorizer authorization", err)
 	}
@@ -123,7 +135,7 @@ func (s *AuthorizationService) HandleAuthorizationCallback(ctx context.Context, 
 	if strings.TrimSpace(authorized.RefreshToken) == "" {
 		return authorization.Account{}, fmt.Errorf("validate authorizer refresh token: %w", ErrInvalidInput)
 	}
-	profile, err := s.authorizers.GetAuthorizerProfile(ctx, input.ComponentAppID, authorized.AppID)
+	profile, err := s.authorizers.GetAuthorizerProfile(ctx, state.ComponentAppID, authorized.AppID)
 	if err != nil {
 		return authorization.Account{}, wrapAuthorizerClientError("get authorizer profile", err)
 	}
@@ -138,8 +150,8 @@ func (s *AuthorizationService) HandleAuthorizationCallback(ctx context.Context, 
 	if receivedAt.IsZero() {
 		receivedAt = s.now()
 	}
-	account, err := s.accounts.SaveAccount(ctx, input.TenantID, authorization.Account{
-		TenantID: input.TenantID, AppID: authorized.AppID, Name: profile.Name, AvatarURL: profile.AvatarURL,
+	account, err := s.accounts.SaveAccount(ctx, state.TenantID, authorization.Account{
+		TenantID: state.TenantID, AppID: authorized.AppID, Name: profile.Name, AvatarURL: profile.AvatarURL,
 		Status: authorization.AccountStatusActive, EncryptedAuthorizerRefreshToken: encryptedRefreshToken,
 		LastSyncedAt: receivedAt,
 	})
@@ -148,9 +160,9 @@ func (s *AuthorizationService) HandleAuthorizationCallback(ctx context.Context, 
 	}
 	if s.bindings != nil {
 		_, err = s.bindings.SaveAuthorizerTenantBinding(ctx, authorization.AuthorizerTenantBinding{
-			ComponentAppID:  input.ComponentAppID,
+			ComponentAppID:  state.ComponentAppID,
 			AuthorizerAppID: authorized.AppID,
-			TenantID:        input.TenantID,
+			TenantID:        state.TenantID,
 		})
 		if err != nil {
 			return authorization.Account{}, fmt.Errorf("save authorizer tenant binding: %w", err)
@@ -200,6 +212,10 @@ func (s *AuthorizationService) GenerateAuthorizationURL(ctx context.Context, inp
 	if strings.TrimSpace(preAuthCode.Code) == "" {
 		return AuthorizationURL{}, fmt.Errorf("validate pre auth code result: %w", ErrInvalidInput)
 	}
+	redirectURI, err := s.createAuthorizationState(ctx, input, preAuthCode.ExpiresInSeconds)
+	if err != nil {
+		return AuthorizationURL{}, err
+	}
 	authType := input.AuthType
 	if authType == 0 {
 		authType = AuthorizationAuthTypeOfficialAccount
@@ -207,7 +223,7 @@ func (s *AuthorizationService) GenerateAuthorizationURL(ctx context.Context, inp
 	values := url.Values{}
 	values.Set("component_appid", input.ComponentAppID)
 	values.Set("pre_auth_code", preAuthCode.Code)
-	values.Set("redirect_uri", input.RedirectURI)
+	values.Set("redirect_uri", redirectURI)
 	values.Set("auth_type", fmt.Sprintf("%d", authType))
 	if strings.TrimSpace(input.BizAppID) != "" {
 		values.Set("biz_appid", input.BizAppID)
@@ -250,6 +266,9 @@ func (s *AuthorizationService) validateAuthorizationFlowReady() error {
 	if s.refreshTokens == nil {
 		return fmt.Errorf("validate refresh token encryptor: %w", ErrNotImplemented)
 	}
+	if s.states == nil {
+		return fmt.Errorf("validate authorization state repository: %w", ErrNotImplemented)
+	}
 	return nil
 }
 
@@ -267,10 +286,16 @@ func (s *AuthorizationService) validatePreAuthCodeReady() error {
 	if s == nil || s.preAuthCodes == nil {
 		return fmt.Errorf("validate pre auth code creator: %w", ErrNotImplemented)
 	}
+	if s.states == nil {
+		return fmt.Errorf("validate authorization state repository: %w", ErrNotImplemented)
+	}
 	return nil
 }
 
 func validateAuthorizationURLInput(input GenerateAuthorizationURLInput) error {
+	if strings.TrimSpace(input.TenantID) == "" {
+		return fmt.Errorf("validate authorization tenant id: %w", ErrInvalidInput)
+	}
 	if strings.TrimSpace(input.ComponentAppID) == "" {
 		return fmt.Errorf("validate component app id: %w", ErrInvalidInput)
 	}

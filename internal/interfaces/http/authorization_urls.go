@@ -9,6 +9,7 @@ import (
 )
 
 type authorizationURLRequest struct {
+	TenantID       string `form:"tenant_id" binding:"required"`
 	ComponentAppID string `form:"component_appid" binding:"required"`
 	RedirectURI    string `form:"redirect_uri" binding:"required"`
 	AuthType       int    `form:"auth_type" binding:"omitempty,oneof=1 2 3"`
@@ -28,6 +29,7 @@ func registerAuthorizationURLRoutes(r gin.IRouter, service *application.Authoriz
 			return
 		}
 		result, err := service.GenerateAuthorizationURL(c.Request.Context(), application.GenerateAuthorizationURLInput{
+			TenantID:       query.TenantID,
 			ComponentAppID: query.ComponentAppID,
 			RedirectURI:    query.RedirectURI,
 			AuthType:       query.AuthType,

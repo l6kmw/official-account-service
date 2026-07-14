@@ -54,6 +54,7 @@ const (
 
 // AuthorizeInput contains parameters for wechat.authorize().
 type AuthorizeInput struct {
+	TenantID       string `json:"tenant_id"`
 	ComponentAppID string `json:"component_appid"`
 	RedirectURI    string `json:"redirect_uri"`
 	AuthType       int    `json:"auth_type"`
@@ -176,6 +177,7 @@ func (api *WeChatAPI) Authorize(ctx context.Context, input AuthorizeInput) (Auth
 		return AuthorizeOutput{}, fmt.Errorf("validate wechat.authorize dependencies: %w", application.ErrNotImplemented)
 	}
 	result, err := api.authorization.GenerateAuthorizationURL(ctx, application.GenerateAuthorizationURLInput{
+		TenantID:       input.TenantID,
 		ComponentAppID: input.ComponentAppID,
 		RedirectURI:    input.RedirectURI,
 		AuthType:       input.AuthType,

@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -79,8 +80,8 @@ func newIntegrationWorkflowRouter() (stdhttp.Handler, *integrationUploader, *int
 
 	router := NewRouter(Dependencies{
 		Logger: zap.NewNop(),
-		Authorization: application.NewAuthorizationServiceWithAuthorizationFlow(
-			store, store, nil, nil, authorizers, codec, fixedRouteTime,
+		Authorization: application.NewAuthorizationServiceWithSecureAuthorizationFlow(
+			store, store, store, routeFakePreAuthCodeCreator{}, nil, authorizers, codec, fixedRouteTime,
 		),
 		Accounts:  accounts,
 		Articles:  articles,
@@ -94,7 +95,17 @@ func newIntegrationWorkflowRouter() (stdhttp.Handler, *integrationUploader, *int
 
 func authorizeIntegrationAccount(t *testing.T, router stdhttp.Handler, tenantID string, authCode string) accountResponse {
 	t.Helper()
-	path := fmt.Sprintf("/api/v1/wechat/authorization-callback?tenant_id=%s&component_appid=wx-component&auth_code=%s", tenantID, authCode)
+	redirectURI := "https://example.com/api/v1/wechat/authorization-callback"
+	generatePath := fmt.Sprintf("/api/v1/wechat/authorization-url?tenant_id=%s&component_appid=wx-component&redirect_uri=%s", url.QueryEscape(tenantID), url.QueryEscape(redirectURI))
+	generated := doJSON(t, router, stdhttp.MethodGet, generatePath, "", "")
+	require.Equal(t, stdhttp.StatusOK, generated.Code)
+	var generatedBody authorizationURLResponse
+	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &generatedBody))
+	authorizationURL, err := url.Parse(generatedBody.AuthorizationURL)
+	require.NoError(t, err)
+	callbackURL, err := url.Parse(authorizationURL.Query().Get("redirect_uri"))
+	require.NoError(t, err)
+	path := fmt.Sprintf("/api/v1/wechat/authorization-callback?state=%s&auth_code=%s", url.QueryEscape(callbackURL.Query().Get("state")), url.QueryEscape(authCode))
 	recorder := doJSON(t, router, stdhttp.MethodGet, path, "", "")
 	require.Equal(t, stdhttp.StatusOK, recorder.Code)
 	require.NotContains(t, recorder.Body.String(), "refresh")

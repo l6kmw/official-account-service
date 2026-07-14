@@ -186,13 +186,10 @@ func TestAuthorizationServiceValidatesComponentCallback(t *testing.T) {
 
 func TestAuthorizationServiceGenerateAuthorizationURL(t *testing.T) {
 	ctx := context.Background()
-	service := NewAuthorizationServiceWithPreAuthCodeCreator(
-		memory.NewStore(time.Now),
-		fakePreAuthCodeCreator{code: "pre-auth-code", expiresInSeconds: 600},
-		time.Now,
-	)
+	service := newAuthorizationURLTestService(fakePreAuthCodeCreator{code: "pre-auth-code", expiresInSeconds: 600})
 
 	result, err := service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{
+		TenantID:       "tenant-1",
 		ComponentAppID: "wx-component",
 		RedirectURI:    "https://example.com/wechat/auth/callback?tenant_id=tenant-1",
 	})
@@ -206,20 +203,21 @@ func TestAuthorizationServiceGenerateAuthorizationURL(t *testing.T) {
 	require.Equal(t, "/cgi-bin/componentloginpage", parsed.Path)
 	require.Equal(t, "wx-component", parsed.Query().Get("component_appid"))
 	require.Equal(t, "pre-auth-code", parsed.Query().Get("pre_auth_code"))
-	require.Equal(t, "https://example.com/wechat/auth/callback?tenant_id=tenant-1", parsed.Query().Get("redirect_uri"))
+	redirectURI, err := url.Parse(parsed.Query().Get("redirect_uri"))
+	require.NoError(t, err)
+	require.Empty(t, redirectURI.Query().Get("tenant_id"))
+	require.Empty(t, redirectURI.Query().Get("component_appid"))
+	require.NotEmpty(t, redirectURI.Query().Get("state"))
 	require.Equal(t, "1", parsed.Query().Get("auth_type"))
 	require.Empty(t, parsed.Query().Get("biz_appid"))
 }
 
 func TestAuthorizationServiceGenerateAuthorizationURLWithOptionalFields(t *testing.T) {
 	ctx := context.Background()
-	service := NewAuthorizationServiceWithPreAuthCodeCreator(
-		memory.NewStore(time.Now),
-		fakePreAuthCodeCreator{code: "pre-auth-code", expiresInSeconds: 600},
-		time.Now,
-	)
+	service := newAuthorizationURLTestService(fakePreAuthCodeCreator{code: "pre-auth-code", expiresInSeconds: 600})
 
 	result, err := service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{
+		TenantID:       "tenant-1",
 		ComponentAppID: "wx-component",
 		RedirectURI:    "https://example.com/wechat/auth/callback",
 		AuthType:       AuthorizationAuthTypeAll,
@@ -235,34 +233,27 @@ func TestAuthorizationServiceGenerateAuthorizationURLWithOptionalFields(t *testi
 
 func TestAuthorizationServiceValidatesAuthorizationURLInput(t *testing.T) {
 	ctx := context.Background()
-	service := NewAuthorizationServiceWithPreAuthCodeCreator(
-		memory.NewStore(time.Now),
-		fakePreAuthCodeCreator{code: "pre-auth-code", expiresInSeconds: 600},
-		time.Now,
-	)
+	service := newAuthorizationURLTestService(fakePreAuthCodeCreator{code: "pre-auth-code", expiresInSeconds: 600})
 
 	_, err := service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{RedirectURI: "https://example.com/callback"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
-	_, err = service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{ComponentAppID: "wx-component", RedirectURI: "http://example.com/callback"})
+	_, err = service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{TenantID: "tenant-1", ComponentAppID: "wx-component", RedirectURI: "http://example.com/callback"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
-	_, err = service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{ComponentAppID: "wx-component", RedirectURI: "https://example.com/callback", AuthType: 9})
+	_, err = service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{TenantID: "tenant-1", ComponentAppID: "wx-component", RedirectURI: "https://example.com/callback", AuthType: 9})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
 func TestAuthorizationServiceMapsPreAuthCodeUnavailable(t *testing.T) {
 	ctx := context.Background()
-	service := NewAuthorizationServiceWithPreAuthCodeCreator(
-		memory.NewStore(time.Now),
-		fakePreAuthCodeCreator{err: authorization.ErrPreAuthCodeUnavailable},
-		time.Now,
-	)
+	service := newAuthorizationURLTestService(fakePreAuthCodeCreator{err: authorization.ErrPreAuthCodeUnavailable})
 
 	_, err := service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{
+		TenantID:       "tenant-1",
 		ComponentAppID: "wx-component",
 		RedirectURI:    "https://example.com/callback",
 	})
@@ -271,6 +262,7 @@ func TestAuthorizationServiceMapsPreAuthCodeUnavailable(t *testing.T) {
 
 	service = NewAuthorizationService(memory.NewStore(time.Now), time.Now)
 	_, err = service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{
+		TenantID:       "tenant-1",
 		ComponentAppID: "wx-component",
 		RedirectURI:    "https://example.com/callback",
 	})
@@ -280,13 +272,10 @@ func TestAuthorizationServiceMapsPreAuthCodeUnavailable(t *testing.T) {
 
 func TestAuthorizationServiceMapsMissingComponentVerifyTicket(t *testing.T) {
 	ctx := context.Background()
-	service := NewAuthorizationServiceWithPreAuthCodeCreator(
-		memory.NewStore(time.Now),
-		fakePreAuthCodeCreator{err: authorization.ErrComponentVerifyTicketNotFound},
-		time.Now,
-	)
+	service := newAuthorizationURLTestService(fakePreAuthCodeCreator{err: authorization.ErrComponentVerifyTicketNotFound})
 
 	_, err := service.GenerateAuthorizationURL(ctx, GenerateAuthorizationURLInput{
+		TenantID:       "tenant-1",
 		ComponentAppID: "wx-component",
 		RedirectURI:    "https://example.com/callback",
 	})
@@ -298,6 +287,11 @@ type fakePreAuthCodeCreator struct {
 	code             string
 	expiresInSeconds int
 	err              error
+}
+
+func newAuthorizationURLTestService(preAuthCodes authorization.PreAuthCodeCreator) *AuthorizationService {
+	store := memory.NewStore(time.Now)
+	return NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, preAuthCodes, nil, nil, nil, time.Now)
 }
 
 func (c fakePreAuthCodeCreator) CreatePreAuthCode(_ context.Context, _ string) (authorization.PreAuthCode, error) {

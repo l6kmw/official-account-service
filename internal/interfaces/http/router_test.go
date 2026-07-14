@@ -121,9 +121,9 @@ func TestAuthorizationURLRoute(t *testing.T) {
 	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC) })
 	router := NewRouter(Dependencies{
 		Logger:        zap.NewNop(),
-		Authorization: application.NewAuthorizationServiceWithPreAuthCodeCreator(store, routeFakePreAuthCodeCreator{}, time.Now),
+		Authorization: application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, routeFakePreAuthCodeCreator{}, nil, nil, nil, time.Now),
 	})
-	path := "/api/v1/wechat/authorization-url?component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&auth_type=3&biz_appid=wx-authorizer"
+	path := "/api/v1/wechat/authorization-url?tenant_id=tenant-1&component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&auth_type=3&biz_appid=wx-authorizer"
 
 	recorder := doJSON(t, router, http.MethodGet, path, ``, "")
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -135,32 +135,44 @@ func TestAuthorizationURLRoute(t *testing.T) {
 	require.Equal(t, "mp.weixin.qq.com", parsed.Host)
 	require.Equal(t, "wx-component", parsed.Query().Get("component_appid"))
 	require.Equal(t, "route-pre-auth-code", parsed.Query().Get("pre_auth_code"))
-	require.Equal(t, "https://example.com/callback", parsed.Query().Get("redirect_uri"))
+	redirectURI, err := url.Parse(parsed.Query().Get("redirect_uri"))
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/callback", redirectURI.Scheme+"://"+redirectURI.Host+redirectURI.Path)
+	require.NotEmpty(t, redirectURI.Query().Get("state"))
 	require.Equal(t, "3", parsed.Query().Get("auth_type"))
 	require.Equal(t, "wx-authorizer", parsed.Query().Get("biz_appid"))
 
 	bad := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component", ``, "")
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 
-	unavailable := doJSON(t, testRouter(), http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback", ``, "")
+	unavailable := doJSON(t, testRouter(), http.MethodGet, "/api/v1/wechat/authorization-url?tenant_id=tenant-1&component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback", ``, "")
 	require.Equal(t, http.StatusNotImplemented, unavailable.Code)
 }
 
 func TestAuthorizationCallbackRoute(t *testing.T) {
 	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC) })
+	authorizationService := application.NewAuthorizationServiceWithSecureAuthorizationFlow(
+		store, store, store, routeFakePreAuthCodeCreator{}, nil,
+		routeFakeAuthorizerClient{
+			authorization: authorization.AuthorizerAuthorization{AppID: "wx-authorizer", RefreshToken: "refresh-token"},
+			profile:       authorization.AuthorizerProfile{Name: "Account", AvatarURL: "https://example.com/avatar.png"},
+		},
+		routeFakeRefreshTokenEncryptor{ciphertext: "encrypted-refresh"},
+		func() time.Time { return time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC) },
+	)
 	router := NewRouter(Dependencies{
-		Logger: zap.NewNop(),
-		Authorization: application.NewAuthorizationServiceWithAuthorizationFlow(
-			store, store, nil, nil,
-			routeFakeAuthorizerClient{
-				authorization: authorization.AuthorizerAuthorization{AppID: "wx-authorizer", RefreshToken: "refresh-token"},
-				profile:       authorization.AuthorizerProfile{Name: "Account", AvatarURL: "https://example.com/avatar.png"},
-			},
-			routeFakeRefreshTokenEncryptor{ciphertext: "encrypted-refresh"},
-			func() time.Time { return time.Date(2026, 7, 6, 8, 0, 0, 0, time.UTC) },
-		),
+		Logger:        zap.NewNop(),
+		Authorization: authorizationService,
 	})
-	path := "/api/v1/wechat/authorization-callback?tenant_id=tenant-1&component_appid=wx-component&auth_code=auth-code"
+	generated := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?tenant_id=tenant-1&component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Fwechat%2Fauthorization-callback", ``, "")
+	require.Equal(t, http.StatusOK, generated.Code)
+	var authorizationURL authorizationURLResponse
+	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &authorizationURL))
+	parsedAuthorizationURL, err := url.Parse(authorizationURL.AuthorizationURL)
+	require.NoError(t, err)
+	callbackURL, err := url.Parse(parsedAuthorizationURL.Query().Get("redirect_uri"))
+	require.NoError(t, err)
+	path := "/api/v1/wechat/authorization-callback?state=" + url.QueryEscape(callbackURL.Query().Get("state")) + "&auth_code=auth-code"
 
 	recorder := doJSON(t, router, http.MethodGet, path, ``, "")
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -174,7 +186,7 @@ func TestAuthorizationCallbackRoute(t *testing.T) {
 	require.Len(t, items, 1)
 	require.Equal(t, "encrypted-refresh", items[0].EncryptedAuthorizerRefreshToken)
 
-	bad := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-callback?tenant_id=tenant-1", ``, "")
+	bad := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-callback?auth_code=auth-code", ``, "")
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 
 	unavailable := doJSON(t, testRouter(), http.MethodGet, path, ``, "")

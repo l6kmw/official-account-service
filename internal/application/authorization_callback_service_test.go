@@ -19,15 +19,14 @@ func TestAuthorizationServiceHandlesAuthorizationCallback(t *testing.T) {
 		authorization: authorization.AuthorizerAuthorization{AppID: "wx-authorizer", RefreshToken: "refresh-token"},
 		profile:       authorization.AuthorizerProfile{Name: "Account", AvatarURL: "https://example.com/avatar.png"},
 	}
-	service := NewAuthorizationServiceWithAuthorizationFlow(
-		store, store, nil, nil, authorizers, fakeRefreshTokenEncryptor{ciphertext: "encrypted-refresh"}, time.Now,
+	service := NewAuthorizationServiceWithSecureAuthorizationFlow(
+		store, store, store, nil, nil, authorizers, fakeRefreshTokenEncryptor{ciphertext: "encrypted-refresh"}, time.Now,
 	)
+	saveAuthorizationStateForTest(t, store, "state-1", "tenant-1", "wx-component")
 
 	account, err := service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{
-		TenantID:       "tenant-1",
-		ComponentAppID: "wx-component",
-		AuthCode:       "auth-code",
-		ReceivedAt:     time.Date(2026, 7, 6, 18, 10, 0, 0, time.UTC),
+		State: "state-1", AuthCode: "auth-code",
+		ReceivedAt: time.Date(2026, 7, 6, 18, 10, 0, 0, time.UTC),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "tenant-1", account.TenantID)
@@ -45,27 +44,31 @@ func TestAuthorizationServiceHandlesAuthorizationCallback(t *testing.T) {
 	binding, err := store.GetAuthorizerTenantBinding(ctx, "wx-component", "wx-authorizer")
 	require.NoError(t, err)
 	require.Equal(t, "tenant-1", binding.TenantID)
+
+	_, err = service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{State: "state-1", AuthCode: "auth-code"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
 func TestAuthorizationServiceValidatesAuthorizationCallback(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
-	service := NewAuthorizationServiceWithAuthorizationFlow(
-		store, store, nil, nil,
+	service := NewAuthorizationServiceWithSecureAuthorizationFlow(
+		store, store, store, nil, nil,
 		fakeAuthorizerClient{authorization: authorization.AuthorizerAuthorization{AppID: "wx-authorizer", RefreshToken: "refresh-token"}},
 		fakeRefreshTokenEncryptor{ciphertext: "encrypted-refresh"},
 		time.Now,
 	)
 
-	_, err := service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{ComponentAppID: "wx-component", AuthCode: "auth-code"})
+	_, err := service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{AuthCode: "auth-code"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
-	_, err = service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{TenantID: "tenant", AuthCode: "auth-code"})
+	_, err = service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{State: "missing", AuthCode: "auth-code"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
-	_, err = service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{TenantID: "tenant", ComponentAppID: "wx-component"})
+	_, err = service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{State: "state"})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
@@ -76,7 +79,7 @@ func TestAuthorizationServiceRequiresAuthorizationCallbackDependencies(t *testin
 	service := NewAuthorizationService(store, time.Now)
 
 	_, err := service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{
-		TenantID: "tenant", ComponentAppID: "wx-component", AuthCode: "auth-code",
+		State: "state", AuthCode: "auth-code",
 	})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotImplemented))
@@ -85,7 +88,7 @@ func TestAuthorizationServiceRequiresAuthorizationCallbackDependencies(t *testin
 		authorization: authorization.AuthorizerAuthorization{AppID: "wx-authorizer", RefreshToken: "refresh-token"},
 	}, nil, time.Now)
 	_, err = service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{
-		TenantID: "tenant", ComponentAppID: "wx-component", AuthCode: "auth-code",
+		State: "state", AuthCode: "auth-code",
 	})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotImplemented))
@@ -94,18 +97,28 @@ func TestAuthorizationServiceRequiresAuthorizationCallbackDependencies(t *testin
 func TestAuthorizationServiceMapsAuthorizationCallbackMissingTicket(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
-	service := NewAuthorizationServiceWithAuthorizationFlow(
-		store, store, nil, nil,
+	service := NewAuthorizationServiceWithSecureAuthorizationFlow(
+		store, store, store, nil, nil,
 		fakeAuthorizerClient{err: authorization.ErrComponentVerifyTicketNotFound},
 		fakeRefreshTokenEncryptor{ciphertext: "encrypted-refresh"},
 		time.Now,
 	)
+	saveAuthorizationStateForTest(t, store, "state-1", "tenant", "wx-component")
 
 	_, err := service.HandleAuthorizationCallback(ctx, HandleAuthorizationCallbackInput{
-		TenantID: "tenant", ComponentAppID: "wx-component", AuthCode: "auth-code",
+		State: "state-1", AuthCode: "auth-code",
 	})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotFound))
+}
+
+func saveAuthorizationStateForTest(t *testing.T, store *memory.Store, token string, tenantID string, componentAppID string) {
+	t.Helper()
+	_, err := store.SaveAuthorizationState(context.Background(), authorization.AuthorizationState{
+		Digest: authorizationStateDigest(token), TenantID: tenantID, ComponentAppID: componentAppID,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
 }
 
 type fakeAuthorizerClient struct {

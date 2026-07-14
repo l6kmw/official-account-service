@@ -9,9 +9,8 @@ import (
 )
 
 type authorizationCallbackRequest struct {
-	TenantID       string `form:"tenant_id" binding:"required"`
-	ComponentAppID string `form:"component_appid" binding:"required"`
-	AuthCode       string `form:"auth_code" binding:"required"`
+	State    string `form:"state" binding:"required"`
+	AuthCode string `form:"auth_code" binding:"required"`
 }
 
 func registerAuthorizationCallbackRoutes(r gin.IRouter, service *application.AuthorizationService) {
@@ -22,9 +21,8 @@ func registerAuthorizationCallbackRoutes(r gin.IRouter, service *application.Aut
 			return
 		}
 		account, err := service.HandleAuthorizationCallback(c.Request.Context(), application.HandleAuthorizationCallbackInput{
-			TenantID:       query.TenantID,
-			ComponentAppID: query.ComponentAppID,
-			AuthCode:       query.AuthCode,
+			State:    query.State,
+			AuthCode: query.AuthCode,
 		})
 		if !writeServiceError(c, err) {
 			return

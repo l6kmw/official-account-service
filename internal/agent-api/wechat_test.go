@@ -22,10 +22,11 @@ import (
 func TestWeChatAPIAuthorize(t *testing.T) {
 	store := memory.NewStore(fixedAgentTime)
 	api := NewWeChatAPI(Dependencies{
-		Authorization: application.NewAuthorizationServiceWithPreAuthCodeCreator(store, fakePreAuthCodeCreator{}, fixedAgentTime),
+		Authorization: application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, fakePreAuthCodeCreator{}, nil, nil, nil, fixedAgentTime),
 	})
 
 	out, err := api.Authorize(t.Context(), AuthorizeInput{
+		TenantID:       "tenant-1",
 		ComponentAppID: "wx-component",
 		RedirectURI:    "https://example.com/callback",
 		AuthType:       application.AuthorizationAuthTypeOfficialAccount,
