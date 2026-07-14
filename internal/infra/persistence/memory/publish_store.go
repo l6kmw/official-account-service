@@ -12,6 +12,13 @@ import (
 func (s *Store) CreatePublishRecord(_ context.Context, tenantID string, record publish.Record) (publish.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if record.Status == publish.StatusPublishing {
+		for _, current := range s.publishRecords {
+			if current.TenantID == tenantID && current.ArticleID == record.ArticleID && current.Status == publish.StatusPublishing {
+				return publish.Record{}, fmt.Errorf("create publish record in progress: %w", publish.ErrPublishInProgress)
+			}
+		}
+	}
 	s.nextRecordID++
 	now := s.now()
 	record.ID = s.nextRecordID
@@ -20,6 +27,20 @@ func (s *Store) CreatePublishRecord(_ context.Context, tenantID string, record p
 	record.UpdatedAt = now
 	s.publishRecords[record.ID] = record
 	return record, nil
+}
+
+// UpdatePublishRecordSubmission stores the WeChat publish id for an active publish record.
+func (s *Store) UpdatePublishRecordSubmission(_ context.Context, tenantID string, record publish.Record) (publish.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.publishRecords[record.ID]
+	if !ok || current.TenantID != tenantID || current.ArticleID != record.ArticleID || current.Status != publish.StatusPublishing {
+		return publish.Record{}, fmt.Errorf("update publish submission lookup: %w", publish.ErrNotFound)
+	}
+	current.WeChatPublishID = record.WeChatPublishID
+	current.UpdatedAt = s.now()
+	s.publishRecords[current.ID] = current
+	return current, nil
 }
 
 // GetPublishRecord returns one tenant-scoped publish record.

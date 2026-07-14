@@ -168,6 +168,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/006_wechat_callback_event.sql",
 		"../../../../migrations/007_media_asset_article_fk.sql",
 		"../../../../migrations/008_authorization_state.sql",
+		"../../../../migrations/009_publish_in_progress_unique.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)

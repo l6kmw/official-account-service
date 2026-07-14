@@ -21,9 +21,28 @@ func (s *Store) CreatePublishRecord(ctx context.Context, tenantID string, record
 		record.ErrorCode, record.ErrorMessage, nullableTime(record.SubmittedAt), nullableTime(record.FinishedAt))
 	created, err := scanPublishRecordRow(row)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return publish.Record{}, fmt.Errorf("create publish record in progress: %w", publish.ErrPublishInProgress)
+		}
 		return publish.Record{}, fmt.Errorf("create publish record: %w", err)
 	}
 	return created, nil
+}
+
+// UpdatePublishRecordSubmission stores the WeChat publish id for an active publish record.
+func (s *Store) UpdatePublishRecordSubmission(ctx context.Context, tenantID string, record publish.Record) (publish.Record, error) {
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE wechat_publish_record
+		SET wechat_publish_id = $4, updated_at = NOW()
+		WHERE tenant_id = $1 AND id = $2 AND article_id = $3 AND status = 'publishing'
+		RETURNING id, tenant_id, authorizer_id, article_id, wechat_publish_id, wechat_article_id, status, error_code, error_message,
+		          submitted_at, finished_at, created_at, updated_at`,
+		tenantID, record.ID, record.ArticleID, record.WeChatPublishID)
+	updated, err := scanPublishRecordRow(row)
+	if err != nil {
+		return publish.Record{}, mapPublishError("update publish record submission", err)
+	}
+	return updated, nil
 }
 
 // GetPublishRecord returns one tenant-scoped publish record.

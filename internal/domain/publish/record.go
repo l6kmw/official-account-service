@@ -9,6 +9,9 @@ import (
 // ErrNotFound indicates a tenant-scoped publish record was not found.
 var ErrNotFound = errors.New("publish record not found")
 
+// ErrPublishInProgress indicates that an article already has an active publish attempt.
+var ErrPublishInProgress = errors.New("publish already in progress")
+
 // ErrPublisherUnavailable indicates the WeChat publisher is not configured.
 var ErrPublisherUnavailable = errors.New("publish publisher unavailable")
 
@@ -110,5 +113,6 @@ type Repository interface {
 	GetPublishRecordByPublishID(ctx context.Context, tenantID string, publishID string) (Record, error)
 	ListPublishRecords(ctx context.Context, tenantID string) ([]Record, error)
 	ListPublishRecordsByArticle(ctx context.Context, tenantID string, articleID int64) ([]Record, error)
+	UpdatePublishRecordSubmission(ctx context.Context, tenantID string, record Record) (Record, error)
 	UpdatePublishRecordStatus(ctx context.Context, tenantID string, record Record) (Record, error)
 }
