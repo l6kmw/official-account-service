@@ -142,6 +142,48 @@ type PublishedArticleList struct {
 	Items                []PublishedArticle `json:"items"`
 }
 
+type ArticleMetricsResult struct {
+	Date    string           `json:"date"`
+	Delayed bool             `json:"delayed"`
+	Items   []ArticleMetrics `json:"items"`
+}
+
+type ArticleMetrics struct {
+	RefDate     string                `json:"ref_date"`
+	MsgID       string                `json:"msgid"`
+	PublishType int                   `json:"publish_type"`
+	Title       string                `json:"title"`
+	ContentURL  string                `json:"content_url"`
+	Details     []ArticleMetricDetail `json:"detail_list"`
+}
+
+type ArticleMetricDetail struct {
+	StatDate          string             `json:"stat_date"`
+	ReadUser          int64              `json:"read_user"`
+	ReadUserSources   []ReadUserSource   `json:"read_user_source"`
+	ShareUser         int64              `json:"share_user"`
+	ZaikanUser        int64              `json:"zaikan_user"`
+	LikeUser          int64              `json:"like_user"`
+	CommentCount      int64              `json:"comment_count"`
+	CollectionUser    int64              `json:"collection_user"`
+	PraiseMoney       int64              `json:"praise_money"`
+	ReadSubscribeUser int64              `json:"read_subscribe_user"`
+	ReadDeliveryRate  float64            `json:"read_delivery_rate"`
+	ReadFinishRate    float64            `json:"read_finish_rate"`
+	ReadAvgActiveTime float64            `json:"read_avg_activetime"`
+	ReadJumpPositions []ReadJumpPosition `json:"read_jump_position"`
+}
+
+type ReadUserSource struct {
+	UserCount int64  `json:"user_count"`
+	SceneDesc string `json:"scene_desc"`
+}
+
+type ReadJumpPosition struct {
+	Position int     `json:"position"`
+	Rate     float64 `json:"rate"`
+}
+
 type MaterialAsset struct {
 	ID           int64     `json:"id"`
 	TenantID     string    `json:"tenant_id"`
@@ -239,6 +281,18 @@ func (c *Client) ListPublishedArticles(ctx context.Context, authorizerID int64, 
 	path := fmt.Sprintf("/api/v1/accounts/%d/published-articles?%s", authorizerID, query.Encode())
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
 		return PublishedArticleList{}, err
+	}
+	return out, nil
+}
+
+// GetArticleMetrics returns live WeChat metrics for articles published on one date.
+func (c *Client) GetArticleMetrics(ctx context.Context, authorizerID int64, date string) (ArticleMetricsResult, error) {
+	query := url.Values{}
+	query.Set("date", date)
+	var out ArticleMetricsResult
+	path := fmt.Sprintf("/api/v1/accounts/%d/article-metrics?%s", authorizerID, query.Encode())
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
+		return ArticleMetricsResult{}, err
 	}
 	return out, nil
 }

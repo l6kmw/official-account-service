@@ -44,6 +44,23 @@ func registerOfficialContentRoutes(r gin.IRouter, service *application.OfficialC
 		}
 		c.JSON(http.StatusOK, result)
 	})
+	r.GET("/accounts/:id/article-metrics", func(c *gin.Context) {
+		if service == nil {
+			writeServiceError(c, application.ErrNotImplemented)
+			return
+		}
+		tenant, id, ok := bindTenantAndID(c)
+		if !ok {
+			return
+		}
+		result, err := service.GetArticleMetrics(c.Request.Context(), application.GetArticleMetricsInput{
+			TenantID: tenant, AuthorizerID: id, Date: c.Query("date"),
+		})
+		if !writeServiceError(c, err) {
+			return
+		}
+		c.JSON(http.StatusOK, result)
+	})
 }
 
 func bindOptionalIntQuery(c *gin.Context, name string, fallback int) (int, bool) {

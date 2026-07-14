@@ -69,6 +69,18 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_get_article_metrics",
+		Title:       "Get WeChat article metrics",
+		Description: "Get live cumulative metrics for all articles published on one date, including reads, shares, likes, comments, collections, rewards, conversions, completion rate, sources, and drop-off positions. Required: authorizer_id and date (YYYY-MM-DD). WeChat supports one publish date per call, from 2025-11-01 through yesterday, and metrics are limited to the first 30 days after publication.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getArticleMetricsToolInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.GetArticleMetrics(ctx, input.AuthorizerID, input.Date)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_create_article",
 		Title:       "Create article",
 		Description: "Create a local article draft. Required: authorizer_id and title. Optional: author, digest, and content_html. Publishing to WeChat is a separate explicit tool call and additionally requires non-empty content_html plus an uploaded cover bound through cover_media_asset_id.",
@@ -233,6 +245,11 @@ type listPublishedArticlesToolInput struct {
 	Count          int   `json:"count,omitempty" jsonschema:"Number of WeChat messages to fetch, 1-20. Defaults to 20."`
 	IncludeContent bool  `json:"include_content,omitempty" jsonschema:"Include full article HTML. Defaults to false to keep responses small."`
 	IncludeDeleted bool  `json:"include_deleted,omitempty" jsonschema:"Include entries marked deleted by WeChat. Defaults to false."`
+}
+
+type getArticleMetricsToolInput struct {
+	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
+	Date         string `json:"date" jsonschema:"Required. Article publication date in YYYY-MM-DD format. Must be between 2025-11-01 and yesterday."`
 }
 
 type listPublishRecordsInput struct{}

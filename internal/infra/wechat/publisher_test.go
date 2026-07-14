@@ -178,6 +178,35 @@ func TestPublisherListsLivePublishedArticles(t *testing.T) {
 	require.True(t, result.Items[1].Deleted)
 }
 
+func TestPublisherGetsArticleMetrics(t *testing.T) {
+	var body articleMetricsRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/datacube/getarticletotaldetail", r.URL.Path)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, err := w.Write([]byte(`{
+			"is_delay":false,
+			"list":[{"ref_date":"2026-07-10","msgid":"2247490098_1","title":"article","content_url":"https://mp/article","detail_list":[{
+				"stat_date":"2026-07-11","read_user":123,"share_user":12,"zaikan_user":8,"like_user":9,"comment_count":3,"collection_user":4,"praise_money":500,"read_subscribe_user":2,
+				"read_delivery_rate":0.4,"read_finish_rate":0.6,"read_avg_activetime":1.2,
+				"read_user_source":[{"user_count":100,"scene_desc":"公众号消息"}],"read_jump_position":[{"position":1,"rate":0.3}]
+			}]}]}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	result, err := publisher.GetArticleMetrics(context.Background(), "authorizer-token", "2026-07-10")
+	require.NoError(t, err)
+
+	require.Equal(t, articleMetricsRequest{BeginDate: "2026-07-10", EndDate: "2026-07-10"}, body)
+	require.False(t, result.Delayed)
+	require.Equal(t, "2247490098_1", result.Items[0].MsgID)
+	require.Equal(t, int64(123), result.Items[0].Details[0].ReadUser)
+	require.Equal(t, int64(9), result.Items[0].Details[0].LikeUser)
+	require.Equal(t, "公众号消息", result.Items[0].Details[0].ReadUserSources[0].SceneDesc)
+}
+
 func TestPublisherHandlesWeChatErrCodeWithoutLeakingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := w.Write([]byte(`{"errcode":40001,"errmsg":"invalid credential"}`))

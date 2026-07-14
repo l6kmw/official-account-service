@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -51,12 +52,51 @@ func TestOfficialContentServiceValidatesPublishedArticlePagination(t *testing.T)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
+func TestOfficialContentServiceGetsArticleMetrics(t *testing.T) {
+	reader := &fakeOfficialContentReader{metrics: officialcontent.ArticleMetricsResult{
+		Date: "2026-07-10", Items: []officialcontent.ArticleMetrics{{MsgID: "100_1", Title: "article"}},
+	}}
+	tokens := &fakeOfficialContentTokenProvider{token: AuthorizerAccessToken{AccessToken: "secret-token"}}
+	service := NewOfficialContentService(reader, tokens, "wx-component")
+	service.now = func() time.Time { return time.Date(2026, 7, 14, 12, 0, 0, 0, time.Local) }
+
+	result, err := service.GetArticleMetrics(context.Background(), GetArticleMetricsInput{
+		TenantID: "tenant-1", AuthorizerID: 7, Date: "2026-07-10",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "secret-token", reader.metricsAccessToken)
+	require.Equal(t, "2026-07-10", reader.metricsDate)
+	require.Equal(t, "100_1", result.Items[0].MsgID)
+}
+
+func TestOfficialContentServiceRejectsTodayMetrics(t *testing.T) {
+	service := NewOfficialContentService(&fakeOfficialContentReader{}, &fakeOfficialContentTokenProvider{}, "wx-component")
+	service.now = func() time.Time { return time.Date(2026, 7, 14, 12, 0, 0, 0, time.Local) }
+
+	_, err := service.GetArticleMetrics(context.Background(), GetArticleMetricsInput{
+		TenantID: "tenant-1", AuthorizerID: 1, Date: "2026-07-14",
+	})
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+}
+
 type fakeOfficialContentReader struct {
-	batch          officialcontent.PublishedArticleBatch
-	accessToken    string
-	offset         int
-	count          int
-	includeContent bool
+	batch              officialcontent.PublishedArticleBatch
+	metrics            officialcontent.ArticleMetricsResult
+	accessToken        string
+	offset             int
+	count              int
+	includeContent     bool
+	metricsAccessToken string
+	metricsDate        string
+}
+
+func (f *fakeOfficialContentReader) GetArticleMetrics(_ context.Context, accessToken, date string) (officialcontent.ArticleMetricsResult, error) {
+	f.metricsAccessToken = accessToken
+	f.metricsDate = date
+	return f.metrics, nil
 }
 
 func (f *fakeOfficialContentReader) ListPublishedArticles(_ context.Context, accessToken string, offset, count int, includeContent bool) (officialcontent.PublishedArticleBatch, error) {

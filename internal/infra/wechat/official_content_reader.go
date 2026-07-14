@@ -37,6 +37,17 @@ func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken strin
 	}, nil
 }
 
+// GetArticleMetrics reads live cumulative article metrics for one publish date.
+func (p *Publisher) GetArticleMetrics(ctx context.Context, accessToken, date string) (officialcontent.ArticleMetricsResult, error) {
+	var response articleMetricsResponse
+	if err := p.postJSON(ctx, "getarticletotaldetail", "/datacube/getarticletotaldetail", accessToken, articleMetricsRequest{
+		BeginDate: date, EndDate: date,
+	}, &response); err != nil {
+		return officialcontent.ArticleMetricsResult{}, err
+	}
+	return officialcontent.ArticleMetricsResult{Date: date, Delayed: response.IsDelay, Items: response.Items}, nil
+}
+
 type freePublishBatchGetRequest struct {
 	Offset    int `json:"offset"`
 	Count     int `json:"count"`
@@ -75,4 +86,20 @@ type freePublishPublishedArticle struct {
 	OnlyFansCanComment int    `json:"only_fans_can_comment"`
 	URL                string `json:"url"`
 	IsDeleted          bool   `json:"is_deleted"`
+}
+
+type articleMetricsRequest struct {
+	BeginDate string `json:"begin_date"`
+	EndDate   string `json:"end_date"`
+}
+
+type articleMetricsResponse struct {
+	Items   []officialcontent.ArticleMetrics `json:"list"`
+	IsDelay bool                             `json:"is_delay"`
+	ErrCode int                              `json:"errcode"`
+	ErrMsg  string                           `json:"errmsg"`
+}
+
+func (r articleMetricsResponse) wechatError(operation string) error {
+	return wechatPublishError(operation, r.ErrCode, r.ErrMsg)
 }

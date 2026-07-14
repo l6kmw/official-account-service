@@ -57,6 +57,22 @@ func TestClientListsLivePublishedArticles(t *testing.T) {
 	require.Equal(t, 3, result.NextOffset)
 }
 
+func TestClientGetsArticleMetrics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/accounts/7/article-metrics", r.URL.Path)
+		require.Equal(t, "2026-07-10", r.URL.Query().Get("date"))
+		_, _ = w.Write([]byte(`{"date":"2026-07-10","delayed":false,"items":[{"msgid":"100_1","title":"live","detail_list":[{"read_user":42,"like_user":5}]}]}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	result, err := client.GetArticleMetrics(context.Background(), 7, "2026-07-10")
+	require.NoError(t, err)
+	require.Equal(t, int64(42), result.Items[0].Details[0].ReadUser)
+	require.Equal(t, int64(5), result.Items[0].Details[0].LikeUser)
+}
+
 func TestClientDeletesDraftArticle(t *testing.T) {
 	var deleted bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"official-account-service/internal/domain/officialcontent"
 )
@@ -13,13 +14,19 @@ const defaultPublishedArticlePageSize = 20
 // OfficialContentService reads live content owned by an authorized account.
 type OfficialContentService struct {
 	reader         officialcontent.Reader
+	metricsReader  officialcontent.MetricsReader
 	tokens         PublishTokenProvider
 	componentAppID string
+	now            func() time.Time
 }
 
 // NewOfficialContentService constructs an OfficialContentService.
 func NewOfficialContentService(reader officialcontent.Reader, tokens PublishTokenProvider, componentAppID string) *OfficialContentService {
-	return &OfficialContentService{reader: reader, tokens: tokens, componentAppID: strings.TrimSpace(componentAppID)}
+	metricsReader, _ := reader.(officialcontent.MetricsReader)
+	return &OfficialContentService{
+		reader: reader, metricsReader: metricsReader, tokens: tokens,
+		componentAppID: strings.TrimSpace(componentAppID), now: time.Now,
+	}
 }
 
 // ListPublishedArticlesInput selects one WeChat-side published-message page.
@@ -30,6 +37,46 @@ type ListPublishedArticlesInput struct {
 	Count          int
 	IncludeContent bool
 	IncludeDeleted bool
+}
+
+// GetArticleMetricsInput selects metrics for articles published on one date.
+type GetArticleMetricsInput struct {
+	TenantID     string
+	AuthorizerID int64
+	Date         string
+}
+
+// GetArticleMetrics reads current WeChat article metrics for one publish date.
+func (s *OfficialContentService) GetArticleMetrics(ctx context.Context, input GetArticleMetricsInput) (officialcontent.ArticleMetricsResult, error) {
+	dateString := strings.TrimSpace(input.Date)
+	date, err := time.Parse("2006-01-02", dateString)
+	if err != nil || strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 {
+		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("validate article metrics input: %w", ErrInvalidInput)
+	}
+	now := time.Now
+	if s != nil && s.now != nil {
+		now = s.now
+	}
+	minimumDate := time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)
+	today := now().In(time.Local)
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.Local)
+	if date.Before(minimumDate) || !date.Before(today) {
+		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("validate article metrics date: %w", ErrInvalidInput)
+	}
+	if s == nil || s.metricsReader == nil || s.tokens == nil || s.componentAppID == "" {
+		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("read article metrics: %w", ErrNotImplemented)
+	}
+	token, err := s.tokens.GetAuthorizerAccessToken(ctx, RefreshAuthorizerAccessTokenInput{
+		TenantID: input.TenantID, AccountID: input.AuthorizerID, ComponentAppID: s.componentAppID,
+	})
+	if err != nil {
+		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("get authorizer access token for article metrics: %w", err)
+	}
+	result, err := s.metricsReader.GetArticleMetrics(ctx, token.AccessToken, dateString)
+	if err != nil {
+		return officialcontent.ArticleMetricsResult{}, wrapPublisherError("get wechat article metrics", err)
+	}
+	return result, nil
 }
 
 // ListPublishedArticles reads current published content directly from WeChat.

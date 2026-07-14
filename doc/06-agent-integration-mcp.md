@@ -123,6 +123,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_list_accounts`
 - `official_account_list_articles`
 - `official_account_list_published_articles`
+- `official_account_get_article_metrics`
 - `official_account_create_article`
 - `official_account_update_article`
 - `official_account_upload_image`
@@ -142,6 +143,8 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - 所有工具都复用现有后台 API，不返回 token、secret、refresh token。
 
 `official_account_list_articles` 读取本地草稿和文章；`official_account_list_published_articles` 每次直接读取微信侧已发布列表，也会包含不经过本服务发布的历史文章。后者按微信消息使用 `offset` / `count` 分页，单条多图文消息可能展开成多个文章条目。
+
+`official_account_get_article_metrics` 按文章发表日期查询阅读、分享、爱心赞、拇指赞、评论数、收藏、赞赏、阅读后关注、完成率和来源明细。`date` 必须为 `YYYY-MM-DD`，一次只能查一天，最晚为昨天；微信只保留每篇文章发表后 30 天内的统计。
 
 ## 线上 Agent 图片上传
 

@@ -29,8 +29,26 @@ func TestPublishedArticlesRouteReturnsLiveWechatPage(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 }
 
+func TestArticleMetricsRouteReturnsLiveWechatData(t *testing.T) {
+	reader := routeFakeOfficialContentReader{metrics: officialcontent.ArticleMetricsResult{
+		Date: "2026-07-10", Items: []officialcontent.ArticleMetrics{{MsgID: "100_1", Title: "live"}},
+	}}
+	service := application.NewOfficialContentService(reader, routeFakeOfficialContentTokenProvider{}, "wx-component")
+	router := NewRouter(Dependencies{Logger: zap.NewNop(), OfficialContent: service})
+
+	recorder := doJSON(t, router, http.MethodGet, "/api/v1/accounts/7/article-metrics?date=2026-07-10", ``, "tenant-1")
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"msgid":"100_1"`)
+}
+
 type routeFakeOfficialContentReader struct {
-	batch officialcontent.PublishedArticleBatch
+	batch   officialcontent.PublishedArticleBatch
+	metrics officialcontent.ArticleMetricsResult
+}
+
+func (f routeFakeOfficialContentReader) GetArticleMetrics(context.Context, string, string) (officialcontent.ArticleMetricsResult, error) {
+	return f.metrics, nil
 }
 
 func (f routeFakeOfficialContentReader) ListPublishedArticles(context.Context, string, int, int, bool) (officialcontent.PublishedArticleBatch, error) {
