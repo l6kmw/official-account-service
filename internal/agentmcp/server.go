@@ -53,7 +53,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_create_article",
 		Title:       "Create article",
-		Description: "Create a local article draft. Publishing to WeChat is a separate explicit tool call.",
+		Description: "Create a local article draft. Required: authorizer_id and title. Optional: author, digest, and content_html. Publishing to WeChat is a separate explicit tool call and additionally requires non-empty content_html plus an uploaded cover bound through cover_media_asset_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createArticleToolInput) (*mcp.CallToolResult, any, error) {
 		article, err := client.CreateArticle(ctx, CreateArticleInput{
 			AuthorizerID: input.AuthorizerID,
@@ -71,7 +71,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_update_article",
 		Title:       "Update article",
-		Description: "Update a local article draft or revision, including title, digest, HTML body, and cover material binding.",
+		Description: "Replace the editable fields of a local article draft or revision. Required in every update: article_id, title, author, digest, content_html, and cover_media_asset_id. author and digest may be empty strings, and cover_media_asset_id may be 0 while drafting. Publishing later requires non-empty content_html and a cover asset id returned by official_account_upload_image.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateArticleToolInput) (*mcp.CallToolResult, any, error) {
 		article, err := client.UpdateArticle(ctx, input.ArticleID, UpdateArticleInput{
 			Title:             input.Title,
@@ -89,7 +89,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_upload_image",
 		Title:       "Upload image",
-		Description: "Upload an article body image or cover image. Provide either file_path or content_base64. For cover images, the returned media_id must be attached to the article before publishing.",
+		Description: "Upload an article body image or cover image. Required: authorizer_id, article_id, usage, and exactly one of file_path or content_base64. filename is optional. For a cover, pass the returned asset.id as cover_media_asset_id to official_account_update_article before publishing; do not use media_id for that field.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input uploadImageToolInput) (*mcp.CallToolResult, any, error) {
 		content, filename, err := openUploadContent(input, cfg.AllowedRoot)
 		if err != nil {
@@ -112,7 +112,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_publish_article",
 		Title:       "Publish article",
-		Description: "Publish one local article to WeChat. Requires confirm_publish=true because this creates real public WeChat content.",
+		Description: "Publish one local article to WeChat. Required tool inputs: article_id and confirm_publish=true. The article must already have a non-empty title, non-empty content_html, and a valid cover_media_asset_id because this creates real public WeChat content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input publishArticleToolInput) (*mcp.CallToolResult, any, error) {
 		if !input.ConfirmPublish {
 			return nil, nil, fmt.Errorf("confirm_publish must be true before publishing real WeChat content")
@@ -212,34 +212,34 @@ type listArticlesInput struct{}
 type listPublishRecordsInput struct{}
 
 type createArticleToolInput struct {
-	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Authorized official account id returned by official_account_list_accounts."`
-	Title        string `json:"title" jsonschema:"Article title."`
+	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
+	Title        string `json:"title" jsonschema:"Required. Non-empty article title."`
 	Author       string `json:"author,omitempty" jsonschema:"Optional article author."`
 	Digest       string `json:"digest,omitempty" jsonschema:"Optional article digest or summary."`
-	ContentHTML  string `json:"content_html,omitempty" jsonschema:"WeChat-compatible article HTML body."`
+	ContentHTML  string `json:"content_html,omitempty" jsonschema:"Optional while creating a draft, but required and non-empty before publishing. WeChat-compatible article HTML body."`
 }
 
 type updateArticleToolInput struct {
-	ArticleID         int64  `json:"article_id" jsonschema:"Local article id."`
-	Title             string `json:"title" jsonschema:"Article title."`
-	Author            string `json:"author,omitempty" jsonschema:"Optional article author."`
-	Digest            string `json:"digest,omitempty" jsonschema:"Optional article digest or summary."`
-	ContentHTML       string `json:"content_html,omitempty" jsonschema:"WeChat-compatible article HTML body."`
-	CoverMediaAssetID int64  `json:"cover_media_asset_id,omitempty" jsonschema:"Material asset id of an uploaded cover image. Use 0 to keep no cover."`
+	ArticleID         int64  `json:"article_id" jsonschema:"Required. Local article id."`
+	Title             string `json:"title" jsonschema:"Required. Non-empty article title."`
+	Author            string `json:"author" jsonschema:"Required in the update request to avoid overwriting an existing value by omission. May be an empty string."`
+	Digest            string `json:"digest" jsonschema:"Required in the update request to avoid overwriting an existing value by omission. May be an empty string."`
+	ContentHTML       string `json:"content_html" jsonschema:"Required in the update request. May be empty while drafting, but must be non-empty before publishing. WeChat-compatible article HTML body."`
+	CoverMediaAssetID int64  `json:"cover_media_asset_id" jsonschema:"Required in the update request. Use the asset.id returned by official_account_upload_image with usage=cover; use 0 to keep no cover while drafting."`
 }
 
 type uploadImageToolInput struct {
-	AuthorizerID  int64  `json:"authorizer_id" jsonschema:"Authorized official account id."`
-	ArticleID     int64  `json:"article_id" jsonschema:"Local article id that owns this image."`
-	Usage         string `json:"usage" jsonschema:"Image usage: inline_image for body images, or cover for cover images."`
+	AuthorizerID  int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
+	ArticleID     int64  `json:"article_id" jsonschema:"Required. Local article id that owns this image."`
+	Usage         string `json:"usage" jsonschema:"Required. Image usage: inline_image for body images, or cover for cover images."`
 	Filename      string `json:"filename,omitempty" jsonschema:"Filename sent to WeChat. Defaults to the file_path base name or image.png."`
-	FilePath      string `json:"file_path,omitempty" jsonschema:"Local image file path readable by this MCP server. If OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT is set, the path must be inside it."`
-	ContentBase64 string `json:"content_base64,omitempty" jsonschema:"Base64 encoded image content. Use this instead of file_path when the file is outside the allowed root."`
+	FilePath      string `json:"file_path,omitempty" jsonschema:"Conditionally required: provide exactly one of file_path or content_base64. Local image file path readable by this MCP server. If OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT is set, the path must be inside it."`
+	ContentBase64 string `json:"content_base64,omitempty" jsonschema:"Conditionally required: provide exactly one of content_base64 or file_path. Base64 encoded image content."`
 }
 
 type publishArticleToolInput struct {
-	ArticleID      int64 `json:"article_id" jsonschema:"Local article id to publish."`
-	ConfirmPublish bool  `json:"confirm_publish" jsonschema:"Must be true to publish real WeChat content."`
+	ArticleID      int64 `json:"article_id" jsonschema:"Required. Local article id to publish."`
+	ConfirmPublish bool  `json:"confirm_publish" jsonschema:"Required and must be true to publish real WeChat content."`
 }
 
 type deleteArticleToolInput struct {

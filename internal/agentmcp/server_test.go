@@ -2,6 +2,7 @@ package agentmcp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,14 +39,20 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	require.NoError(t, err)
-	names := make(map[string]bool)
+	toolsByName := make(map[string]*mcp.Tool)
 	for _, tool := range tools.Tools {
-		names[tool.Name] = true
+		toolsByName[tool.Name] = tool
 	}
-	require.True(t, names["official_account_list_accounts"])
-	require.True(t, names["official_account_publish_article"])
-	require.True(t, names["official_account_delete_article"])
-	require.True(t, names["official_account_get_authorization_entry"])
+	require.Contains(t, toolsByName, "official_account_list_accounts")
+	require.Contains(t, toolsByName, "official_account_publish_article")
+	require.Contains(t, toolsByName, "official_account_delete_article")
+	require.Contains(t, toolsByName, "official_account_get_authorization_entry")
+	require.ElementsMatch(t, []string{"authorizer_id", "title"}, requiredToolFields(t, toolsByName["official_account_create_article"]))
+	require.ElementsMatch(t, []string{"article_id", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_article"]))
+	require.ElementsMatch(t, []string{"authorizer_id", "article_id", "usage"}, requiredToolFields(t, toolsByName["official_account_upload_image"]))
+	require.ElementsMatch(t, []string{"article_id", "confirm_publish"}, requiredToolFields(t, toolsByName["official_account_publish_article"]))
+	require.Contains(t, toolsByName["official_account_upload_image"].Description, "asset.id")
+	require.Contains(t, toolsByName["official_account_publish_article"].Description, "content_html")
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "official_account_list_accounts",
@@ -54,6 +61,18 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	require.NotNil(t, result.StructuredContent)
+}
+
+func requiredToolFields(t *testing.T, tool *mcp.Tool) []string {
+	t.Helper()
+	require.NotNil(t, tool)
+	raw, err := json.Marshal(tool.InputSchema)
+	require.NoError(t, err)
+	var schema struct {
+		Required []string `json:"required"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &schema))
+	return schema.Required
 }
 
 func TestMCPServerDeletesLocalArticle(t *testing.T) {

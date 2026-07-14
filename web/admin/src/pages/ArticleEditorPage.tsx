@@ -319,14 +319,20 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
 
       <EditorGrid>
         <FormPanel>
+          <RequirementSummary>
+            <strong>必填项</strong>
+            <span>创建草稿：公众号、文章标题</span>
+            <span>发布前还需：正文 HTML、封面图</span>
+          </RequirementSummary>
           <BigTitleWrap>
+            <BigTitleLabel htmlFor="article-title">文章标题 <RequiredText>必填</RequiredText></BigTitleLabel>
             <BigTitleInput
               id="article-title"
               placeholder="输入文章标题…"
               value={form.title}
               onChange={(event) => update('title', event.target.value)}
             />
-            {fieldErrors.title ? <FieldError>{fieldErrors.title}</FieldError> : <BigTitleHint>微信文章标题，保存前必须填写。</BigTitleHint>}
+            {fieldErrors.title ? <FieldError>{fieldErrors.title}</FieldError> : <BigTitleHint>创建草稿和发布都会使用此标题。</BigTitleHint>}
           </BigTitleWrap>
 
           <Divider />
@@ -334,7 +340,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
           <SectionLabel>基础信息</SectionLabel>
           <TwoColumns>
             <Field>
-              <Label htmlFor="authorizer-id">公众号 *</Label>
+              <Label htmlFor="authorizer-id">公众号 <RequiredText>必填</RequiredText></Label>
               {editing ? (
                 <ReadonlyAccount>
                   <strong>{accountDisplayName(selectedAccount, form.authorizer_id)}</strong>
@@ -360,18 +366,17 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
               )}
             </Field>
             <Field>
-              <Label htmlFor="article-author">作者</Label>
+              <Label htmlFor="article-author">作者 <OptionalText>选填</OptionalText></Label>
               <Input id="article-author" value={form.author} onChange={(event) => update('author', event.target.value)} />
-              <Helper>可选。</Helper>
             </Field>
           </TwoColumns>
           <Field>
-            <Label htmlFor="article-digest">摘要</Label>
+            <Label htmlFor="article-digest">摘要 <OptionalText>选填</OptionalText></Label>
             <Textarea id="article-digest" rows={3} value={form.digest} onChange={(event) => update('digest', event.target.value)} />
             <Helper>列表页和微信摘要展示用。</Helper>
           </Field>
           <Field>
-            <Label htmlFor="cover-media-asset-id">封面素材 ID</Label>
+            <Label htmlFor="cover-media-asset-id">封面素材 <PublishRequiredText>发布前必填</PublishRequiredText></Label>
             <Select
               id="cover-media-asset-id"
               value={form.cover_media_asset_id || ''}
@@ -445,7 +450,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
 
           <SectionLabel>正文 HTML</SectionLabel>
           <Field>
-            <Label htmlFor="content-html">HTML 内容</Label>
+            <Label htmlFor="content-html">正文 HTML <PublishRequiredText>发布前必填</PublishRequiredText></Label>
             <ContentImportRow>
               <ImportHTMLButton htmlFor="content-html-import"><UploadIcon />导入 gzh HTML</ImportHTMLButton>
               <HiddenFileInput id="content-html-import" type="file" accept=".html,.htm,text/html" onChange={importContentHTMLFile} />
@@ -569,9 +574,30 @@ const FormPanel = styled(Card)`
   padding: ${({ theme }) => theme.space.xl};
 `
 
+const RequirementSummary = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.md};
+  flex-wrap: wrap;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  padding-bottom: ${({ theme }) => theme.space.md};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.typeScale.small};
+
+  strong {
+    color: ${({ theme }) => theme.colors.text};
+  }
+`
+
 const BigTitleWrap = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.space.xs};
+`
+
+const BigTitleLabel = styled.label`
+  color: ${({ theme }) => theme.colors.text};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 700;
 `
 
 const BigTitleInput = styled.input`
@@ -636,6 +662,22 @@ const Field = styled.div`
 const Label = styled.label`
   color: ${({ theme }) => theme.colors.text};
   font-weight: 700;
+`
+
+const RequiredText = styled.span`
+  color: ${({ theme }) => theme.colors.danger};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 650;
+`
+
+const PublishRequiredText = styled(RequiredText)`
+  color: ${({ theme }) => theme.colors.warning};
+`
+
+const OptionalText = styled.span`
+  color: ${({ theme }) => theme.colors.textFaint};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 500;
 `
 
 const Input = styled.input`
