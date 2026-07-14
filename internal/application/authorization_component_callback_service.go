@@ -77,10 +77,7 @@ func (s *AuthorizationService) handleUnauthorizedCallback(ctx context.Context, b
 
 func (s *AuthorizationService) componentCallbackPlaintext(ctx context.Context, input HandleComponentCallbackInput) ([]byte, error) {
 	encryptType := strings.TrimSpace(input.EncryptType)
-	if encryptType == "" && strings.TrimSpace(input.MsgSignature) == "" {
-		return input.RawBody, nil
-	}
-	if encryptType != "" && encryptType != "aes" {
+	if encryptType != "aes" {
 		return nil, fmt.Errorf("validate component callback encrypt type: %w", ErrInvalidInput)
 	}
 	if strings.TrimSpace(input.MsgSignature) == "" || strings.TrimSpace(input.Timestamp) == "" || strings.TrimSpace(input.Nonce) == "" {

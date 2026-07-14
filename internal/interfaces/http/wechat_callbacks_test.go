@@ -28,11 +28,11 @@ func TestAuthorizerPublishCallbackRoute(t *testing.T) {
 		ComponentAppID: "wx-component", AuthorizerAppID: "wx-authorizer", TenantID: "tenant-1",
 	})
 	require.NoError(t, err)
-	callbacks := application.NewCallbackService(store, store, publishes, nil, "wx-component", time.Now)
+	decryptor := &routeFakeComponentCallbackDecryptor{plaintext: []byte(`<xml><Event>PUBLISHJOBFINISH</Event><PublishEventInfo><publish_id>publish-1</publish_id><publish_status>0</publish_status><article_id>article-1</article_id></PublishEventInfo></xml>`)}
+	callbacks := application.NewCallbackService(store, store, publishes, decryptor, "wx-component", time.Now)
 	router := NewRouter(Dependencies{Logger: zap.NewNop(), Callbacks: callbacks})
-	body := `<xml><Event>PUBLISHJOBFINISH</Event><PublishEventInfo><publish_id>publish-1</publish_id><publish_status>0</publish_status><article_id>article-1</article_id></PublishEventInfo></xml>`
 
-	recorder := doXML(t, router, http.MethodPost, "/wechat/authorizer/wx-authorizer/callback", body)
+	recorder := doXML(t, router, http.MethodPost, "/wechat/authorizer/wx-authorizer/callback?encrypt_type=aes&msg_signature=signature&timestamp=1783334400&nonce=nonce", `<xml><Encrypt>ciphertext</Encrypt></xml>`)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, "success", recorder.Body.String())
 	require.NotContains(t, recorder.Body.String(), "publish-1")

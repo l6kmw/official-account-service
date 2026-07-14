@@ -55,24 +55,14 @@ func TestAccountRoutes(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, otherTenant.Code)
 }
 
-func TestComponentVerifyTicketCallback(t *testing.T) {
+func TestComponentVerifyTicketCallbackRejectsPlainXML(t *testing.T) {
 	store, router := testRouterWithStore()
 	body := `<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>component_verify_ticket</InfoType><ComponentVerifyTicket>ticket-1</ComponentVerifyTicket></xml>`
 
 	recorder := doXML(t, router, http.MethodPost, "/wechat/component/callback", body)
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, "success", recorder.Body.String())
-
-	ticket, err := store.GetComponentVerifyTicket(t.Context(), "wx-component")
-	require.NoError(t, err)
-	require.Equal(t, "ticket-1", ticket.Ticket)
-	require.Equal(t, time.Unix(1783334400, 0).UTC(), ticket.ReceivedAt)
-
-	missingTicket := doXML(t, router, http.MethodPost, "/wechat/component/callback", `<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>component_verify_ticket</InfoType></xml>`)
-	require.Equal(t, http.StatusBadRequest, missingTicket.Code)
-
-	unsupported := doXML(t, router, http.MethodPost, "/wechat/component/callback", `<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType></xml>`)
-	require.Equal(t, http.StatusBadRequest, unsupported.Code)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	_, err := store.GetComponentVerifyTicket(t.Context(), "wx-component")
+	require.Error(t, err)
 }
 
 func TestEncryptedComponentVerifyTicketCallback(t *testing.T) {
@@ -99,8 +89,8 @@ func TestEncryptedComponentVerifyTicketCallback(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 }
 
-func TestUnauthorizedComponentCallback(t *testing.T) {
-	store, router := testRouterWithStore()
+func TestEncryptedUnauthorizedComponentCallback(t *testing.T) {
+	store := memory.NewStore(fixedRouteTime)
 	account, err := store.SaveAccount(t.Context(), "tenant-1", authorization.Account{
 		AppID: "wx-authorizer", Name: "Account", Status: authorization.AccountStatusActive,
 		EncryptedAuthorizerRefreshToken: "encrypted-refresh",
@@ -111,8 +101,13 @@ func TestUnauthorizedComponentCallback(t *testing.T) {
 	})
 	require.NoError(t, err)
 	body := `<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType><AuthorizerAppid>wx-authorizer</AuthorizerAppid></xml>`
+	decryptor := &routeFakeComponentCallbackDecryptor{plaintext: []byte(body)}
+	router := NewRouter(Dependencies{
+		Logger:        zap.NewNop(),
+		Authorization: application.NewAuthorizationServiceWithDependencies(store, nil, decryptor, fixedRouteTime),
+	})
 
-	recorder := doXML(t, router, http.MethodPost, "/wechat/component/callback", body)
+	recorder := doXML(t, router, http.MethodPost, "/wechat/component/callback?encrypt_type=aes&msg_signature=signature&timestamp=1783334400&nonce=nonce", `<xml><Encrypt>ciphertext</Encrypt></xml>`)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, "success", recorder.Body.String())
 

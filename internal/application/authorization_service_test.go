@@ -64,19 +64,15 @@ func TestAuthorizationServiceValidatesComponentVerifyTicketInput(t *testing.T) {
 	require.True(t, errors.Is(err, ErrNotFound))
 }
 
-func TestAuthorizationServiceHandlesPlainComponentCallback(t *testing.T) {
+func TestAuthorizationServiceRejectsPlainComponentCallback(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 18, 0, 0, 0, time.UTC) })
 	service := NewAuthorizationService(store, time.Now)
 	rawBody := []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>component_verify_ticket</InfoType><ComponentVerifyTicket>ticket-1</ComponentVerifyTicket></xml>`)
 
 	err := service.HandleComponentCallback(ctx, HandleComponentCallbackInput{RawBody: rawBody})
-	require.NoError(t, err)
-
-	ticket, err := service.GetComponentVerifyTicket(ctx, "wx-component")
-	require.NoError(t, err)
-	require.Equal(t, "ticket-1", ticket.Ticket)
-	require.Equal(t, time.Unix(1783334400, 0).UTC(), ticket.ReceivedAt)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
 func TestAuthorizationServiceHandlesUnauthorizedComponentCallback(t *testing.T) {
@@ -91,10 +87,11 @@ func TestAuthorizationServiceHandlesUnauthorizedComponentCallback(t *testing.T) 
 		ComponentAppID: "wx-component", AuthorizerAppID: "wx-authorizer", TenantID: "tenant-1",
 	})
 	require.NoError(t, err)
-	service := NewAuthorizationService(store, time.Now)
 	rawBody := []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType><AuthorizerAppid>wx-authorizer</AuthorizerAppid></xml>`)
+	decryptor := &fakeComponentCallbackDecryptor{plaintext: rawBody}
+	service := NewAuthorizationServiceWithDependencies(store, nil, decryptor, time.Now)
 
-	err = service.HandleComponentCallback(ctx, HandleComponentCallbackInput{RawBody: rawBody})
+	err = service.HandleComponentCallback(ctx, encryptedComponentCallbackInput())
 	require.NoError(t, err)
 
 	got, err := store.GetAccount(ctx, "tenant-1", account.ID)
@@ -105,17 +102,17 @@ func TestAuthorizationServiceHandlesUnauthorizedComponentCallback(t *testing.T) 
 
 func TestAuthorizationServiceValidatesUnauthorizedComponentCallback(t *testing.T) {
 	ctx := context.Background()
-	service := NewAuthorizationService(memory.NewStore(time.Now), time.Now)
+	store := memory.NewStore(time.Now)
+	decryptor := &fakeComponentCallbackDecryptor{}
+	service := NewAuthorizationServiceWithDependencies(store, nil, decryptor, time.Now)
 
-	err := service.HandleComponentCallback(ctx, HandleComponentCallbackInput{
-		RawBody: []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType><AuthorizerAppid>wx-missing</AuthorizerAppid></xml>`),
-	})
+	decryptor.plaintext = []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType><AuthorizerAppid>wx-missing</AuthorizerAppid></xml>`)
+	err := service.HandleComponentCallback(ctx, encryptedComponentCallbackInput())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNotFound))
 
-	err = service.HandleComponentCallback(ctx, HandleComponentCallbackInput{
-		RawBody: []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType></xml>`),
-	})
+	decryptor.plaintext = []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>unauthorized</InfoType></xml>`)
+	err = service.HandleComponentCallback(ctx, encryptedComponentCallbackInput())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
@@ -143,7 +140,7 @@ func TestAuthorizationServiceHandlesEncryptedComponentCallback(t *testing.T) {
 	require.Equal(t, "ticket-1", ticket.Ticket)
 }
 
-func TestAuthorizationServiceTreatsMsgSignatureAsEncryptedCallback(t *testing.T) {
+func TestAuthorizationServiceRequiresAESModeForComponentCallback(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 18, 0, 0, 0, time.UTC) })
 	plaintext := []byte(`<xml><AppId>wx-component</AppId><CreateTime>1783334400</CreateTime><InfoType>component_verify_ticket</InfoType><ComponentVerifyTicket>ticket-1</ComponentVerifyTicket></xml>`)
@@ -156,8 +153,9 @@ func TestAuthorizationServiceTreatsMsgSignatureAsEncryptedCallback(t *testing.T)
 		Timestamp:    "1783334400",
 		Nonce:        "nonce",
 	})
-	require.NoError(t, err)
-	require.Equal(t, "ciphertext", decryptor.lastInput.Ciphertext)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+	require.Empty(t, decryptor.lastInput.Ciphertext)
 }
 
 func TestAuthorizationServiceValidatesComponentCallback(t *testing.T) {
@@ -313,6 +311,16 @@ type fakeComponentCallbackDecryptor struct {
 	plaintext []byte
 	err       error
 	lastInput authorization.ComponentCallbackDecryptInput
+}
+
+func encryptedComponentCallbackInput() HandleComponentCallbackInput {
+	return HandleComponentCallbackInput{
+		RawBody:      []byte(`<xml><Encrypt>ciphertext</Encrypt></xml>`),
+		EncryptType:  "aes",
+		MsgSignature: "signature",
+		Timestamp:    "1783334400",
+		Nonce:        "nonce",
+	}
 }
 
 func (d *fakeComponentCallbackDecryptor) DecryptComponentCallback(_ context.Context, input authorization.ComponentCallbackDecryptInput) ([]byte, error) {

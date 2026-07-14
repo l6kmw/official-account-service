@@ -24,10 +24,10 @@ func TestCallbackServiceHandlesPublishResultCallback(t *testing.T) {
 		ComponentAppID: "wx-component", AuthorizerAppID: "wx-authorizer", TenantID: "tenant-1",
 	})
 	require.NoError(t, err)
-	service := NewCallbackService(store, store, publishService, nil, "wx-component", func() time.Time { return now })
 	raw := []byte(`<xml><Event><![CDATA[PUBLISHJOBFINISH]]></Event><PublishEventInfo><publish_id><![CDATA[publish-1]]></publish_id><publish_status>0</publish_status><article_id><![CDATA[article-1]]></article_id></PublishEventInfo></xml>`)
+	service := NewCallbackService(store, store, publishService, &fakeAuthorizerCallbackDecryptor{plaintext: raw}, "wx-component", func() time.Time { return now })
 
-	err = service.HandleAuthorizerCallback(ctx, HandleAuthorizerCallbackInput{AuthorizerAppID: "wx-authorizer", RawBody: raw})
+	err = service.HandleAuthorizerCallback(ctx, encryptedAuthorizerCallbackInput())
 	require.NoError(t, err)
 
 	updated, err := store.GetPublishRecord(ctx, "tenant-1", record.ID)
@@ -48,12 +48,14 @@ func TestCallbackServiceDeduplicatesPublishResultCallback(t *testing.T) {
 		ComponentAppID: "wx-component", AuthorizerAppID: "wx-authorizer", TenantID: "tenant-1",
 	})
 	require.NoError(t, err)
-	service := NewCallbackService(store, store, publishService, nil, "wx-component", time.Now)
 	first := []byte(`<xml><Event><![CDATA[PUBLISHJOBFINISH]]></Event><PublishEventInfo><publish_id>publish-1</publish_id><publish_status>0</publish_status><article_id>article-1</article_id></PublishEventInfo></xml>`)
 	second := []byte(`<xml><Event><![CDATA[PUBLISHJOBFINISH]]></Event><PublishEventInfo><publish_id>publish-1</publish_id><publish_status>3</publish_status></PublishEventInfo></xml>`)
-	require.NoError(t, service.HandleAuthorizerCallback(ctx, HandleAuthorizerCallbackInput{AuthorizerAppID: "wx-authorizer", RawBody: first}))
+	decryptor := &fakeAuthorizerCallbackDecryptor{plaintext: first}
+	service := NewCallbackService(store, store, publishService, decryptor, "wx-component", time.Now)
+	require.NoError(t, service.HandleAuthorizerCallback(ctx, encryptedAuthorizerCallbackInput()))
 
-	err = service.HandleAuthorizerCallback(ctx, HandleAuthorizerCallbackInput{AuthorizerAppID: "wx-authorizer", RawBody: second})
+	decryptor.plaintext = second
+	err = service.HandleAuthorizerCallback(ctx, encryptedAuthorizerCallbackInput())
 	require.NoError(t, err)
 
 	updated, err := store.GetPublishRecord(ctx, "tenant-1", record.ID)
@@ -94,6 +96,18 @@ func TestCallbackServiceHandlesEncryptedPublishCallback(t *testing.T) {
 	require.NotContains(t, event.RawBody, "ciphertext")
 }
 
+func TestCallbackServiceRejectsPlainAuthorizerCallback(t *testing.T) {
+	store := memory.NewStore(time.Now)
+	service := NewCallbackService(store, store, NewPublishService(store, store, time.Now), nil, "wx-component", time.Now)
+
+	err := service.HandleAuthorizerCallback(context.Background(), HandleAuthorizerCallbackInput{
+		AuthorizerAppID: "wx-authorizer",
+		RawBody:         []byte(`<xml><Event>subscribe</Event></xml>`),
+	})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+}
+
 func TestCallbackServiceHandlesConcurrentDuplicatePublishCallbacks(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
@@ -102,8 +116,8 @@ func TestCallbackServiceHandlesConcurrentDuplicatePublishCallbacks(t *testing.T)
 		ComponentAppID: "wx-component", AuthorizerAppID: "wx-authorizer", TenantID: "tenant-1",
 	})
 	require.NoError(t, err)
-	service := NewCallbackService(store, store, publishService, nil, "wx-component", time.Now)
 	raw := []byte(`<xml><Event>PUBLISHJOBFINISH</Event><PublishEventInfo><publish_id>publish-1</publish_id><publish_status>0</publish_status><article_id>article-1</article_id></PublishEventInfo></xml>`)
+	service := NewCallbackService(store, store, publishService, &fakeAuthorizerCallbackDecryptor{plaintext: raw}, "wx-component", time.Now)
 
 	errs := make(chan error, 20)
 	var wg sync.WaitGroup
@@ -111,7 +125,7 @@ func TestCallbackServiceHandlesConcurrentDuplicatePublishCallbacks(t *testing.T)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- service.HandleAuthorizerCallback(ctx, HandleAuthorizerCallbackInput{AuthorizerAppID: "wx-authorizer", RawBody: raw})
+			errs <- service.HandleAuthorizerCallback(ctx, encryptedAuthorizerCallbackInput())
 		}()
 	}
 	wg.Wait()
@@ -131,24 +145,20 @@ func TestCallbackServiceHandlesConcurrentDuplicatePublishCallbacks(t *testing.T)
 func TestCallbackServiceIgnoresUnsupportedAuthorizerCallback(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
-	service := NewCallbackService(store, store, NewPublishService(store, store, time.Now), nil, "wx-component", time.Now)
+	decryptor := &fakeAuthorizerCallbackDecryptor{plaintext: []byte(`<xml><Event>subscribe</Event></xml>`)}
+	service := NewCallbackService(store, store, NewPublishService(store, store, time.Now), decryptor, "wx-component", time.Now)
 
-	err := service.HandleAuthorizerCallback(ctx, HandleAuthorizerCallbackInput{
-		AuthorizerAppID: "wx-authorizer",
-		RawBody:         []byte(`<xml><Event>subscribe</Event></xml>`),
-	})
+	err := service.HandleAuthorizerCallback(ctx, encryptedAuthorizerCallbackInput())
 	require.NoError(t, err)
 }
 
 func TestCallbackServiceValidatesPublishCallback(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
-	service := NewCallbackService(store, store, NewPublishService(store, store, time.Now), nil, "wx-component", time.Now)
+	decryptor := &fakeAuthorizerCallbackDecryptor{plaintext: []byte(`<xml><Event>PUBLISHJOBFINISH</Event><PublishEventInfo><publish_status>0</publish_status></PublishEventInfo></xml>`)}
+	service := NewCallbackService(store, store, NewPublishService(store, store, time.Now), decryptor, "wx-component", time.Now)
 
-	err := service.HandleAuthorizerCallback(ctx, HandleAuthorizerCallbackInput{
-		AuthorizerAppID: "wx-authorizer",
-		RawBody:         []byte(`<xml><Event>PUBLISHJOBFINISH</Event><PublishEventInfo><publish_status>0</publish_status></PublishEventInfo></xml>`),
-	})
+	err := service.HandleAuthorizerCallback(ctx, encryptedAuthorizerCallbackInput())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
@@ -167,6 +177,17 @@ func preparePublishingRecord(t *testing.T, ctx context.Context, store *memory.St
 type fakeAuthorizerCallbackDecryptor struct {
 	plaintext []byte
 	lastInput authorization.ComponentCallbackDecryptInput
+}
+
+func encryptedAuthorizerCallbackInput() HandleAuthorizerCallbackInput {
+	return HandleAuthorizerCallbackInput{
+		AuthorizerAppID: "wx-authorizer",
+		RawBody:         []byte(`<xml><Encrypt>ciphertext</Encrypt></xml>`),
+		EncryptType:     "aes",
+		MsgSignature:    "signature",
+		Timestamp:       "1783334400",
+		Nonce:           "nonce",
+	}
 }
 
 func (d *fakeAuthorizerCallbackDecryptor) DecryptComponentCallback(_ context.Context, input authorization.ComponentCallbackDecryptInput) ([]byte, error) {

@@ -113,10 +113,7 @@ func (s *CallbackService) validateReady() error {
 
 func (s *CallbackService) callbackPlaintext(ctx context.Context, input HandleAuthorizerCallbackInput) ([]byte, error) {
 	encryptType := strings.TrimSpace(input.EncryptType)
-	if encryptType == "" && strings.TrimSpace(input.MsgSignature) == "" {
-		return input.RawBody, nil
-	}
-	if encryptType != "" && encryptType != "aes" {
+	if encryptType != "aes" {
 		return nil, fmt.Errorf("validate authorizer callback encrypt type: %w", ErrInvalidInput)
 	}
 	if strings.TrimSpace(input.MsgSignature) == "" || strings.TrimSpace(input.Timestamp) == "" || strings.TrimSpace(input.Nonce) == "" {
