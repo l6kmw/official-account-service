@@ -15,19 +15,20 @@ import (
 
 // Store is an in-memory repository implementation for local development and tests.
 type Store struct {
-	mu             sync.RWMutex
-	nextAccountID  int64
-	nextArticleID  int64
-	nextAssetID    int64
-	nextRecordID   int64
-	accounts       map[int64]authorization.Account
-	articles       map[int64]article.Article
-	materialAssets map[int64]material.Asset
-	publishRecords map[int64]publish.Record
-	callbackEvents map[int64]wechatcallback.Event
-	tickets        map[string]authorization.ComponentVerifyTicket
-	bindings       map[string]authorization.AuthorizerTenantBinding
-	now            func() time.Time
+	mu                  sync.RWMutex
+	nextAccountID       int64
+	nextArticleID       int64
+	nextAssetID         int64
+	nextRecordID        int64
+	accounts            map[int64]authorization.Account
+	articles            map[int64]article.Article
+	materialAssets      map[int64]material.Asset
+	publishRecords      map[int64]publish.Record
+	callbackEvents      map[int64]wechatcallback.Event
+	tickets             map[string]authorization.ComponentVerifyTicket
+	bindings            map[string]authorization.AuthorizerTenantBinding
+	authorizationStates map[string]authorization.AuthorizationState
+	now                 func() time.Time
 }
 
 // NewStore constructs an in-memory Store.
@@ -36,14 +37,15 @@ func NewStore(now func() time.Time) *Store {
 		now = time.Now
 	}
 	return &Store{
-		accounts:       make(map[int64]authorization.Account),
-		articles:       make(map[int64]article.Article),
-		materialAssets: make(map[int64]material.Asset),
-		publishRecords: make(map[int64]publish.Record),
-		callbackEvents: make(map[int64]wechatcallback.Event),
-		tickets:        make(map[string]authorization.ComponentVerifyTicket),
-		bindings:       make(map[string]authorization.AuthorizerTenantBinding),
-		now:            now,
+		accounts:            make(map[int64]authorization.Account),
+		articles:            make(map[int64]article.Article),
+		materialAssets:      make(map[int64]material.Asset),
+		publishRecords:      make(map[int64]publish.Record),
+		callbackEvents:      make(map[int64]wechatcallback.Event),
+		tickets:             make(map[string]authorization.ComponentVerifyTicket),
+		bindings:            make(map[string]authorization.AuthorizerTenantBinding),
+		authorizationStates: make(map[string]authorization.AuthorizationState),
+		now:                 now,
 	}
 }
 

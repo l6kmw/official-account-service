@@ -70,6 +70,16 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	binding, err := store.GetAuthorizerTenantBinding(ctx, "wx-component", "wx123")
 	require.NoError(t, err)
 	require.Equal(t, tenantID, binding.TenantID)
+	authorizationState, err := store.SaveAuthorizationState(ctx, authorization.AuthorizationState{
+		Digest: "state-digest", TenantID: tenantID, ComponentAppID: "wx-component", ExpiresAt: time.Now().Add(10 * time.Minute),
+	})
+	require.NoError(t, err)
+	consumedState, err := store.ConsumeAuthorizationState(ctx, authorizationState.Digest, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, tenantID, consumedState.TenantID)
+	_, err = store.ConsumeAuthorizationState(ctx, authorizationState.Digest, time.Now())
+	require.Error(t, err)
+	require.True(t, errors.Is(err, authorization.ErrAuthorizationStateNotFound))
 
 	revoked, err := store.RevokeAccountByAppID(ctx, tenantID, "wx123")
 	require.NoError(t, err)
@@ -156,6 +166,8 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/004_authorizer_refresh_token.sql",
 		"../../../../migrations/005_authorizer_tenant_binding.sql",
 		"../../../../migrations/006_wechat_callback_event.sql",
+		"../../../../migrations/007_media_asset_article_fk.sql",
+		"../../../../migrations/008_authorization_state.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)
