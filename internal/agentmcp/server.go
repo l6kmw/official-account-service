@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 		Title:   "Official Account Service",
 		Version: "0.1.0",
 	}, nil)
+	remoteImageHTTPClient := newRemoteImageHTTPClient()
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_accounts",
@@ -89,9 +91,9 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_upload_image",
 		Title:       "Upload image",
-		Description: "Upload an article body image or cover image. Required: authorizer_id, article_id, usage, and exactly one of file_path or content_base64. filename is optional. For a cover, pass the returned asset.id as cover_media_asset_id to official_account_update_article before publishing; do not use media_id for that field.",
+		Description: "Upload an article body image or cover image. Required: authorizer_id, article_id, usage, and exactly one of file_path, content_base64, or image_url. image_url downloads a public HTTPS image for online agents. filename is optional. For a cover, pass the returned asset.id as cover_media_asset_id to official_account_update_article before publishing; do not use media_id for that field.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input uploadImageToolInput) (*mcp.CallToolResult, any, error) {
-		content, filename, err := openUploadContent(input, cfg.AllowedRoot)
+		content, filename, err := openUploadContent(ctx, input, cfg.AllowedRoot, remoteImageHTTPClient)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -232,9 +234,10 @@ type uploadImageToolInput struct {
 	AuthorizerID  int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
 	ArticleID     int64  `json:"article_id" jsonschema:"Required. Local article id that owns this image."`
 	Usage         string `json:"usage" jsonschema:"Required. Image usage: inline_image for body images, or cover for cover images."`
-	Filename      string `json:"filename,omitempty" jsonschema:"Filename sent to WeChat. Defaults to the file_path base name or image.png."`
-	FilePath      string `json:"file_path,omitempty" jsonschema:"Conditionally required: provide exactly one of file_path or content_base64. Local image file path readable by this MCP server. If OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT is set, the path must be inside it."`
-	ContentBase64 string `json:"content_base64,omitempty" jsonschema:"Conditionally required: provide exactly one of content_base64 or file_path. Base64 encoded image content."`
+	Filename      string `json:"filename,omitempty" jsonschema:"Filename sent to WeChat. Defaults to the source filename or a name inferred from the image type."`
+	FilePath      string `json:"file_path,omitempty" jsonschema:"Conditionally required: provide exactly one of file_path, content_base64, or image_url. Local image file path readable by this MCP server. If OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT is set, the path must be inside it."`
+	ContentBase64 string `json:"content_base64,omitempty" jsonschema:"Conditionally required: provide exactly one of content_base64, file_path, or image_url. Base64 encoded image content."`
+	ImageURL      string `json:"image_url,omitempty" jsonschema:"Conditionally required: provide exactly one of image_url, file_path, or content_base64. Public HTTPS URL for an image uploaded to the online agent. Private and local network destinations are rejected."`
 }
 
 type publishArticleToolInput struct {
@@ -267,14 +270,21 @@ type authorizationURLToolInput struct {
 	BizAppID       string `json:"biz_appid,omitempty" jsonschema:"Optional authorizer appid to preselect."`
 }
 
-func openUploadContent(input uploadImageToolInput, allowedRoot string) (io.ReadCloser, string, error) {
+func openUploadContent(ctx context.Context, input uploadImageToolInput, allowedRoot string, remoteImageHTTPClient *http.Client) (io.ReadCloser, string, error) {
 	if input.Usage != "inline_image" && input.Usage != "cover" {
 		return nil, "", fmt.Errorf("usage must be inline_image or cover")
 	}
 	hasFile := strings.TrimSpace(input.FilePath) != ""
 	hasBase64 := strings.TrimSpace(input.ContentBase64) != ""
-	if hasFile == hasBase64 {
-		return nil, "", fmt.Errorf("provide exactly one of file_path or content_base64")
+	hasImageURL := strings.TrimSpace(input.ImageURL) != ""
+	sourceCount := 0
+	for _, present := range []bool{hasFile, hasBase64, hasImageURL} {
+		if present {
+			sourceCount++
+		}
+	}
+	if sourceCount != 1 {
+		return nil, "", fmt.Errorf("provide exactly one of file_path, content_base64, or image_url")
 	}
 	filename := strings.TrimSpace(input.Filename)
 	if hasBase64 {
@@ -286,6 +296,9 @@ func openUploadContent(input uploadImageToolInput, allowedRoot string) (io.ReadC
 			filename = "image.png"
 		}
 		return io.NopCloser(bytes.NewReader(raw)), filename, nil
+	}
+	if hasImageURL {
+		return downloadRemoteImage(ctx, remoteImageHTTPClient, input.ImageURL, filename)
 	}
 
 	path, err := allowedFilePath(input.FilePath, allowedRoot)

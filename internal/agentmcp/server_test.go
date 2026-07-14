@@ -52,6 +52,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.ElementsMatch(t, []string{"authorizer_id", "article_id", "usage"}, requiredToolFields(t, toolsByName["official_account_upload_image"]))
 	require.ElementsMatch(t, []string{"article_id", "confirm_publish"}, requiredToolFields(t, toolsByName["official_account_publish_article"]))
 	require.Contains(t, toolsByName["official_account_upload_image"].Description, "asset.id")
+	require.Contains(t, toolsByName["official_account_upload_image"].Description, "image_url")
 	require.Contains(t, toolsByName["official_account_publish_article"].Description, "content_html")
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{

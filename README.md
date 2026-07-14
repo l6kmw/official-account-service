@@ -404,12 +404,14 @@ Header value: <MCP_TOKEN>
 - `official_account_sync_publish_status`
 - `official_account_delete_published_record`
 
+上传图片时，`file_path`、`content_base64`、`image_url` 必须三选一。线上 Agent 应把用户附件的临时公网 HTTPS 下载地址传给 `image_url`；服务端最多下载 8 MiB，并拒绝私网地址、危险重定向和非图片内容。
+
 典型流程：
 
 1. `official_account_list_accounts` 看有没有公众号。
 2. 没有就用 `official_account_get_authorization_entry` 生成授权链接。
 3. 创建文章草稿。
-4. 上传封面和正文图片。
+4. 上传封面和正文图片；线上附件通过 `image_url` 传入。
 5. 更新文章内容。
 6. 发布前让用户确认。
 7. 调 `official_account_publish_article` 发布，必须传 `confirm_publish=true`。

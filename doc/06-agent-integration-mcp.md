@@ -87,7 +87,7 @@ OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
 - `OFFICIAL_ACCOUNT_COMPONENT_APP_ID`：微信第三方平台 Component AppID，用来生成授权入口。
 - `OFFICIAL_ACCOUNT_TENANT_ID`：MCP 固定绑定的租户。多租户建议启动多个 MCP server，而不是让 agent 任意传 tenant。
 - `OFFICIAL_ACCOUNT_ADMIN_API_KEY`：MCP 调用后台 API 使用的服务端密钥。不要放进前端运行时配置，也不要交给模型上下文。
-- `OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT`：可选。限制 `file_path` 图片上传只能读取该目录下的文件；目录外图片可以用 `content_base64` 传入。
+- `OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT`：可选。限制 `file_path` 图片上传只能读取该目录下的文件；线上 Agent 上传的附件建议通过 `image_url` 传入。
 - `OFFICIAL_ACCOUNT_MCP_TRANSPORT`：默认 `stdio`；线上远程连接使用 `streamable-http`。
 - `OFFICIAL_ACCOUNT_MCP_ADDR`：Streamable HTTP 监听地址。线上建议只监听 `127.0.0.1`，再由 Nginx 提供 HTTPS。
 - `OFFICIAL_ACCOUNT_MCP_PATH`：Streamable HTTP MCP 路径，默认 `/mcp`。
@@ -140,14 +140,35 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_delete_published_record` 必须传 `confirm_delete="DELETE"`。
 - 所有工具都复用现有后台 API，不返回 token、secret、refresh token。
 
+## 线上 Agent 图片上传
+
+`official_account_upload_image` 的图片来源必须且只能提供一个：
+
+- `file_path`：MCP 服务所在机器可读取的本地文件。
+- `content_base64`：Base64 图片内容。
+- `image_url`：用户在 Agent 上传附件后，由 Agent 平台提供的临时公网 HTTPS 下载地址。
+
+线上 Agent 推荐使用 `image_url`：
+
+```json
+{
+  "authorizer_id": 1,
+  "article_id": 12,
+  "usage": "cover",
+  "image_url": "https://agent-files.example.com/uploads/cover.png?signature=temporary"
+}
+```
+
+服务端只下载公网 HTTPS 图片，拒绝回环、私网、链路本地、保留地址及指向这些地址的重定向。响应最多 8 MiB，仅接受 JPEG、PNG、GIF、WebP，并以实际文件内容判断类型。临时 URL 必须在工具调用期间有效，且无需额外 Cookie 或请求 Header 即可下载。
+
 ## 推荐 Agent 工作流
 
 1. 调 `official_account_list_accounts` 查看是否已有授权公众号。
 2. 如果没有账号，调 `official_account_get_authorization_entry`，把返回链接或二维码给用户扫码授权。
 3. 生成文章内容，整理为微信兼容 HTML。
 4. 调 `official_account_create_article` 创建草稿。
-5. 如有正文图片，调 `official_account_upload_image` 上传 `inline_image`，把返回的 `wechat_url` 写回正文 HTML。
-6. 上传封面图：调 `official_account_upload_image`，`usage=cover`。
+5. 如有正文图片，调 `official_account_upload_image` 上传 `inline_image`；线上附件使用 `image_url`，并把返回的 `wechat_url` 写回正文 HTML。
+6. 上传封面图：调 `official_account_upload_image`，`usage=cover`；线上附件同样使用 `image_url`。
 7. 调 `official_account_update_article` 写入最终标题、摘要、正文 HTML、`cover_media_asset_id`。
 8. 发布前向用户确认标题、公众号、封面、摘要。
 9. 调 `official_account_publish_article` 发布，传 `confirm_publish=true`。

@@ -123,18 +123,18 @@ func TestOpenUploadContentHonorsAllowedRoot(t *testing.T) {
 	root := t.TempDir()
 	inside := filepath.Join(root, "cover.png")
 	require.NoError(t, os.WriteFile(inside, []byte("image"), 0o600))
-	content, filename, err := openUploadContent(uploadImageToolInput{
+	content, filename, err := openUploadContent(context.Background(), uploadImageToolInput{
 		Usage:    "cover",
 		FilePath: inside,
-	}, root)
+	}, root, nil)
 	require.NoError(t, err)
 	defer content.Close()
 	require.Equal(t, "cover.png", filename)
 
-	_, _, err = openUploadContent(uploadImageToolInput{
+	_, _, err = openUploadContent(context.Background(), uploadImageToolInput{
 		Usage:    "cover",
 		FilePath: filepath.Join(t.TempDir(), "outside.png"),
-	}, root)
+	}, root, nil)
 	require.ErrorContains(t, err, "OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT")
 }
 
@@ -180,11 +180,11 @@ func TestGenerateAuthorizationURLUsesConfiguredDefaults(t *testing.T) {
 }
 
 func TestOpenUploadContentDecodesBase64(t *testing.T) {
-	content, filename, err := openUploadContent(uploadImageToolInput{
+	content, filename, err := openUploadContent(context.Background(), uploadImageToolInput{
 		Usage:         "inline_image",
 		Filename:      "body.png",
 		ContentBase64: "aW1hZ2U=",
-	}, "")
+	}, "", nil)
 	require.NoError(t, err)
 	defer content.Close()
 	raw, err := io.ReadAll(content)
