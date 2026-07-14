@@ -119,6 +119,11 @@ func (s *PublishService) PublishArticle(ctx context.Context, input PublishArticl
 	if pending, ok, err := s.pendingPublishRecord(ctx, input.TenantID, input.ArticleID); err != nil {
 		return publish.Record{}, err
 	} else if ok {
+		if strings.TrimSpace(pending.WeChatPublishID) != "" {
+			if err := s.enqueueExistingPublish(ctx, pending); err != nil {
+				return pending, err
+			}
+		}
 		return pending, nil
 	}
 	if err := validateArticleReadyForPublish(draft); err != nil {
@@ -135,25 +140,46 @@ func (s *PublishService) PublishArticle(ctx context.Context, input PublishArticl
 	if err != nil {
 		return publish.Record{}, err
 	}
+	record, created, err := s.createPublishIntent(ctx, input.TenantID, draft)
+	if err != nil {
+		return publish.Record{}, err
+	}
+	if !created {
+		if strings.TrimSpace(record.WeChatPublishID) != "" {
+			if err := s.enqueueExistingPublish(ctx, record); err != nil {
+				return record, err
+			}
+		}
+		return record, nil
+	}
 	wechatDraft, err := s.publisher.AddDraft(ctx, accessToken, publish.ArticleDraft{
 		Title: draft.Title, Author: draft.Author, Digest: draft.Digest, ContentHTML: draft.ContentHTML,
 		ThumbMediaID: cover.MediaID,
 	})
 	if err != nil {
-		return publish.Record{}, wrapPublisherError("add wechat draft", err)
+		publishErr := wrapPublisherError("add wechat draft", err)
+		return publish.Record{}, s.failPublishIntent(ctx, input.TenantID, draft, record, "wechat_draft_failed", publishErr)
+	}
+	if strings.TrimSpace(wechatDraft.MediaID) == "" {
+		publishErr := fmt.Errorf("validate wechat draft media id: %w", ErrInvalidInput)
+		return publish.Record{}, s.failPublishIntent(ctx, input.TenantID, draft, record, "wechat_draft_failed", publishErr)
 	}
 	submitted, err := s.publisher.SubmitFreePublish(ctx, accessToken, wechatDraft.MediaID)
 	if err != nil {
-		return publish.Record{}, wrapPublisherError("submit wechat free publish", err)
+		publishErr := wrapPublisherError("submit wechat free publish", err)
+		return publish.Record{}, s.failPublishIntent(ctx, input.TenantID, draft, record, "wechat_submit_failed", publishErr)
 	}
-	record, err := s.CreatePublishRecord(ctx, CreatePublishRecordInput{
-		TenantID: input.TenantID, ArticleID: input.ArticleID, WeChatPublishID: submitted.PublishID,
-	})
+	if strings.TrimSpace(submitted.PublishID) == "" {
+		publishErr := fmt.Errorf("validate wechat publish id: %w", ErrInvalidInput)
+		return publish.Record{}, s.failPublishIntent(ctx, input.TenantID, draft, record, "wechat_submit_failed", publishErr)
+	}
+	record.WeChatPublishID = submitted.PublishID
+	record, err = s.records.UpdatePublishRecordSubmission(ctx, input.TenantID, record)
 	if err != nil {
-		return publish.Record{}, err
+		return publish.Record{}, fmt.Errorf("store wechat publish submission: %w", err)
 	}
 	if err := s.enqueueStatusSync(ctx, record); err != nil {
-		return publish.Record{}, err
+		return record, s.recordPublishingError(ctx, input.TenantID, record, "status_sync_enqueue_failed", err)
 	}
 	return record, nil
 }

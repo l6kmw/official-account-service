@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,6 +150,98 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	require.Equal(t, article.StatusPublishing, current.Status)
 }
 
+func TestPublishServiceDeduplicatesConcurrentPublishRequests(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	articles := NewArticleService(store)
+	draft, err := createPublishableArticle(t, ctx, store, articles)
+	require.NoError(t, err)
+	publisher := &fakePublishPublisher{draftMediaID: "draft-media", publishID: "publish-1"}
+	service := NewPublishServiceWithPublisher(store, store, store, publisher, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "token"}}, "wx-component", time.Now)
+
+	results := make(chan publish.Record, 20)
+	errs := make(chan error, 20)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			record, publishErr := service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+			results <- record
+			errs <- publishErr
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for publishErr := range errs {
+		require.NoError(t, publishErr)
+	}
+	var recordID int64
+	for record := range results {
+		if recordID == 0 {
+			recordID = record.ID
+		}
+		require.Equal(t, recordID, record.ID)
+	}
+	require.Equal(t, int32(1), publisher.addDraftCalls.Load())
+	records, err := service.ListPublishRecordsByArticle(ctx, "tenant-1", draft.ID)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+}
+
+func TestPublishServiceRetriesStatusEnqueueWithoutRepublishing(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	articles := NewArticleService(store)
+	draft, err := createPublishableArticle(t, ctx, store, articles)
+	require.NoError(t, err)
+	publisher := &fakePublishPublisher{draftMediaID: "draft-media", publishID: "publish-1"}
+	scheduler := &fakeStatusSyncScheduler{err: publish.ErrTaskQueueUnavailable}
+	service := NewPublishServiceWithPublisherAndStatusSync(store, store, store, publisher, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "token"}}, "wx-component", scheduler, time.Now)
+
+	record, err := service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.Error(t, err)
+	require.NotZero(t, record.ID)
+	stored, err := service.GetPublishRecord(ctx, "tenant-1", record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "status_sync_enqueue_failed", stored.ErrorCode)
+
+	scheduler.err = nil
+	retried, err := service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.NoError(t, err)
+	require.Equal(t, record.ID, retried.ID)
+	require.Equal(t, int32(1), publisher.addDraftCalls.Load())
+	require.Equal(t, int32(2), scheduler.calls.Load())
+	stored, err = service.GetPublishRecord(ctx, "tenant-1", record.ID)
+	require.NoError(t, err)
+	require.Empty(t, stored.ErrorCode)
+}
+
+func TestPublishServiceMarksIntentFailedWhenWeChatRejectsDraft(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	articles := NewArticleService(store)
+	draft, err := createPublishableArticle(t, ctx, store, articles)
+	require.NoError(t, err)
+	service := NewPublishServiceWithPublisher(store, store, store, &fakePublishPublisher{addDraftErr: publish.ErrPublishFailed}, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "token"}}, "wx-component", time.Now)
+
+	_, err = service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.Error(t, err)
+	records, err := service.ListPublishRecordsByArticle(ctx, "tenant-1", draft.ID)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, publish.StatusFailed, records[0].Status)
+	require.Equal(t, "wechat_draft_failed", records[0].ErrorCode)
+	updated, err := articles.GetArticle(ctx, "tenant-1", draft.ID)
+	require.NoError(t, err)
+	require.Equal(t, article.StatusFailed, updated.Status)
+}
+
 func TestPublishServiceRejectsCoverOwnedByAnotherArticle(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
@@ -245,7 +339,7 @@ func TestPublishServiceDeduplicatesPublishingArticle(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, existing.ID, record.ID)
-	require.Equal(t, int32(0), publisher.addDraftCalls)
+	require.Equal(t, int32(0), publisher.addDraftCalls.Load())
 }
 
 func TestPublishServiceDeletesPublishedArticleFromWeChat(t *testing.T) {
@@ -376,13 +470,17 @@ type fakePublishPublisher struct {
 	lastDeleteToken      string
 	lastDeletedArticleID string
 	lastDeletedIndex     int
-	addDraftCalls        int32
+	addDraftErr          error
+	addDraftCalls        atomic.Int32
 }
 
 func (p *fakePublishPublisher) AddDraft(_ context.Context, accessToken string, draft publish.ArticleDraft) (publish.DraftResult, error) {
-	p.addDraftCalls++
+	p.addDraftCalls.Add(1)
 	p.lastToken = accessToken
 	p.lastDraft = draft
+	if p.addDraftErr != nil {
+		return publish.DraftResult{}, p.addDraftErr
+	}
 	return publish.DraftResult{MediaID: p.draftMediaID}, nil
 }
 
@@ -404,18 +502,39 @@ func (p *fakePublishPublisher) DeleteFreePublish(_ context.Context, accessToken 
 type fakePublishTokenProvider struct {
 	token     AuthorizerAccessToken
 	lastInput RefreshAuthorizerAccessTokenInput
+	mu        sync.Mutex
 }
 
 func (p *fakePublishTokenProvider) GetAuthorizerAccessToken(_ context.Context, input RefreshAuthorizerAccessTokenInput) (AuthorizerAccessToken, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.lastInput = input
 	return p.token, nil
 }
 
 type fakeStatusSyncScheduler struct {
 	lastTask publish.StatusSyncTask
+	err      error
+	calls    atomic.Int32
 }
 
 func (s *fakeStatusSyncScheduler) EnqueueStatusSync(_ context.Context, task publish.StatusSyncTask) error {
+	s.calls.Add(1)
 	s.lastTask = task
-	return nil
+	return s.err
+}
+
+func createPublishableArticle(t *testing.T, ctx context.Context, store *memory.Store, articles *ArticleService) (article.Article, error) {
+	t.Helper()
+	draft, err := articles.CreateArticle(ctx, CreateArticleInput{TenantID: "tenant-1", AuthorizerID: 1, Title: "hello", ContentHTML: "<p>body</p>"})
+	if err != nil {
+		return article.Article{}, err
+	}
+	cover, err := store.CreateMaterial(ctx, "tenant-1", material.Asset{AuthorizerID: 1, ArticleID: draft.ID, Usage: material.UsageCover, MediaID: "thumb-media"})
+	if err != nil {
+		return article.Article{}, err
+	}
+	return articles.UpdateArticle(ctx, UpdateArticleInput{
+		TenantID: "tenant-1", ID: draft.ID, Title: draft.Title, ContentHTML: draft.ContentHTML, CoverMediaAssetID: cover.ID,
+	})
 }

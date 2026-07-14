@@ -35,6 +35,71 @@ func (s *PublishService) pendingPublishRecord(ctx context.Context, tenantID stri
 	return publish.Record{}, false, nil
 }
 
+func (s *PublishService) createPublishIntent(ctx context.Context, tenantID string, draft article.Article) (publish.Record, bool, error) {
+	now := s.now()
+	record, err := s.records.CreatePublishRecord(ctx, tenantID, publish.Record{
+		TenantID: tenantID, AuthorizerID: draft.AuthorizerID, ArticleID: draft.ID,
+		Status: publish.StatusPublishing, SubmittedAt: now,
+	})
+	if errors.Is(err, publish.ErrPublishInProgress) {
+		pending, ok, pendingErr := s.pendingPublishRecord(ctx, tenantID, draft.ID)
+		if pendingErr != nil {
+			return publish.Record{}, false, pendingErr
+		}
+		if !ok {
+			return publish.Record{}, false, fmt.Errorf("get concurrent publish intent: %w", ErrNotFound)
+		}
+		return pending, false, nil
+	}
+	if err != nil {
+		return publish.Record{}, false, fmt.Errorf("create publish intent: %w", err)
+	}
+	if err := s.syncArticleStatus(ctx, tenantID, draft, article.StatusPublishing); err != nil {
+		return publish.Record{}, false, s.failPublishIntent(ctx, tenantID, draft, record, "local_state_failed", err)
+	}
+	return record, true, nil
+}
+
+func (s *PublishService) failPublishIntent(ctx context.Context, tenantID string, draft article.Article, record publish.Record, errorCode string, cause error) error {
+	record.Status = publish.StatusFailed
+	record.ErrorCode = errorCode
+	record.ErrorMessage = "publish submission failed"
+	record.FinishedAt = s.now()
+	if _, err := s.records.UpdatePublishRecordStatus(ctx, tenantID, record); err != nil {
+		return fmt.Errorf("mark publish intent failed: %w", errors.Join(cause, err))
+	}
+	if err := s.syncArticleStatus(ctx, tenantID, draft, article.StatusFailed); err != nil {
+		return fmt.Errorf("mark publish article failed: %w", errors.Join(cause, err))
+	}
+	return cause
+}
+
+func (s *PublishService) enqueueExistingPublish(ctx context.Context, record publish.Record) error {
+	if s.statusSync == nil {
+		return nil
+	}
+	if err := s.enqueueStatusSync(ctx, record); err != nil {
+		return s.recordPublishingError(ctx, record.TenantID, record, "status_sync_enqueue_failed", err)
+	}
+	if record.ErrorCode == "status_sync_enqueue_failed" {
+		record.ErrorCode = ""
+		record.ErrorMessage = ""
+		if _, err := s.records.UpdatePublishRecordStatus(ctx, record.TenantID, record); err != nil {
+			return wrapPublishReadError("clear publish enqueue error", err)
+		}
+	}
+	return nil
+}
+
+func (s *PublishService) recordPublishingError(ctx context.Context, tenantID string, record publish.Record, errorCode string, cause error) error {
+	record.ErrorCode = errorCode
+	record.ErrorMessage = "publish status sync is waiting for retry"
+	if _, err := s.records.UpdatePublishRecordStatus(ctx, tenantID, record); err != nil {
+		return fmt.Errorf("store publish recovery state: %w", errors.Join(cause, err))
+	}
+	return cause
+}
+
 func validateArticleReadyForPublish(draft article.Article) error {
 	if draft.Status == article.StatusPublishing {
 		return fmt.Errorf("validate article publish status: %w", ErrInvalidInput)
