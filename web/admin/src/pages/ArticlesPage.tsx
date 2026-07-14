@@ -15,6 +15,7 @@ type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 const toneColor: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'danger', info: 'info', muted: 'textMuted' }
 
 type FilterKey = 'all' | 'draft' | 'publishing' | 'published' | 'failed'
+type PageError = { title: string; message: string; retry: boolean }
 
 const svgAttrs = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -76,7 +77,7 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
         </AccountSelect>
       </AccountFilterBar>
 
-      {error ? <ErrorPanel message={error} onRetry={reload} /> : null}
+      {error ? <ErrorPanel error={error} onRetry={error.retry ? reload : undefined} /> : null}
       {notice ? <NoticePanel><NoticeLeft><NoticeIconWrap tone="info"><InfoIcon /></NoticeIconWrap><div><PanelTitle>{notice}</PanelTitle><PanelDesc>发布或删除结果会同步显示在列表和发布记录页。</PanelDesc></div></NoticeLeft></NoticePanel> : null}
 
       {!loading && visible.length === 0 ? (
@@ -98,7 +99,7 @@ function useArticles(currentTenantID: string) {
   const [articles, setArticles] = useState<Article[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<PageError | null>(null)
   const [notice, setNotice] = useState('')
   const [publishingID, setPublishingID] = useState<number | null>(null)
   const [version, setVersion] = useState(0)
@@ -106,7 +107,7 @@ function useArticles(currentTenantID: string) {
   useEffect(() => {
     let active = true
     setLoading(true)
-    setError('')
+    setError(null)
     setNotice('')
 
     Promise.all([listArticles(currentTenantID), listAccounts(currentTenantID)])
@@ -117,7 +118,7 @@ function useArticles(currentTenantID: string) {
       })
       .catch((err: unknown) => {
         if (!active) return
-        setError(getErrorMessage(err))
+        setError({ title: '文章加载失败', message: getErrorMessage(err), retry: true })
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -133,25 +134,31 @@ function useArticles(currentTenantID: string) {
     if (!confirmed) return
 
     try {
+      setError(null)
       await deleteArticle(article.id, currentTenantID)
       setArticles((items) => items.filter((item) => item.id !== article.id))
       setNotice(article.status === 'published' ? `「${article.title}」已删除，本地记录和公众号发布内容已同步处理。` : `「${article.title}」已删除。`)
     } catch (err: unknown) {
-      setError(getErrorMessage(err))
+      setError({ title: '文章删除失败', message: getErrorMessage(err), retry: false })
     }
   }
 
   async function publish(article: Article) {
     if (!canPublishArticle(article)) return
+    const validationMessage = publishValidationMessage(article)
+    if (validationMessage) {
+      setError({ title: '暂时无法发布', message: validationMessage, retry: false })
+      return
+    }
     try {
-      setError('')
+      setError(null)
       setNotice('')
       setPublishingID(article.id)
       await publishArticle(article.id, currentTenantID)
       setArticles((items) => items.map((item) => (item.id === article.id ? { ...item, status: 'publishing' } : item)))
       setNotice(article.status === 'published' ? `「${article.title}」的修订版已提交发布，成功后会自动删除上一版。` : `「${article.title}」已提交发布。`)
     } catch (err: unknown) {
-      setError(getErrorMessage(err))
+      setError({ title: '文章发布失败', message: getErrorMessage(err), retry: false })
     } finally {
       setPublishingID(null)
     }
@@ -202,6 +209,14 @@ function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publ
 
 function canPublishArticle(article: Article) {
   return article.status !== 'publishing'
+}
+
+function publishValidationMessage(article: Article) {
+  const missing: string[] = []
+  if (!article.title.trim()) missing.push('标题')
+  if (!article.content_html.trim()) missing.push('正文')
+  if (article.cover_media_asset_id <= 0) missing.push('封面图')
+  return missing.length > 0 ? `发布前请先完善：${missing.join('、')}。` : ''
 }
 
 function publishActionText(article: Article, submitting: boolean) {
@@ -275,11 +290,11 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   )
 }
 
-function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+function ErrorPanel({ error, onRetry }: { error: PageError; onRetry?: () => void }) {
   return (
     <NoticePanel role="alert">
-      <NoticeLeft><NoticeIconWrap tone="danger"><AlertIcon /></NoticeIconWrap><div><PanelTitle>文章加载失败</PanelTitle><PanelDesc>{message}</PanelDesc></div></NoticeLeft>
-      <Button variant="secondary" onClick={onRetry}>重试</Button>
+      <NoticeLeft><NoticeIconWrap tone="danger"><AlertIcon /></NoticeIconWrap><div><PanelTitle>{error.title}</PanelTitle><PanelDesc>{error.message}</PanelDesc></div></NoticeLeft>
+      {onRetry ? <Button variant="secondary" onClick={onRetry}>重试</Button> : null}
     </NoticePanel>
   )
 }
