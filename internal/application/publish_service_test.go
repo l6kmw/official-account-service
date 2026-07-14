@@ -148,6 +148,33 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	require.Equal(t, article.StatusPublishing, current.Status)
 }
 
+func TestPublishServiceRejectsCoverOwnedByAnotherArticle(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	articles := NewArticleService(store)
+	draft, err := articles.CreateArticle(ctx, CreateArticleInput{
+		TenantID: "tenant-1", AuthorizerID: 1, Title: "first", ContentHTML: "<p>body</p>",
+	})
+	require.NoError(t, err)
+	other, err := articles.CreateArticle(ctx, CreateArticleInput{
+		TenantID: "tenant-1", AuthorizerID: 1, Title: "second", ContentHTML: "<p>body</p>",
+	})
+	require.NoError(t, err)
+	cover, err := store.CreateMaterial(ctx, "tenant-1", material.Asset{
+		AuthorizerID: 1, ArticleID: other.ID, Usage: material.UsageCover, MediaID: "thumb-media",
+	})
+	require.NoError(t, err)
+	_, err = articles.UpdateArticle(ctx, UpdateArticleInput{
+		TenantID: "tenant-1", ID: draft.ID, Title: draft.Title, ContentHTML: draft.ContentHTML, CoverMediaAssetID: cover.ID,
+	})
+	require.NoError(t, err)
+
+	service := NewPublishServiceWithPublisher(store, store, store, &fakePublishPublisher{}, &fakePublishTokenProvider{}, "wx-component", time.Now)
+	_, err = service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+}
+
 func TestPublishServicePublishesPublishedArticleAsRevision(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC)

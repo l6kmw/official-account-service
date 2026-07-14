@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"official-account-service/internal/application"
+	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/domain/publish"
@@ -38,12 +39,16 @@ func TestWeChatAPIAuthorize(t *testing.T) {
 
 func TestWeChatAPIUploadImage(t *testing.T) {
 	store := memory.NewStore(fixedAgentTime)
+	_, err := store.Create(t.Context(), "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 1, Title: "first", Status: article.StatusDraft})
+	require.NoError(t, err)
+	draft, err := store.Create(t.Context(), "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 1, Title: "second", Status: article.StatusDraft})
+	require.NoError(t, err)
 	api := NewWeChatAPI(Dependencies{
-		Materials: application.NewMaterialService(store, fakeMaterialUploader{}),
+		Materials: application.NewMaterialService(store, store, fakeMaterialUploader{}),
 	})
 
 	inline, err := api.UploadImage(t.Context(), UploadImageInput{
-		TenantID: "tenant-1", AuthorizerID: 1, ArticleID: 2, Usage: ImageUsageInline,
+		TenantID: "tenant-1", AuthorizerID: 1, ArticleID: draft.ID, Usage: ImageUsageInline,
 		Filename: "body.png", Content: bytes.NewBufferString("image"),
 	})
 	require.NoError(t, err)
@@ -52,7 +57,7 @@ func TestWeChatAPIUploadImage(t *testing.T) {
 	require.Empty(t, inline.Asset.MediaID)
 
 	cover, err := api.UploadImage(t.Context(), UploadImageInput{
-		TenantID: "tenant-1", AuthorizerID: 1, ArticleID: 2, Usage: ImageUsageCover,
+		TenantID: "tenant-1", AuthorizerID: 1, ArticleID: draft.ID, Usage: ImageUsageCover,
 		Filename: "cover.png", Content: bytes.NewBufferString("image"),
 	})
 	require.NoError(t, err)
@@ -61,7 +66,7 @@ func TestWeChatAPIUploadImage(t *testing.T) {
 	require.Empty(t, cover.Asset.WeChatURL)
 
 	_, err = api.UploadImage(t.Context(), UploadImageInput{
-		TenantID: "tenant-1", AuthorizerID: 1, ArticleID: 2, Usage: ImageUsage("bad"),
+		TenantID: "tenant-1", AuthorizerID: 1, ArticleID: draft.ID, Usage: ImageUsage("bad"),
 		Filename: "bad.png", Content: bytes.NewBufferString("image"),
 	})
 	require.Error(t, err)

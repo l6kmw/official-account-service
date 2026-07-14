@@ -128,7 +128,7 @@ func (s *PublishService) PublishArticle(ctx context.Context, input PublishArticl
 	if err != nil {
 		return publish.Record{}, wrapPublishMaterialError("get cover material for publish", err)
 	}
-	if cover.Usage != material.UsageCover || strings.TrimSpace(cover.MediaID) == "" {
+	if cover.ArticleID != draft.ID || cover.AuthorizerID != draft.AuthorizerID || cover.Usage != material.UsageCover || strings.TrimSpace(cover.MediaID) == "" {
 		return publish.Record{}, fmt.Errorf("validate cover material for publish: %w", ErrInvalidInput)
 	}
 	accessToken, err := s.accessTokenForPublish(ctx, input.TenantID, draft.AuthorizerID)

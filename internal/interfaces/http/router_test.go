@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"official-account-service/internal/application"
+	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/infra/persistence/memory"
@@ -308,7 +309,11 @@ func TestArticleCRUDRoutes(t *testing.T) {
 }
 
 func TestMaterialUploadRoutes(t *testing.T) {
-	router := testRouter()
+	store, router := testRouterWithStore()
+	_, err := store.Create(t.Context(), "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 1, Title: "first", Status: article.StatusDraft})
+	require.NoError(t, err)
+	_, err = store.Create(t.Context(), "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 1, Title: "second", Status: article.StatusDraft})
+	require.NoError(t, err)
 
 	inline := doMultipart(t, router, "/api/v1/materials/inline-images", "tenant-1")
 	require.Equal(t, http.StatusCreated, inline.Code)
@@ -338,8 +343,7 @@ func TestMaterialUploadRoutes(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, missingArticle.Code)
 
 	otherTenant := doJSON(t, router, http.MethodGet, "/api/v1/materials?article_id=2", ``, "tenant-2")
-	require.Equal(t, http.StatusOK, otherTenant.Code)
-	require.JSONEq(t, `{"items":[]}`, otherTenant.Body.String())
+	require.Equal(t, http.StatusNotFound, otherTenant.Code)
 
 	bad := doMultipart(t, router, "/api/v1/materials/covers", "")
 	require.Equal(t, http.StatusBadRequest, bad.Code)
@@ -416,7 +420,7 @@ func testRouterWithStore() (*memory.Store, http.Handler) {
 		Authorization: application.NewAuthorizationService(store, fixedRouteTime),
 		Accounts:      application.NewAccountService(store),
 		Articles:      application.NewArticleService(store),
-		Materials:     application.NewMaterialService(store, routeFakeUploader{}),
+		Materials:     application.NewMaterialService(store, store, routeFakeUploader{}),
 		Publishes:     application.NewPublishService(store, store, fixedRouteTime),
 		Dashboard: application.NewDashboardService(
 			application.NewAccountService(store),

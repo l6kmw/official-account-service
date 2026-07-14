@@ -7,12 +7,14 @@ import (
 	"io"
 	"strings"
 
+	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/material"
 )
 
 // MaterialService manages tenant-scoped article materials.
 type MaterialService struct {
 	materials      material.Repository
+	articles       article.Repository
 	uploader       material.Uploader
 	tokens         MaterialTokenProvider
 	componentAppID string
@@ -24,13 +26,13 @@ type MaterialTokenProvider interface {
 }
 
 // NewMaterialService constructs a MaterialService.
-func NewMaterialService(materials material.Repository, uploader material.Uploader) *MaterialService {
-	return &MaterialService{materials: materials, uploader: uploader}
+func NewMaterialService(materials material.Repository, articles article.Repository, uploader material.Uploader) *MaterialService {
+	return &MaterialService{materials: materials, articles: articles, uploader: uploader}
 }
 
 // NewMaterialServiceWithTokenProvider constructs a MaterialService with authorizer token lookup.
-func NewMaterialServiceWithTokenProvider(materials material.Repository, uploader material.Uploader, tokens MaterialTokenProvider, componentAppID string) *MaterialService {
-	return &MaterialService{materials: materials, uploader: uploader, tokens: tokens, componentAppID: componentAppID}
+func NewMaterialServiceWithTokenProvider(materials material.Repository, articles article.Repository, uploader material.Uploader, tokens MaterialTokenProvider, componentAppID string) *MaterialService {
+	return &MaterialService{materials: materials, articles: articles, uploader: uploader, tokens: tokens, componentAppID: componentAppID}
 }
 
 // UploadMaterialInput contains material upload metadata and content.
@@ -44,7 +46,7 @@ type UploadMaterialInput struct {
 
 // UploadInlineImage uploads an article body image and stores the returned WeChat URL.
 func (s *MaterialService) UploadInlineImage(ctx context.Context, input UploadMaterialInput) (material.Asset, error) {
-	if err := s.validateUploadInput(input); err != nil {
+	if err := s.validateUploadInput(ctx, input); err != nil {
 		return material.Asset{}, err
 	}
 	accessToken, err := s.accessTokenForUpload(ctx, input)
@@ -70,7 +72,7 @@ func (s *MaterialService) UploadInlineImage(ctx context.Context, input UploadMat
 
 // UploadCover uploads an article cover image and stores the returned WeChat media id.
 func (s *MaterialService) UploadCover(ctx context.Context, input UploadMaterialInput) (material.Asset, error) {
-	if err := s.validateUploadInput(input); err != nil {
+	if err := s.validateUploadInput(ctx, input); err != nil {
 		return material.Asset{}, err
 	}
 	accessToken, err := s.accessTokenForUpload(ctx, input)
@@ -111,6 +113,9 @@ func (s *MaterialService) ListMaterialsByArticle(ctx context.Context, tenantID s
 	if err := s.validateMaterialID(tenantID, articleID); err != nil {
 		return nil, err
 	}
+	if _, err := s.getOwnedArticle(ctx, tenantID, articleID); err != nil {
+		return nil, err
+	}
 	assets, err := s.materials.ListMaterialByArticle(ctx, tenantID, articleID)
 	if err != nil {
 		return nil, fmt.Errorf("list material by article: %w", err)
@@ -118,7 +123,7 @@ func (s *MaterialService) ListMaterialsByArticle(ctx context.Context, tenantID s
 	return assets, nil
 }
 
-func (s *MaterialService) validateUploadInput(input UploadMaterialInput) error {
+func (s *MaterialService) validateUploadInput(ctx context.Context, input UploadMaterialInput) error {
 	if err := s.validateReady(); err != nil {
 		return err
 	}
@@ -137,14 +142,32 @@ func (s *MaterialService) validateUploadInput(input UploadMaterialInput) error {
 	if input.Content == nil {
 		return fmt.Errorf("validate material content: %w", ErrInvalidInput)
 	}
+	draft, err := s.getOwnedArticle(ctx, input.TenantID, input.ArticleID)
+	if err != nil {
+		return err
+	}
+	if draft.AuthorizerID != input.AuthorizerID {
+		return fmt.Errorf("validate material article authorizer: %w", ErrInvalidInput)
+	}
 	return nil
 }
 
 func (s *MaterialService) validateReady() error {
-	if s == nil || s.materials == nil || s.uploader == nil {
+	if s == nil || s.materials == nil || s.articles == nil || s.uploader == nil {
 		return fmt.Errorf("validate material service dependencies: %w", ErrInvalidInput)
 	}
 	return nil
+}
+
+func (s *MaterialService) getOwnedArticle(ctx context.Context, tenantID string, articleID int64) (article.Article, error) {
+	draft, err := s.articles.Get(ctx, tenantID, articleID)
+	if errors.Is(err, article.ErrNotFound) {
+		return article.Article{}, fmt.Errorf("get material article: %w", ErrNotFound)
+	}
+	if err != nil {
+		return article.Article{}, fmt.Errorf("get material article: %w", err)
+	}
+	return draft, nil
 }
 
 func (s *MaterialService) accessTokenForUpload(ctx context.Context, input UploadMaterialInput) (string, error) {

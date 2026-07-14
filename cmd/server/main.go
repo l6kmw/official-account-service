@@ -312,15 +312,18 @@ func buildTaskQueueService(cfg config.Config) (*application.TaskQueueService, fu
 	return application.NewTaskQueueService(inspector), func() { _ = inspector.Close() }, nil
 }
 
-func buildMaterialService(cfg config.Config, materials domainmaterial.Repository, tokens *application.TokenService) (*application.MaterialService, error) {
+func buildMaterialService(cfg config.Config, store interface {
+	domainmaterial.Repository
+	domainarticle.Repository
+}, tokens *application.TokenService) (*application.MaterialService, error) {
 	if strings.TrimSpace(cfg.WeChatComponentAppID) == "" {
-		return application.NewMaterialService(materials, wechat.DisabledMaterialUploader{}), nil
+		return application.NewMaterialService(store, store, wechat.DisabledMaterialUploader{}), nil
 	}
 	uploader, err := wechat.NewMaterialUploader(wechat.MaterialUploaderConfig{BaseURL: cfg.WeChatAPIBaseURL})
 	if err != nil {
 		return nil, fmt.Errorf("init wechat material uploader: %w", err)
 	}
-	return application.NewMaterialServiceWithTokenProvider(materials, uploader, tokens, cfg.WeChatComponentAppID), nil
+	return application.NewMaterialServiceWithTokenProvider(store, store, uploader, tokens, cfg.WeChatComponentAppID), nil
 }
 
 func buildPublishService(cfg config.Config, store interface {

@@ -84,7 +84,7 @@ func newIntegrationWorkflowRouter() (stdhttp.Handler, *integrationUploader, *int
 		),
 		Accounts:  accounts,
 		Articles:  articles,
-		Materials: application.NewMaterialServiceWithTokenProvider(store, uploader, tokens, "wx-component"),
+		Materials: application.NewMaterialServiceWithTokenProvider(store, store, uploader, tokens, "wx-component"),
 		Publishes: publishes,
 		Tokens:    tokens,
 		Dashboard: application.NewDashboardService(accounts, articles, publishes),

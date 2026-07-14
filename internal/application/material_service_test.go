@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/infra/persistence/memory"
 )
@@ -17,21 +18,25 @@ import (
 func TestMaterialServiceUploadsInlineImageAndCoverSeparately(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC) })
-	service := NewMaterialService(store, &fakeUploader{})
+	_, err := store.Create(ctx, "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 1, Title: "first", Status: article.StatusDraft})
+	require.NoError(t, err)
+	draft, err := store.Create(ctx, "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 1, Title: "second", Status: article.StatusDraft})
+	require.NoError(t, err)
+	service := NewMaterialService(store, store, &fakeUploader{})
 
-	inline, err := service.UploadInlineImage(ctx, UploadMaterialInput{TenantID: "tenant-1", AuthorizerID: 1, ArticleID: 2, Filename: "body.png", Content: strings.NewReader("inline")})
+	inline, err := service.UploadInlineImage(ctx, UploadMaterialInput{TenantID: "tenant-1", AuthorizerID: 1, ArticleID: draft.ID, Filename: "body.png", Content: strings.NewReader("inline")})
 	require.NoError(t, err)
 	require.Equal(t, material.UsageInlineImage, inline.Usage)
 	require.Equal(t, "https://wechat.example/body.png", inline.WeChatURL)
 	require.Empty(t, inline.MediaID)
 
-	cover, err := service.UploadCover(ctx, UploadMaterialInput{TenantID: "tenant-1", AuthorizerID: 1, ArticleID: 2, Filename: "cover.png", Content: strings.NewReader("cover")})
+	cover, err := service.UploadCover(ctx, UploadMaterialInput{TenantID: "tenant-1", AuthorizerID: 1, ArticleID: draft.ID, Filename: "cover.png", Content: strings.NewReader("cover")})
 	require.NoError(t, err)
 	require.Equal(t, material.UsageCover, cover.Usage)
 	require.Equal(t, "media-cover", cover.MediaID)
 	require.Empty(t, cover.WeChatURL)
 
-	items, err := service.ListMaterialsByArticle(ctx, "tenant-1", 2)
+	items, err := service.ListMaterialsByArticle(ctx, "tenant-1", draft.ID)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 }
@@ -39,11 +44,13 @@ func TestMaterialServiceUploadsInlineImageAndCoverSeparately(t *testing.T) {
 func TestMaterialServiceUsesAuthorizerAccessToken(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(func() time.Time { return time.Date(2026, 7, 6, 16, 0, 0, 0, time.UTC) })
+	draft, err := store.Create(ctx, "tenant-1", article.Article{TenantID: "tenant-1", AuthorizerID: 7, Title: "draft", Status: article.StatusDraft})
+	require.NoError(t, err)
 	uploader := &fakeUploader{}
 	tokens := &fakeMaterialTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}
-	service := NewMaterialServiceWithTokenProvider(store, uploader, tokens, "wx-component")
+	service := NewMaterialServiceWithTokenProvider(store, store, uploader, tokens, "wx-component")
 
-	_, err := service.UploadInlineImage(ctx, UploadMaterialInput{TenantID: "tenant-1", AuthorizerID: 7, ArticleID: 2, Filename: "body.png", Content: strings.NewReader("inline")})
+	_, err = service.UploadInlineImage(ctx, UploadMaterialInput{TenantID: "tenant-1", AuthorizerID: 7, ArticleID: draft.ID, Filename: "body.png", Content: strings.NewReader("inline")})
 	require.NoError(t, err)
 
 	require.Equal(t, "authorizer-token", uploader.lastToken)
@@ -54,7 +61,8 @@ func TestMaterialServiceUsesAuthorizerAccessToken(t *testing.T) {
 
 func TestMaterialServiceValidatesUploadInput(t *testing.T) {
 	ctx := context.Background()
-	service := NewMaterialService(memory.NewStore(time.Now), &fakeUploader{})
+	store := memory.NewStore(time.Now)
+	service := NewMaterialService(store, store, &fakeUploader{})
 
 	_, err := service.UploadInlineImage(ctx, UploadMaterialInput{TenantID: "", AuthorizerID: 1, ArticleID: 2, Filename: "a.png", Content: strings.NewReader("x")})
 	require.Error(t, err)
@@ -65,6 +73,16 @@ func TestMaterialServiceValidatesUploadInput(t *testing.T) {
 	require.True(t, errors.Is(err, ErrInvalidInput))
 
 	_, err = service.UploadCover(ctx, UploadMaterialInput{TenantID: "tenant", AuthorizerID: 1, ArticleID: 2, Filename: "a.png"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+
+	_, err = service.UploadCover(ctx, UploadMaterialInput{TenantID: "tenant", AuthorizerID: 1, ArticleID: 99, Filename: "a.png", Content: strings.NewReader("x")})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrNotFound))
+
+	draft, err := store.Create(ctx, "tenant", article.Article{TenantID: "tenant", AuthorizerID: 7, Title: "draft", Status: article.StatusDraft})
+	require.NoError(t, err)
+	_, err = service.UploadCover(ctx, UploadMaterialInput{TenantID: "tenant", AuthorizerID: 8, ArticleID: draft.ID, Filename: "a.png", Content: strings.NewReader("x")})
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
