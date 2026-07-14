@@ -86,6 +86,39 @@ paths:
       summary: Get cached authorizer token status without token values
       parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}, {name: component_appid, in: query, required: true, schema: {type: string}}]
       responses: {"200": {description: Token status, content: {application/json: {schema: {$ref: "#/components/schemas/TokenStatus"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "404": {$ref: "#/components/responses/NotFound"}}
+  /api/v1/accounts/{id}/published-articles:
+    get:
+      tags: [Accounts]
+      summary: List live WeChat published articles
+      parameters:
+        - {$ref: "#/components/parameters/TenantID"}
+        - {$ref: "#/components/parameters/ID"}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: count, in: query, schema: {type: integer, minimum: 1, maximum: 20, default: 20}}
+        - {name: include_content, in: query, schema: {type: boolean, default: false}}
+        - {name: include_deleted, in: query, schema: {type: boolean, default: false}}
+      responses: {"200": {description: Live WeChat published article page, content: {application/json: {schema: {$ref: "#/components/schemas/PublishedArticleList"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+  /api/v1/accounts/{id}/article-metrics:
+    get:
+      tags: [Accounts]
+      summary: Get live WeChat metrics for articles published on one date
+      parameters:
+        - {$ref: "#/components/parameters/TenantID"}
+        - {$ref: "#/components/parameters/ID"}
+        - {name: date, in: query, required: true, schema: {type: string, format: date}}
+      responses: {"200": {description: Live WeChat article metrics, content: {application/json: {schema: {$ref: "#/components/schemas/ArticleMetricsResult"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+  /api/v1/accounts/{id}/article-comments:
+    get:
+      tags: [Accounts]
+      summary: List live WeChat article comments without user OpenIDs
+      parameters:
+        - {$ref: "#/components/parameters/TenantID"}
+        - {$ref: "#/components/parameters/ID"}
+        - {name: msgid, in: query, required: true, schema: {type: string, example: "2247490098_1"}}
+        - {name: begin, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: count, in: query, schema: {type: integer, minimum: 1, maximum: 49, default: 20}}
+        - {name: type, in: query, schema: {type: integer, enum: [0, 1, 2], default: 0}}
+      responses: {"200": {description: Live WeChat comment page, content: {application/json: {schema: {$ref: "#/components/schemas/ArticleCommentList"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/articles:
     get:
       tags: [Articles]
@@ -263,6 +296,29 @@ components:
     CreatePublishRecordRequest: {type: object, required: [article_id], properties: {article_id: {type: integer, format: int64, minimum: 1}, wechat_publish_id: {type: string}}}
     UpdatePublishStatusRequest: {type: object, required: [status], properties: {status: {type: string, enum: [publishing, published, failed]}, wechat_article_id: {type: string}, error_code: {type: string}, error_message: {type: string}}}
     TokenStatus: {type: object, description: Does not expose access token or refresh token values., properties: {account_id: {type: integer, format: int64}, cache_hit: {type: boolean}, expires_at: {type: string, format: date-time}}}
+    PublishedArticleList:
+      type: object
+      required: [total_message_count, fetched_message_count, returned_article_count, next_offset, has_more, items]
+      properties: {total_message_count: {type: integer}, fetched_message_count: {type: integer}, returned_article_count: {type: integer}, next_offset: {type: integer}, has_more: {type: boolean}, items: {type: array, items: {$ref: "#/components/schemas/PublishedArticle"}}}
+    PublishedArticle:
+      type: object
+      required: [article_id, index, title, deleted]
+      properties: {article_id: {type: string}, index: {type: integer, minimum: 0}, update_time: {type: integer, format: int64}, title: {type: string}, author: {type: string}, digest: {type: string}, content_html: {type: string}, content_source_url: {type: string}, thumb_media_id: {type: string}, thumb_url: {type: string}, url: {type: string}, need_open_comment: {type: boolean}, only_fans_can_comment: {type: boolean}, deleted: {type: boolean}}
+    ArticleMetricsResult:
+      type: object
+      required: [date, delayed, items]
+      properties: {date: {type: string, format: date}, delayed: {type: boolean}, items: {type: array, items: {$ref: "#/components/schemas/ArticleMetrics"}}}
+    ArticleMetrics:
+      type: object
+      properties: {ref_date: {type: string, format: date}, msgid: {type: string}, publish_type: {type: integer}, title: {type: string}, content_url: {type: string}, detail_list: {type: array, items: {type: object, additionalProperties: true}}}
+    ArticleCommentList:
+      type: object
+      description: Comment identities do not contain user OpenIDs.
+      required: [msgid, msg_data_id, article_index, total, returned_count, next_begin, has_more, items]
+      properties: {msgid: {type: string}, msg_data_id: {type: integer, format: int64}, article_index: {type: integer, minimum: 0}, total: {type: integer}, returned_count: {type: integer}, next_begin: {type: integer}, has_more: {type: boolean}, items: {type: array, items: {$ref: "#/components/schemas/ArticleComment"}}}
+    ArticleComment:
+      type: object
+      properties: {user_comment_id: {type: integer, format: int64}, create_time: {type: integer, format: int64}, content: {type: string}, selected: {type: boolean}, reply: {type: object, properties: {content: {type: string}, create_time: {type: integer, format: int64}}}}
     DashboardStats: {type: object, additionalProperties: {type: integer}}
     ArchivedTask:
       type: object
