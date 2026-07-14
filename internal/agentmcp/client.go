@@ -116,6 +116,32 @@ type Article struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+type PublishedArticle struct {
+	ArticleID          string `json:"article_id"`
+	Index              int    `json:"index"`
+	UpdateTime         int64  `json:"update_time"`
+	Title              string `json:"title"`
+	Author             string `json:"author"`
+	Digest             string `json:"digest"`
+	ContentHTML        string `json:"content_html,omitempty"`
+	ContentSourceURL   string `json:"content_source_url"`
+	ThumbMediaID       string `json:"thumb_media_id"`
+	ThumbURL           string `json:"thumb_url"`
+	URL                string `json:"url"`
+	NeedOpenComment    bool   `json:"need_open_comment"`
+	OnlyFansCanComment bool   `json:"only_fans_can_comment"`
+	Deleted            bool   `json:"deleted"`
+}
+
+type PublishedArticleList struct {
+	TotalMessageCount    int                `json:"total_message_count"`
+	FetchedMessageCount  int                `json:"fetched_message_count"`
+	ReturnedArticleCount int                `json:"returned_article_count"`
+	NextOffset           int                `json:"next_offset"`
+	HasMore              bool               `json:"has_more"`
+	Items                []PublishedArticle `json:"items"`
+}
+
 type MaterialAsset struct {
 	ID           int64     `json:"id"`
 	TenantID     string    `json:"tenant_id"`
@@ -200,6 +226,21 @@ func (c *Client) ListArticles(ctx context.Context) ([]Article, error) {
 		return nil, err
 	}
 	return out.Items, nil
+}
+
+// ListPublishedArticles returns a live page from the authorized WeChat account.
+func (c *Client) ListPublishedArticles(ctx context.Context, authorizerID int64, offset, count int, includeContent, includeDeleted bool) (PublishedArticleList, error) {
+	query := url.Values{}
+	query.Set("offset", fmt.Sprintf("%d", offset))
+	query.Set("count", fmt.Sprintf("%d", count))
+	query.Set("include_content", fmt.Sprintf("%t", includeContent))
+	query.Set("include_deleted", fmt.Sprintf("%t", includeDeleted))
+	var out PublishedArticleList
+	path := fmt.Sprintf("/api/v1/accounts/%d/published-articles?%s", authorizerID, query.Encode())
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
+		return PublishedArticleList{}, err
+	}
+	return out, nil
 }
 
 // GetArticle returns one tenant-scoped article.

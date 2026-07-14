@@ -122,6 +122,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 
 - `official_account_list_accounts`
 - `official_account_list_articles`
+- `official_account_list_published_articles`
 - `official_account_create_article`
 - `official_account_update_article`
 - `official_account_upload_image`
@@ -139,6 +140,8 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_delete_article` 只删除本地 `draft` / `failed` 文章，必须传 `confirm_delete="DELETE"`；`publishing` / `published` 文章会拒绝删除。
 - `official_account_delete_published_record` 必须传 `confirm_delete="DELETE"`。
 - 所有工具都复用现有后台 API，不返回 token、secret、refresh token。
+
+`official_account_list_articles` 读取本地草稿和文章；`official_account_list_published_articles` 每次直接读取微信侧已发布列表，也会包含不经过本服务发布的历史文章。后者按微信消息使用 `offset` / `count` 分页，单条多图文消息可能展开成多个文章条目。
 
 ## 线上 Agent 图片上传
 

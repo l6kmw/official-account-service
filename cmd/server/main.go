@@ -81,6 +81,11 @@ func main() {
 	deps.AdminSessionSecret = cfg.AdminSessionSecret
 	deps.MCPToken = cfg.MCPToken
 	deps.MCPPath = cfg.MCPPath
+	officialContentService, err := buildOfficialContentService(cfg, tokenService)
+	if err != nil {
+		logger.Fatal("init official content service", logging.Error(err))
+	}
+	deps.OfficialContent = officialContentService
 	router := httpapi.NewRouter(deps)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}
 
@@ -339,6 +344,17 @@ func buildPublishService(cfg config.Config, store interface {
 		return nil, fmt.Errorf("init wechat publisher: %w", err)
 	}
 	return application.NewPublishServiceWithPublisherAndStatusSync(store, store, store, publisher, tokens, cfg.WeChatComponentAppID, statusSync, time.Now), nil
+}
+
+func buildOfficialContentService(cfg config.Config, tokens *application.TokenService) (*application.OfficialContentService, error) {
+	if strings.TrimSpace(cfg.WeChatComponentAppID) == "" {
+		return application.NewOfficialContentService(nil, tokens, ""), nil
+	}
+	reader, err := wechat.NewPublisher(wechat.PublisherConfig{BaseURL: cfg.WeChatAPIBaseURL})
+	if err != nil {
+		return nil, fmt.Errorf("init wechat official content reader: %w", err)
+	}
+	return application.NewOfficialContentService(reader, tokens, cfg.WeChatComponentAppID), nil
 }
 
 func buildCallbackService(cfg config.Config, store interface {

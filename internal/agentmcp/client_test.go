@@ -38,6 +38,25 @@ func TestClientCreatesArticleWithTenantAndAdminHeaders(t *testing.T) {
 	require.Equal(t, "draft", article.Status)
 }
 
+func TestClientListsLivePublishedArticles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/accounts/7/published-articles", r.URL.Path)
+		require.Equal(t, "2", r.URL.Query().Get("offset"))
+		require.Equal(t, "10", r.URL.Query().Get("count"))
+		require.Equal(t, "true", r.URL.Query().Get("include_content"))
+		require.Equal(t, "false", r.URL.Query().Get("include_deleted"))
+		_, _ = w.Write([]byte(`{"total_message_count":3,"fetched_message_count":1,"returned_article_count":1,"next_offset":3,"has_more":false,"items":[{"article_id":"wx-1","title":"live"}]}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	result, err := client.ListPublishedArticles(context.Background(), 7, 2, 10, true, false)
+	require.NoError(t, err)
+	require.Equal(t, "wx-1", result.Items[0].ArticleID)
+	require.Equal(t, 3, result.NextOffset)
+}
+
 func TestClientDeletesDraftArticle(t *testing.T) {
 	var deleted bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -395,6 +395,7 @@ Header value: <MCP_TOKEN>
 
 - `official_account_list_accounts`
 - `official_account_get_authorization_entry`
+- `official_account_list_published_articles`
 - `official_account_create_article`
 - `official_account_update_article`
 - `official_account_upload_image`
@@ -408,6 +409,8 @@ Header value: <MCP_TOKEN>
 
 - `official_account_delete_article`：完整删除文章。后端会先删除所有已发布的微信内容，再删除本地文章和素材；发布记录会保留为 `deleted` 供审计。
 - `official_account_delete_published_record`：只下线指定发布记录对应的微信内容，本地文章继续保留。
+
+查看公众号当前全部已发布文章时，使用 `official_account_list_published_articles`。它每次直接查询微信，不依赖本地文章或发布记录，因此也能看到在微信后台或其他工具发布的历史文章。`offset` / `count` 按微信消息分页，`count` 最大为 20；默认不返回正文 HTML 和已删除条目。
 
 上传图片时，`file_path`、`content_base64`、`image_url` 必须三选一。线上 Agent 应把用户附件的临时公网 HTTPS 下载地址传给 `image_url`；服务端最多下载 8 MiB，并拒绝私网地址、危险重定向和非图片内容。
 

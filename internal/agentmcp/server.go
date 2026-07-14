@@ -53,6 +53,22 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_list_published_articles",
+		Title:       "List live WeChat published articles",
+		Description: "Read the current published article list directly from WeChat, including articles published outside this service. Required: authorizer_id. Pagination offset/count applies to WeChat messages; one message may contain multiple returned articles. count must be 1-20. Body HTML and deleted entries are omitted by default.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listPublishedArticlesToolInput) (*mcp.CallToolResult, any, error) {
+		count := input.Count
+		if count == 0 {
+			count = 20
+		}
+		result, err := client.ListPublishedArticles(ctx, input.AuthorizerID, input.Offset, count, input.IncludeContent, input.IncludeDeleted)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_create_article",
 		Title:       "Create article",
 		Description: "Create a local article draft. Required: authorizer_id and title. Optional: author, digest, and content_html. Publishing to WeChat is a separate explicit tool call and additionally requires non-empty content_html plus an uploaded cover bound through cover_media_asset_id.",
@@ -210,6 +226,14 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 type listAccountsInput struct{}
 
 type listArticlesInput struct{}
+
+type listPublishedArticlesToolInput struct {
+	AuthorizerID   int64 `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
+	Offset         int   `json:"offset,omitempty" jsonschema:"WeChat message offset. Defaults to 0."`
+	Count          int   `json:"count,omitempty" jsonschema:"Number of WeChat messages to fetch, 1-20. Defaults to 20."`
+	IncludeContent bool  `json:"include_content,omitempty" jsonschema:"Include full article HTML. Defaults to false to keep responses small."`
+	IncludeDeleted bool  `json:"include_deleted,omitempty" jsonschema:"Include entries marked deleted by WeChat. Defaults to false."`
+}
 
 type listPublishRecordsInput struct{}
 

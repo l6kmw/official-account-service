@@ -46,6 +46,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.Contains(t, toolsByName, "official_account_list_accounts")
 	require.Contains(t, toolsByName, "official_account_publish_article")
 	require.Contains(t, toolsByName, "official_account_delete_article")
+	require.Contains(t, toolsByName, "official_account_list_published_articles")
 	require.Contains(t, toolsByName, "official_account_get_authorization_entry")
 	require.ElementsMatch(t, []string{"authorizer_id", "title"}, requiredToolFields(t, toolsByName["official_account_create_article"]))
 	require.ElementsMatch(t, []string{"article_id", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_article"]))
