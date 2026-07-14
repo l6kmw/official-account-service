@@ -129,3 +129,10 @@ type ArticleCommentList struct {
 type CommentReader interface {
 	ListArticleComments(ctx context.Context, accessToken string, msgDataID int64, articleIndex, begin, count, commentType int) (ArticleCommentBatch, error)
 }
+
+// ContentReader provides every live official-account content capability.
+type ContentReader interface {
+	Reader
+	MetricsReader
+	CommentReader
+}

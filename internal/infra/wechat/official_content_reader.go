@@ -10,6 +10,8 @@ import (
 
 const maxOfficialContentResponseBytes int64 = 8 << 20
 
+var _ officialcontent.ContentReader = (*Publisher)(nil)
+
 // ListPublishedArticles reads one live page from WeChat freepublish/batchget.
 func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken string, offset, count int, includeContent bool) (officialcontent.PublishedArticleBatch, error) {
 	var response freePublishBatchGetResponse

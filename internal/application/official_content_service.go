@@ -14,20 +14,16 @@ const defaultPublishedArticlePageSize = 20
 
 // OfficialContentService reads live content owned by an authorized account.
 type OfficialContentService struct {
-	reader         officialcontent.Reader
-	metricsReader  officialcontent.MetricsReader
-	commentReader  officialcontent.CommentReader
+	reader         officialcontent.ContentReader
 	tokens         PublishTokenProvider
 	componentAppID string
 	now            func() time.Time
 }
 
 // NewOfficialContentService constructs an OfficialContentService.
-func NewOfficialContentService(reader officialcontent.Reader, tokens PublishTokenProvider, componentAppID string) *OfficialContentService {
-	metricsReader, _ := reader.(officialcontent.MetricsReader)
-	commentReader, _ := reader.(officialcontent.CommentReader)
+func NewOfficialContentService(reader officialcontent.ContentReader, tokens PublishTokenProvider, componentAppID string) *OfficialContentService {
 	return &OfficialContentService{
-		reader: reader, metricsReader: metricsReader, commentReader: commentReader, tokens: tokens,
+		reader: reader, tokens: tokens,
 		componentAppID: strings.TrimSpace(componentAppID), now: time.Now,
 	}
 }
@@ -49,7 +45,7 @@ func (s *OfficialContentService) ListArticleComments(ctx context.Context, input 
 	if err != nil || strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 || input.Begin < 0 || input.Count < 0 || input.Count >= 50 || input.Type < 0 || input.Type > 2 {
 		return officialcontent.ArticleCommentList{}, fmt.Errorf("validate article comments input: %w", ErrInvalidInput)
 	}
-	if s == nil || s.commentReader == nil || s.tokens == nil || s.componentAppID == "" {
+	if s == nil || s.reader == nil || s.tokens == nil || s.componentAppID == "" {
 		return officialcontent.ArticleCommentList{}, fmt.Errorf("read article comments: %w", ErrNotImplemented)
 	}
 	count := input.Count
@@ -62,7 +58,7 @@ func (s *OfficialContentService) ListArticleComments(ctx context.Context, input 
 	if err != nil {
 		return officialcontent.ArticleCommentList{}, fmt.Errorf("get authorizer access token for article comments: %w", err)
 	}
-	batch, err := s.commentReader.ListArticleComments(ctx, token.AccessToken, msgDataID, articleIndex, input.Begin, count, input.Type)
+	batch, err := s.reader.ListArticleComments(ctx, token.AccessToken, msgDataID, articleIndex, input.Begin, count, input.Type)
 	if err != nil {
 		return officialcontent.ArticleCommentList{}, wrapPublisherError("list wechat article comments", err)
 	}
@@ -128,7 +124,7 @@ func (s *OfficialContentService) GetArticleMetrics(ctx context.Context, input Ge
 	if date.Before(minimumDate) || !date.Before(today) {
 		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("validate article metrics date: %w", ErrInvalidInput)
 	}
-	if s == nil || s.metricsReader == nil || s.tokens == nil || s.componentAppID == "" {
+	if s == nil || s.reader == nil || s.tokens == nil || s.componentAppID == "" {
 		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("read article metrics: %w", ErrNotImplemented)
 	}
 	token, err := s.tokens.GetAuthorizerAccessToken(ctx, RefreshAuthorizerAccessTokenInput{
@@ -137,7 +133,7 @@ func (s *OfficialContentService) GetArticleMetrics(ctx context.Context, input Ge
 	if err != nil {
 		return officialcontent.ArticleMetricsResult{}, fmt.Errorf("get authorizer access token for article metrics: %w", err)
 	}
-	result, err := s.metricsReader.GetArticleMetrics(ctx, token.AccessToken, dateString)
+	result, err := s.reader.GetArticleMetrics(ctx, token.AccessToken, dateString)
 	if err != nil {
 		return officialcontent.ArticleMetricsResult{}, wrapPublisherError("get wechat article metrics", err)
 	}
