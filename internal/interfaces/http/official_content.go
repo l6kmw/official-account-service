@@ -61,6 +61,36 @@ func registerOfficialContentRoutes(r gin.IRouter, service *application.OfficialC
 		}
 		c.JSON(http.StatusOK, result)
 	})
+	r.GET("/accounts/:id/article-comments", func(c *gin.Context) {
+		if service == nil {
+			writeServiceError(c, application.ErrNotImplemented)
+			return
+		}
+		tenant, id, ok := bindTenantAndID(c)
+		if !ok {
+			return
+		}
+		begin, ok := bindOptionalIntQuery(c, "begin", 0)
+		if !ok {
+			return
+		}
+		count, ok := bindOptionalIntQuery(c, "count", 20)
+		if !ok {
+			return
+		}
+		commentType, ok := bindOptionalIntQuery(c, "type", 0)
+		if !ok {
+			return
+		}
+		result, err := service.ListArticleComments(c.Request.Context(), application.ListArticleCommentsInput{
+			TenantID: tenant, AuthorizerID: id, MsgID: c.Query("msgid"),
+			Begin: begin, Count: count, Type: commentType,
+		})
+		if !writeServiceError(c, err) {
+			return
+		}
+		c.JSON(http.StatusOK, result)
+	})
 }
 
 func bindOptionalIntQuery(c *gin.Context, name string, fallback int) (int, bool) {

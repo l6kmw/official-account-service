@@ -207,6 +207,36 @@ func TestPublisherGetsArticleMetrics(t *testing.T) {
 	require.Equal(t, "公众号消息", result.Items[0].Details[0].ReadUserSources[0].SceneDesc)
 }
 
+func TestPublisherListsCommentsWithoutExposingOpenID(t *testing.T) {
+	var body articleCommentsRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/cgi-bin/comment/list", r.URL.Path)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, err := w.Write([]byte(`{
+			"errcode":0,"errmsg":"ok","total":2,"comment":[{
+				"user_comment_id":99,"openid":"sensitive-openid","create_time":1784000000,
+				"content":"useful","comment_type":1,"reply":{"content":"thanks","create_time":1784000100}
+			}]
+		}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	result, err := publisher.ListArticleComments(context.Background(), "authorizer-token", 2247490098, 1, 0, 20, 2)
+	require.NoError(t, err)
+
+	require.Equal(t, articleCommentsRequest{MsgDataID: 2247490098, Index: 1, Begin: 0, Count: 20, Type: 2}, body)
+	require.Equal(t, 2, result.Total)
+	require.True(t, result.Items[0].Selected)
+	require.Equal(t, "thanks", result.Items[0].Reply.Content)
+	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "sensitive-openid")
+	require.NotContains(t, string(raw), "openid")
+}
+
 func TestPublisherHandlesWeChatErrCodeWithoutLeakingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := w.Write([]byte(`{"errcode":40001,"errmsg":"invalid credential"}`))

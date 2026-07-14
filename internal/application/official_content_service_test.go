@@ -82,21 +82,62 @@ func TestOfficialContentServiceRejectsTodayMetrics(t *testing.T) {
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
+func TestOfficialContentServiceListsArticleCommentsAndConvertsIndex(t *testing.T) {
+	reader := &fakeOfficialContentReader{comments: officialcontent.ArticleCommentBatch{
+		Total: 3, Items: []officialcontent.ArticleComment{{UserCommentID: 1, Content: "hello"}},
+	}}
+	tokens := &fakeOfficialContentTokenProvider{token: AuthorizerAccessToken{AccessToken: "secret-token"}}
+	service := NewOfficialContentService(reader, tokens, "wx-component")
+
+	result, err := service.ListArticleComments(context.Background(), ListArticleCommentsInput{
+		TenantID: "tenant-1", AuthorizerID: 7, MsgID: "2247490098_2", Begin: 1, Count: 10, Type: 2,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(2247490098), reader.commentsMsgDataID)
+	require.Equal(t, 1, reader.commentsIndex)
+	require.Equal(t, 2, reader.commentsType)
+	require.Equal(t, 2, result.NextBegin)
+	require.True(t, result.HasMore)
+}
+
+func TestOfficialContentServiceRejectsInvalidCommentMsgID(t *testing.T) {
+	service := NewOfficialContentService(&fakeOfficialContentReader{}, &fakeOfficialContentTokenProvider{}, "wx-component")
+
+	_, err := service.ListArticleComments(context.Background(), ListArticleCommentsInput{
+		TenantID: "tenant-1", AuthorizerID: 1, MsgID: "not-a-msgid", Count: 20,
+	})
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidInput))
+}
+
 type fakeOfficialContentReader struct {
 	batch              officialcontent.PublishedArticleBatch
 	metrics            officialcontent.ArticleMetricsResult
+	comments           officialcontent.ArticleCommentBatch
 	accessToken        string
 	offset             int
 	count              int
 	includeContent     bool
 	metricsAccessToken string
 	metricsDate        string
+	commentsMsgDataID  int64
+	commentsIndex      int
+	commentsType       int
 }
 
 func (f *fakeOfficialContentReader) GetArticleMetrics(_ context.Context, accessToken, date string) (officialcontent.ArticleMetricsResult, error) {
 	f.metricsAccessToken = accessToken
 	f.metricsDate = date
 	return f.metrics, nil
+}
+
+func (f *fakeOfficialContentReader) ListArticleComments(_ context.Context, _ string, msgDataID int64, articleIndex, _, _, commentType int) (officialcontent.ArticleCommentBatch, error) {
+	f.commentsMsgDataID = msgDataID
+	f.commentsIndex = articleIndex
+	f.commentsType = commentType
+	return f.comments, nil
 }
 
 func (f *fakeOfficialContentReader) ListPublishedArticles(_ context.Context, accessToken string, offset, count int, includeContent bool) (officialcontent.PublishedArticleBatch, error) {

@@ -42,13 +42,32 @@ func TestArticleMetricsRouteReturnsLiveWechatData(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"msgid":"100_1"`)
 }
 
+func TestArticleCommentsRouteReturnsDataWithoutOpenID(t *testing.T) {
+	reader := routeFakeOfficialContentReader{comments: officialcontent.ArticleCommentBatch{
+		Total: 1, Items: []officialcontent.ArticleComment{{UserCommentID: 10, Content: "hello"}},
+	}}
+	service := application.NewOfficialContentService(reader, routeFakeOfficialContentTokenProvider{}, "wx-component")
+	router := NewRouter(Dependencies{Logger: zap.NewNop(), OfficialContent: service})
+
+	recorder := doJSON(t, router, http.MethodGet, "/api/v1/accounts/7/article-comments?msgid=100_1&count=20&type=0", ``, "tenant-1")
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"content":"hello"`)
+	require.NotContains(t, recorder.Body.String(), "openid")
+}
+
 type routeFakeOfficialContentReader struct {
-	batch   officialcontent.PublishedArticleBatch
-	metrics officialcontent.ArticleMetricsResult
+	batch    officialcontent.PublishedArticleBatch
+	metrics  officialcontent.ArticleMetricsResult
+	comments officialcontent.ArticleCommentBatch
 }
 
 func (f routeFakeOfficialContentReader) GetArticleMetrics(context.Context, string, string) (officialcontent.ArticleMetricsResult, error) {
 	return f.metrics, nil
+}
+
+func (f routeFakeOfficialContentReader) ListArticleComments(context.Context, string, int64, int, int, int, int) (officialcontent.ArticleCommentBatch, error) {
+	return f.comments, nil
 }
 
 func (f routeFakeOfficialContentReader) ListPublishedArticles(context.Context, string, int, int, bool) (officialcontent.PublishedArticleBatch, error) {

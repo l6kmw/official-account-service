@@ -184,6 +184,30 @@ type ReadJumpPosition struct {
 	Rate     float64 `json:"rate"`
 }
 
+type ArticleCommentList struct {
+	MsgID         string           `json:"msgid"`
+	MsgDataID     int64            `json:"msg_data_id"`
+	ArticleIndex  int              `json:"article_index"`
+	Total         int              `json:"total"`
+	ReturnedCount int              `json:"returned_count"`
+	NextBegin     int              `json:"next_begin"`
+	HasMore       bool             `json:"has_more"`
+	Items         []ArticleComment `json:"items"`
+}
+
+type ArticleComment struct {
+	UserCommentID int64         `json:"user_comment_id"`
+	CreateTime    int64         `json:"create_time"`
+	Content       string        `json:"content"`
+	Selected      bool          `json:"selected"`
+	Reply         *CommentReply `json:"reply,omitempty"`
+}
+
+type CommentReply struct {
+	Content    string `json:"content"`
+	CreateTime int64  `json:"create_time"`
+}
+
 type MaterialAsset struct {
 	ID           int64     `json:"id"`
 	TenantID     string    `json:"tenant_id"`
@@ -293,6 +317,21 @@ func (c *Client) GetArticleMetrics(ctx context.Context, authorizerID int64, date
 	path := fmt.Sprintf("/api/v1/accounts/%d/article-metrics?%s", authorizerID, query.Encode())
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
 		return ArticleMetricsResult{}, err
+	}
+	return out, nil
+}
+
+// ListArticleComments returns live WeChat comments without user OpenIDs.
+func (c *Client) ListArticleComments(ctx context.Context, authorizerID int64, msgID string, begin, count, commentType int) (ArticleCommentList, error) {
+	query := url.Values{}
+	query.Set("msgid", msgID)
+	query.Set("begin", fmt.Sprintf("%d", begin))
+	query.Set("count", fmt.Sprintf("%d", count))
+	query.Set("type", fmt.Sprintf("%d", commentType))
+	var out ArticleCommentList
+	path := fmt.Sprintf("/api/v1/accounts/%d/article-comments?%s", authorizerID, query.Encode())
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
+		return ArticleCommentList{}, err
 	}
 	return out, nil
 }

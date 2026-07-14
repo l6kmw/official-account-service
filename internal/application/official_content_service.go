@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ const defaultPublishedArticlePageSize = 20
 type OfficialContentService struct {
 	reader         officialcontent.Reader
 	metricsReader  officialcontent.MetricsReader
+	commentReader  officialcontent.CommentReader
 	tokens         PublishTokenProvider
 	componentAppID string
 	now            func() time.Time
@@ -23,10 +25,69 @@ type OfficialContentService struct {
 // NewOfficialContentService constructs an OfficialContentService.
 func NewOfficialContentService(reader officialcontent.Reader, tokens PublishTokenProvider, componentAppID string) *OfficialContentService {
 	metricsReader, _ := reader.(officialcontent.MetricsReader)
+	commentReader, _ := reader.(officialcontent.CommentReader)
 	return &OfficialContentService{
-		reader: reader, metricsReader: metricsReader, tokens: tokens,
+		reader: reader, metricsReader: metricsReader, commentReader: commentReader, tokens: tokens,
 		componentAppID: strings.TrimSpace(componentAppID), now: time.Now,
 	}
+}
+
+// ListArticleCommentsInput selects one WeChat article comment page.
+type ListArticleCommentsInput struct {
+	TenantID     string
+	AuthorizerID int64
+	MsgID        string
+	Begin        int
+	Count        int
+	Type         int
+}
+
+// ListArticleComments reads current WeChat comments without returning OpenIDs.
+func (s *OfficialContentService) ListArticleComments(ctx context.Context, input ListArticleCommentsInput) (officialcontent.ArticleCommentList, error) {
+	msgID := strings.TrimSpace(input.MsgID)
+	msgDataID, articleIndex, err := parseMetricsMsgID(msgID)
+	if err != nil || strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 || input.Begin < 0 || input.Count < 0 || input.Count >= 50 || input.Type < 0 || input.Type > 2 {
+		return officialcontent.ArticleCommentList{}, fmt.Errorf("validate article comments input: %w", ErrInvalidInput)
+	}
+	if s == nil || s.commentReader == nil || s.tokens == nil || s.componentAppID == "" {
+		return officialcontent.ArticleCommentList{}, fmt.Errorf("read article comments: %w", ErrNotImplemented)
+	}
+	count := input.Count
+	if count == 0 {
+		count = 20
+	}
+	token, err := s.tokens.GetAuthorizerAccessToken(ctx, RefreshAuthorizerAccessTokenInput{
+		TenantID: input.TenantID, AccountID: input.AuthorizerID, ComponentAppID: s.componentAppID,
+	})
+	if err != nil {
+		return officialcontent.ArticleCommentList{}, fmt.Errorf("get authorizer access token for article comments: %w", err)
+	}
+	batch, err := s.commentReader.ListArticleComments(ctx, token.AccessToken, msgDataID, articleIndex, input.Begin, count, input.Type)
+	if err != nil {
+		return officialcontent.ArticleCommentList{}, wrapPublisherError("list wechat article comments", err)
+	}
+	nextBegin := input.Begin + len(batch.Items)
+	return officialcontent.ArticleCommentList{
+		MsgID: msgID, MsgDataID: msgDataID, ArticleIndex: articleIndex,
+		Total: batch.Total, ReturnedCount: len(batch.Items), NextBegin: nextBegin,
+		HasMore: nextBegin < batch.Total, Items: batch.Items,
+	}, nil
+}
+
+func parseMetricsMsgID(msgID string) (int64, int, error) {
+	separator := strings.LastIndex(msgID, "_")
+	if separator <= 0 || separator == len(msgID)-1 {
+		return 0, 0, ErrInvalidInput
+	}
+	msgDataID, err := strconv.ParseInt(msgID[:separator], 10, 64)
+	if err != nil || msgDataID <= 0 {
+		return 0, 0, ErrInvalidInput
+	}
+	ordinal, err := strconv.Atoi(msgID[separator+1:])
+	if err != nil || ordinal <= 0 {
+		return 0, 0, ErrInvalidInput
+	}
+	return msgDataID, ordinal - 1, nil
 }
 
 // ListPublishedArticlesInput selects one WeChat-side published-message page.

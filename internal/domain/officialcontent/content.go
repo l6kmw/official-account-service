@@ -91,3 +91,40 @@ type ArticleMetricsResult struct {
 type MetricsReader interface {
 	GetArticleMetrics(ctx context.Context, accessToken, date string) (ArticleMetricsResult, error)
 }
+
+// ArticleComment is a WeChat article comment without user OpenID.
+type ArticleComment struct {
+	UserCommentID int64         `json:"user_comment_id"`
+	CreateTime    int64         `json:"create_time"`
+	Content       string        `json:"content"`
+	Selected      bool          `json:"selected"`
+	Reply         *CommentReply `json:"reply,omitempty"`
+}
+
+type CommentReply struct {
+	Content    string `json:"content"`
+	CreateTime int64  `json:"create_time"`
+}
+
+// ArticleCommentBatch is one raw WeChat comment page.
+type ArticleCommentBatch struct {
+	Total int              `json:"total"`
+	Items []ArticleComment `json:"items"`
+}
+
+// ArticleCommentList adds safe pagination and article identity metadata.
+type ArticleCommentList struct {
+	MsgID         string           `json:"msgid"`
+	MsgDataID     int64            `json:"msg_data_id"`
+	ArticleIndex  int              `json:"article_index"`
+	Total         int              `json:"total"`
+	ReturnedCount int              `json:"returned_count"`
+	NextBegin     int              `json:"next_begin"`
+	HasMore       bool             `json:"has_more"`
+	Items         []ArticleComment `json:"items"`
+}
+
+// CommentReader reads live article comments from WeChat.
+type CommentReader interface {
+	ListArticleComments(ctx context.Context, accessToken string, msgDataID int64, articleIndex, begin, count, commentType int) (ArticleCommentBatch, error)
+}

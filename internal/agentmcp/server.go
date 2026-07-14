@@ -81,6 +81,22 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_list_article_comments",
+		Title:       "List WeChat article comments",
+		Description: "List live comments for one published WeChat article. Required: authorizer_id and msgid returned by official_account_get_article_metrics. Optional begin, count (1-49, default 20), and type (0 all, 1 ordinary, 2 selected). User OpenIDs are never returned.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listArticleCommentsToolInput) (*mcp.CallToolResult, any, error) {
+		count := input.Count
+		if count == 0 {
+			count = 20
+		}
+		result, err := client.ListArticleComments(ctx, input.AuthorizerID, input.MsgID, input.Begin, count, input.Type)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_create_article",
 		Title:       "Create article",
 		Description: "Create a local article draft. Required: authorizer_id and title. Optional: author, digest, and content_html. Publishing to WeChat is a separate explicit tool call and additionally requires non-empty content_html plus an uploaded cover bound through cover_media_asset_id.",
@@ -250,6 +266,14 @@ type listPublishedArticlesToolInput struct {
 type getArticleMetricsToolInput struct {
 	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
 	Date         string `json:"date" jsonschema:"Required. Article publication date in YYYY-MM-DD format. Must be between 2025-11-01 and yesterday."`
+}
+
+type listArticleCommentsToolInput struct {
+	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
+	MsgID        string `json:"msgid" jsonschema:"Required. Article msgid returned by official_account_get_article_metrics, for example 2247490098_1."`
+	Begin        int    `json:"begin,omitempty" jsonschema:"Comment offset. Defaults to 0."`
+	Count        int    `json:"count,omitempty" jsonschema:"Number of comments to fetch, 1-49. Defaults to 20."`
+	Type         int    `json:"type,omitempty" jsonschema:"Comment filter: 0 all, 1 ordinary, 2 selected. Defaults to 0."`
 }
 
 type listPublishRecordsInput struct{}

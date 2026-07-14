@@ -73,6 +73,25 @@ func TestClientGetsArticleMetrics(t *testing.T) {
 	require.Equal(t, int64(5), result.Items[0].Details[0].LikeUser)
 }
 
+func TestClientListsArticleComments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/accounts/7/article-comments", r.URL.Path)
+		require.Equal(t, "100_2", r.URL.Query().Get("msgid"))
+		require.Equal(t, "1", r.URL.Query().Get("begin"))
+		require.Equal(t, "10", r.URL.Query().Get("count"))
+		require.Equal(t, "2", r.URL.Query().Get("type"))
+		_, _ = w.Write([]byte(`{"msgid":"100_2","msg_data_id":100,"article_index":1,"total":1,"returned_count":1,"next_begin":2,"has_more":false,"items":[{"user_comment_id":9,"content":"hello","selected":true}]}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	result, err := client.ListArticleComments(context.Background(), 7, "100_2", 1, 10, 2)
+	require.NoError(t, err)
+	require.Equal(t, "hello", result.Items[0].Content)
+	require.True(t, result.Items[0].Selected)
+}
+
 func TestClientDeletesDraftArticle(t *testing.T) {
 	var deleted bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -48,6 +48,28 @@ func (p *Publisher) GetArticleMetrics(ctx context.Context, accessToken, date str
 	return officialcontent.ArticleMetricsResult{Date: date, Delayed: response.IsDelay, Items: response.Items}, nil
 }
 
+// ListArticleComments reads one live comment page without exposing OpenIDs.
+func (p *Publisher) ListArticleComments(ctx context.Context, accessToken string, msgDataID int64, articleIndex, begin, count, commentType int) (officialcontent.ArticleCommentBatch, error) {
+	var response articleCommentsResponse
+	if err := p.postJSON(ctx, "comment_list", "/cgi-bin/comment/list", accessToken, articleCommentsRequest{
+		MsgDataID: msgDataID, Index: articleIndex, Begin: begin, Count: count, Type: commentType,
+	}, &response); err != nil {
+		return officialcontent.ArticleCommentBatch{}, err
+	}
+	items := make([]officialcontent.ArticleComment, 0, len(response.Comments))
+	for _, comment := range response.Comments {
+		item := officialcontent.ArticleComment{
+			UserCommentID: comment.UserCommentID, CreateTime: comment.CreateTime,
+			Content: comment.Content, Selected: comment.CommentType == 1,
+		}
+		if comment.Reply != nil {
+			item.Reply = &officialcontent.CommentReply{Content: comment.Reply.Content, CreateTime: comment.Reply.CreateTime}
+		}
+		items = append(items, item)
+	}
+	return officialcontent.ArticleCommentBatch{Total: response.Total, Items: items}, nil
+}
+
 type freePublishBatchGetRequest struct {
 	Offset    int `json:"offset"`
 	Count     int `json:"count"`
@@ -102,4 +124,36 @@ type articleMetricsResponse struct {
 
 func (r articleMetricsResponse) wechatError(operation string) error {
 	return wechatPublishError(operation, r.ErrCode, r.ErrMsg)
+}
+
+type articleCommentsRequest struct {
+	MsgDataID int64 `json:"msg_data_id"`
+	Index     int   `json:"index"`
+	Begin     int   `json:"begin"`
+	Count     int   `json:"count"`
+	Type      int   `json:"type"`
+}
+
+type articleCommentsResponse struct {
+	Total    int                 `json:"total"`
+	Comments []wechatCommentItem `json:"comment"`
+	ErrCode  int                 `json:"errcode"`
+	ErrMsg   string              `json:"errmsg"`
+}
+
+func (r articleCommentsResponse) wechatError(operation string) error {
+	return wechatPublishError(operation, r.ErrCode, r.ErrMsg)
+}
+
+type wechatCommentItem struct {
+	UserCommentID int64               `json:"user_comment_id"`
+	CreateTime    int64               `json:"create_time"`
+	Content       string              `json:"content"`
+	CommentType   int                 `json:"comment_type"`
+	Reply         *wechatCommentReply `json:"reply"`
+}
+
+type wechatCommentReply struct {
+	Content    string `json:"content"`
+	CreateTime int64  `json:"create_time"`
 }

@@ -397,6 +397,7 @@ Header value: <MCP_TOKEN>
 - `official_account_get_authorization_entry`
 - `official_account_list_published_articles`
 - `official_account_get_article_metrics`
+- `official_account_list_article_comments`
 - `official_account_create_article`
 - `official_account_update_article`
 - `official_account_upload_image`
@@ -414,6 +415,8 @@ Header value: <MCP_TOKEN>
 查看公众号当前全部已发布文章时，使用 `official_account_list_published_articles`。它每次直接查询微信，不依赖本地文章或发布记录，因此也能看到在微信后台或其他工具发布的历史文章。`offset` / `count` 按微信消息分页，`count` 最大为 20；默认不返回正文 HTML 和已删除条目。
 
 查看阅读、分享、点赞、评论数、收藏等数据时，使用 `official_account_get_article_metrics`，传文章发表日期 `date=YYYY-MM-DD`。微信一次只允许查询一天，最晚只能查昨天，并且每篇文章只统计发表后 30 天内的数据。
+
+查看具体评论时，使用 `official_account_list_article_comments`，把统计结果中的 `msgid` 原样传入。`type=0` 返回全部评论，`1` 只返回普通评论，`2` 只返回精选评论；单次 `count` 最大为 49。工具不会返回评论者 OpenID。
 
 上传图片时，`file_path`、`content_base64`、`image_url` 必须三选一。线上 Agent 应把用户附件的临时公网 HTTPS 下载地址传给 `image_url`；服务端最多下载 8 MiB，并拒绝私网地址、危险重定向和非图片内容。
 
