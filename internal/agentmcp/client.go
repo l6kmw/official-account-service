@@ -344,9 +344,10 @@ func (c *Client) GenerateAuthorizationURL(ctx context.Context, componentAppID, r
 	}
 	redirectURI = strings.TrimSpace(redirectURI)
 	if redirectURI == "" {
-		redirectURI = c.authorizationCallbackURL(componentAppID)
+		redirectURI = c.authorizationCallbackURL()
 	}
 	query := url.Values{}
+	query.Set("tenant_id", c.tenantID)
 	query.Set("component_appid", componentAppID)
 	query.Set("redirect_uri", redirectURI)
 	if authType > 0 {
@@ -392,15 +393,11 @@ func (c *Client) resolveComponentAppID(componentAppID string) string {
 	return c.componentAppID
 }
 
-func (c *Client) authorizationCallbackURL(componentAppID string) string {
+func (c *Client) authorizationCallbackURL() string {
 	callbackURL, err := url.Parse(c.publicBaseURL + "/api/v1/wechat/authorization-callback")
 	if err != nil {
 		return ""
 	}
-	query := callbackURL.Query()
-	query.Set("tenant_id", c.tenantID)
-	query.Set("component_appid", componentAppID)
-	callbackURL.RawQuery = query.Encode()
 	return callbackURL.String()
 }
 

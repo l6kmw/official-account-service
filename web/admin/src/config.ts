@@ -55,7 +55,7 @@ export function buildWechatOpenPlatformURLs(input: { publicBaseURL: string; comp
   return {
     componentCallback: `${base}/wechat/component/callback`,
     authorizerCallback: `${base}/wechat/authorizer/$APPID$/callback`,
-    authorizationCallback: `${base}/api/v1/wechat/authorization-callback?tenant_id=${tenantID}&component_appid=${encodeURIComponent(componentAppID)}`,
+    authorizationCallback: `${base}/api/v1/wechat/authorization-callback`,
     authorizationEntry: buildAuthorizationEntryURL({ publicBaseURL: base, componentAppID, tenantID })
   }
 }

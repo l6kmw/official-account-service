@@ -125,7 +125,7 @@
 
 已完成：
 
-- component_verify_ticket 明文回调入口：已完成 `POST /wechat/component/callback`
+- component_verify_ticket 加密回调入口：已完成 `POST /wechat/component/callback`，拒绝未验签明文 XML
 - component_verify_ticket application 保存用例：已完成
 - component_verify_ticket memory/Postgres 持久化：已完成
 - component_verify_ticket migration：已完成 `003`
@@ -140,6 +140,7 @@
 - component_verify_ticket 加密回调 HTTP 接入：已完成 `msg_signature` / `timestamp` / `nonce` / `Encrypt`
 - 微信加密回调配置接入：已完成 YAML `wechat.component_verify_token` / `wechat.component_encoding_aes_key`
 - 授权回调处理：已完成 `GET /api/v1/wechat/authorization-callback`
+- 授权 state 防重放与租户绑定：已完成一次性随机 state，仅存 SHA-256 摘要，回调原子消费后恢复 tenant/component
 - authorizer_refresh_token 加密存储：已完成 AES-GCM 加密后落库
 - authorizer 信息同步：已完成授权回调后调用微信资料接口并保存账号名称/头像
 - 取消授权事件处理：已完成 `unauthorized` component callback，账号置为 `revoked` 并清空加密 refresh token

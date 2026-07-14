@@ -54,6 +54,7 @@ paths:
       tags: [Authorization]
       summary: Generate a WeChat component authorization URL
       parameters:
+        - {name: tenant_id, in: query, required: true, schema: {type: string}}
         - {name: component_appid, in: query, required: true, schema: {type: string}}
         - {name: redirect_uri, in: query, required: true, schema: {type: string, format: uri}}
         - {name: auth_type, in: query, schema: {type: integer, enum: [1, 2, 3]}}
@@ -64,8 +65,7 @@ paths:
       tags: [Authorization]
       summary: Handle WeChat authorization redirect
       parameters:
-        - {name: tenant_id, in: query, required: true, schema: {type: string}}
-        - {name: component_appid, in: query, required: true, schema: {type: string}}
+        - {name: state, in: query, required: true, schema: {type: string}}
         - {name: auth_code, in: query, required: true, schema: {type: string}}
       responses: {"200": {description: Authorized account without token fields, content: {application/json: {schema: {$ref: "#/components/schemas/Account"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/accounts:
@@ -201,10 +201,10 @@ components:
     TenantID: {name: X-Tenant-ID, in: header, required: true, schema: {type: string}}
     ID: {name: id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
     Queue: {name: queue, in: path, required: true, schema: {type: string, enum: [publish, token]}}
-    EncryptType: {name: encrypt_type, in: query, schema: {type: string, enum: [aes]}}
-    MsgSignature: {name: msg_signature, in: query, schema: {type: string}}
-    Timestamp: {name: timestamp, in: query, schema: {type: string}}
-    Nonce: {name: nonce, in: query, schema: {type: string}}
+    EncryptType: {name: encrypt_type, in: query, required: true, schema: {type: string, enum: [aes]}}
+    MsgSignature: {name: msg_signature, in: query, required: true, schema: {type: string}}
+    Timestamp: {name: timestamp, in: query, required: true, schema: {type: string}}
+    Nonce: {name: nonce, in: query, required: true, schema: {type: string}}
   requestBodies:
     XMLCallback: {required: true, content: {application/xml: {schema: {type: string}}}}
     AdminLogin: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/AdminLoginRequest"}}}}

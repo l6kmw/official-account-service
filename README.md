@@ -343,7 +343,7 @@ https://<PUBLIC_DOMAIN>/wechat/component/callback
 https://<PUBLIC_DOMAIN>/wechat/authorizer/$APPID$/callback
 
 授权回调 URL:
-https://<PUBLIC_DOMAIN>/api/v1/wechat/authorization-callback?tenant_id=tenant-1&component_appid=<WX_COMPONENT_APPID>
+https://<PUBLIC_DOMAIN>/api/v1/wechat/authorization-callback
 ```
 
 授权入口页是：
@@ -361,6 +361,8 @@ wechat-authorize.html 所在域名
 ```
 
 这三个必须一致，否则微信会报授权入口域名错误。
+
+授权发起时，服务端会自动生成一次性 `state` 并写入回调 URL。不要手工添加 `tenant_id` 或 `component_appid` 回调参数。
 
 ## 9. Agent 如何连接 MCP
 

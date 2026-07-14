@@ -158,8 +158,9 @@ func TestAuthorizationEntryUsesConfiguredPublicURL(t *testing.T) {
 func TestGenerateAuthorizationURLUsesConfiguredDefaults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/wechat/authorization-url", r.URL.Path)
+		require.Equal(t, "tenant-test", r.URL.Query().Get("tenant_id"))
 		require.Equal(t, "wx-component", r.URL.Query().Get("component_appid"))
-		require.Equal(t, "https://public.example.com/api/v1/wechat/authorization-callback?component_appid=wx-component&tenant_id=tenant-test", r.URL.Query().Get("redirect_uri"))
+		require.Equal(t, "https://public.example.com/api/v1/wechat/authorization-callback", r.URL.Query().Get("redirect_uri"))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"authorization_url":"https://mp.weixin.qq.com/authorize","pre_auth_code_expires_in_sec":600}`))
 	}))

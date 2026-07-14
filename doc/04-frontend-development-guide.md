@@ -461,7 +461,7 @@ https://你的域名/wechat/component/callback
 https://你的域名/wechat/authorizer/$APPID$/callback
 
 授权回调 URL:
-https://你的域名/api/v1/wechat/authorization-callback?tenant_id=tenant-1&component_appid=你的ComponentAppID
+https://你的域名/api/v1/wechat/authorization-callback
 ```
 
 后续可新增后端安全状态 API：
