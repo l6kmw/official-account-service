@@ -193,7 +193,7 @@ func TestPublisherGetsArticleMetrics(t *testing.T) {
 		require.NoError(t, err)
 	}))
 	defer server.Close()
-	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL + "/cgi-bin", MaxRetries: -1})
 	require.NoError(t, err)
 
 	result, err := publisher.GetArticleMetrics(context.Background(), "authorizer-token", "2026-07-10")
@@ -221,7 +221,7 @@ func TestPublisherListsCommentsWithoutExposingOpenID(t *testing.T) {
 		require.NoError(t, err)
 	}))
 	defer server.Close()
-	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL, MaxRetries: -1})
+	publisher, err := NewPublisher(PublisherConfig{BaseURL: server.URL + "/cgi-bin", MaxRetries: -1})
 	require.NoError(t, err)
 
 	result, err := publisher.ListArticleComments(context.Background(), "authorizer-token", 2247490098, 1, 0, 20, 2)

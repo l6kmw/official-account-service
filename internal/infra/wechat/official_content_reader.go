@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"context"
+	"strings"
 
 	"official-account-service/internal/domain/officialcontent"
 )
@@ -40,7 +41,7 @@ func (p *Publisher) ListPublishedArticles(ctx context.Context, accessToken strin
 // GetArticleMetrics reads live cumulative article metrics for one publish date.
 func (p *Publisher) GetArticleMetrics(ctx context.Context, accessToken, date string) (officialcontent.ArticleMetricsResult, error) {
 	var response articleMetricsResponse
-	if err := p.postJSON(ctx, "getarticletotaldetail", "/datacube/getarticletotaldetail", accessToken, articleMetricsRequest{
+	if err := p.postJSONFromAPIRoot(ctx, "getarticletotaldetail", "/datacube/getarticletotaldetail", accessToken, articleMetricsRequest{
 		BeginDate: date, EndDate: date,
 	}, &response); err != nil {
 		return officialcontent.ArticleMetricsResult{}, err
@@ -51,7 +52,7 @@ func (p *Publisher) GetArticleMetrics(ctx context.Context, accessToken, date str
 // ListArticleComments reads one live comment page without exposing OpenIDs.
 func (p *Publisher) ListArticleComments(ctx context.Context, accessToken string, msgDataID int64, articleIndex, begin, count, commentType int) (officialcontent.ArticleCommentBatch, error) {
 	var response articleCommentsResponse
-	if err := p.postJSON(ctx, "comment_list", "/cgi-bin/comment/list", accessToken, articleCommentsRequest{
+	if err := p.postJSON(ctx, "comment_list", "/comment/list", accessToken, articleCommentsRequest{
 		MsgDataID: msgDataID, Index: articleIndex, Begin: begin, Count: count, Type: commentType,
 	}, &response); err != nil {
 		return officialcontent.ArticleCommentBatch{}, err
@@ -68,6 +69,12 @@ func (p *Publisher) ListArticleComments(ctx context.Context, accessToken string,
 		items = append(items, item)
 	}
 	return officialcontent.ArticleCommentBatch{Total: response.Total, Items: items}, nil
+}
+
+func (p *Publisher) postJSONFromAPIRoot(ctx context.Context, operation, path, accessToken string, body any, out wechatPublishResponse) error {
+	client := *p
+	client.baseURL = strings.TrimSuffix(client.baseURL, "/cgi-bin")
+	return client.postJSON(ctx, operation, path, accessToken, body, out)
 }
 
 type freePublishBatchGetRequest struct {
