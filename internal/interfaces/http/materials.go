@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"official-account-service/internal/application"
+	"official-account-service/internal/domain/material"
 )
 
 type materialResponse struct {
@@ -22,7 +23,31 @@ type materialResponse struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type listMaterialsQuery struct {
+	ArticleID int64 `form:"article_id" binding:"required,gt=0"`
+}
+
 func registerMaterialRoutes(r gin.IRouter, service *application.MaterialService) {
+	r.GET("/materials", func(c *gin.Context) {
+		tenant, ok := bindTenant(c)
+		if !ok {
+			return
+		}
+		var query listMaterialsQuery
+		if err := c.ShouldBindQuery(&query); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		assets, err := service.ListMaterialsByArticle(c.Request.Context(), tenant, query.ArticleID)
+		if !writeServiceError(c, err) {
+			return
+		}
+		items := make([]materialResponse, 0, len(assets))
+		for _, asset := range assets {
+			items = append(items, toMaterialResponse(asset))
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
 	r.POST("/materials/inline-images", func(c *gin.Context) {
 		input, closeFile, ok := bindMaterialUpload(c)
 		if !ok {
@@ -33,11 +58,7 @@ func registerMaterialRoutes(r gin.IRouter, service *application.MaterialService)
 		if !writeServiceError(c, err) {
 			return
 		}
-		c.JSON(http.StatusCreated, materialResponse{
-			ID: asset.ID, TenantID: asset.TenantID, AuthorizerID: asset.AuthorizerID, ArticleID: asset.ArticleID,
-			Usage: string(asset.Usage), LocalURL: asset.LocalURL, WeChatURL: asset.WeChatURL, MediaID: asset.MediaID,
-			CreatedAt: asset.CreatedAt,
-		})
+		c.JSON(http.StatusCreated, toMaterialResponse(asset))
 	})
 	r.POST("/materials/covers", func(c *gin.Context) {
 		input, closeFile, ok := bindMaterialUpload(c)
@@ -49,12 +70,16 @@ func registerMaterialRoutes(r gin.IRouter, service *application.MaterialService)
 		if !writeServiceError(c, err) {
 			return
 		}
-		c.JSON(http.StatusCreated, materialResponse{
-			ID: asset.ID, TenantID: asset.TenantID, AuthorizerID: asset.AuthorizerID, ArticleID: asset.ArticleID,
-			Usage: string(asset.Usage), LocalURL: asset.LocalURL, WeChatURL: asset.WeChatURL, MediaID: asset.MediaID,
-			CreatedAt: asset.CreatedAt,
-		})
+		c.JSON(http.StatusCreated, toMaterialResponse(asset))
 	})
+}
+
+func toMaterialResponse(asset material.Asset) materialResponse {
+	return materialResponse{
+		ID: asset.ID, TenantID: asset.TenantID, AuthorizerID: asset.AuthorizerID, ArticleID: asset.ArticleID,
+		Usage: string(asset.Usage), LocalURL: asset.LocalURL, WeChatURL: asset.WeChatURL, MediaID: asset.MediaID,
+		CreatedAt: asset.CreatedAt,
+	}
 }
 
 func bindMaterialUpload(c *gin.Context) (application.UploadMaterialInput, func(), bool) {

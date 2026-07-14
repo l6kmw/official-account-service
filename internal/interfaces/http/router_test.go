@@ -322,6 +322,25 @@ func TestMaterialUploadRoutes(t *testing.T) {
 	require.Contains(t, cover.Body.String(), `"media_id":"media-image.png"`)
 	require.Contains(t, cover.Body.String(), `"wechat_url":""`)
 
+	list := doJSON(t, router, http.MethodGet, "/api/v1/materials?article_id=2", ``, "tenant-1")
+	require.Equal(t, http.StatusOK, list.Code)
+	var listed struct {
+		Items []materialResponse `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &listed))
+	require.Len(t, listed.Items, 2)
+	require.Positive(t, listed.Items[0].ID)
+	require.Positive(t, listed.Items[1].ID)
+	require.Equal(t, "inline_image", listed.Items[0].Usage)
+	require.Equal(t, "cover", listed.Items[1].Usage)
+
+	missingArticle := doJSON(t, router, http.MethodGet, "/api/v1/materials", ``, "tenant-1")
+	require.Equal(t, http.StatusBadRequest, missingArticle.Code)
+
+	otherTenant := doJSON(t, router, http.MethodGet, "/api/v1/materials?article_id=2", ``, "tenant-2")
+	require.Equal(t, http.StatusOK, otherTenant.Code)
+	require.JSONEq(t, `{"items":[]}`, otherTenant.Body.String())
+
 	bad := doMultipart(t, router, "/api/v1/materials/covers", "")
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 }
