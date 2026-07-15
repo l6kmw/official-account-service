@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -425,6 +426,7 @@ func (s *Store) ListMaterialByArticle(_ context.Context, tenantID string, articl
 			items = append(items, asset)
 		}
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
 }
 
