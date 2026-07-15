@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
+	"official-account-service/internal/domain/identity"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/domain/publish"
 	"official-account-service/internal/domain/wechatcallback"
@@ -29,6 +31,14 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	runMigrations(t, store)
 
 	tenantID := fmt.Sprintf("tenant-%d", time.Now().UnixNano())
+	user, err := store.SaveUser(ctx, identity.User{
+		ID: tenantID, Username: "user-" + tenantID, PasswordHash: "hash", Role: identity.RoleUser, Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	require.Equal(t, tenantID, user.ID)
+	byUsername, err := store.GetUserByUsername(ctx, strings.ToUpper(user.Username))
+	require.NoError(t, err)
+	require.Equal(t, tenantID, byUsername.ID)
 	account, err := store.SaveAccount(ctx, tenantID, authorization.Account{
 		AppID: "wx123", Name: "account", Status: authorization.AccountStatusActive,
 		EncryptedAuthorizerRefreshToken: "encrypted-refresh-1",
@@ -169,6 +179,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/007_media_asset_article_fk.sql",
 		"../../../../migrations/008_authorization_state.sql",
 		"../../../../migrations/009_publish_in_progress_unique.sql",
+		"../../../../migrations/010_app_user.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)

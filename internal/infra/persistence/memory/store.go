@@ -3,11 +3,13 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
+	"official-account-service/internal/domain/identity"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/domain/publish"
 	"official-account-service/internal/domain/wechatcallback"
@@ -21,6 +23,7 @@ type Store struct {
 	nextAssetID         int64
 	nextRecordID        int64
 	accounts            map[int64]authorization.Account
+	users               map[string]identity.User
 	articles            map[int64]article.Article
 	materialAssets      map[int64]material.Asset
 	publishRecords      map[int64]publish.Record
@@ -31,6 +34,8 @@ type Store struct {
 	now                 func() time.Time
 }
 
+var _ identity.Repository = (*Store)(nil)
+
 // NewStore constructs an in-memory Store.
 func NewStore(now func() time.Time) *Store {
 	if now == nil {
@@ -38,6 +43,7 @@ func NewStore(now func() time.Time) *Store {
 	}
 	return &Store{
 		accounts:            make(map[int64]authorization.Account),
+		users:               make(map[string]identity.User),
 		articles:            make(map[int64]article.Article),
 		materialAssets:      make(map[int64]material.Asset),
 		publishRecords:      make(map[int64]publish.Record),
@@ -47,6 +53,60 @@ func NewStore(now func() time.Time) *Store {
 		authorizationStates: make(map[string]authorization.AuthorizationState),
 		now:                 now,
 	}
+}
+
+// SaveUser creates or replaces one user while preserving the original creation time.
+func (s *Store) SaveUser(_ context.Context, user identity.User) (identity.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, current := range s.users {
+		if id != user.ID && strings.EqualFold(current.Username, user.Username) {
+			return identity.User{}, fmt.Errorf("save user username: %w", identity.ErrConflict)
+		}
+	}
+	now := s.now()
+	if current, ok := s.users[user.ID]; ok {
+		user.CreatedAt = current.CreatedAt
+	} else {
+		user.CreatedAt = now
+	}
+	user.UpdatedAt = now
+	s.users[user.ID] = user
+	return user, nil
+}
+
+// GetUser returns one user by id.
+func (s *Store) GetUser(_ context.Context, id string) (identity.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user, ok := s.users[id]
+	if !ok {
+		return identity.User{}, fmt.Errorf("get user lookup: %w", identity.ErrNotFound)
+	}
+	return user, nil
+}
+
+// GetUserByUsername returns one user using a case-insensitive username lookup.
+func (s *Store) GetUserByUsername(_ context.Context, username string) (identity.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, user := range s.users {
+		if strings.EqualFold(user.Username, username) {
+			return user, nil
+		}
+	}
+	return identity.User{}, fmt.Errorf("get user by username lookup: %w", identity.ErrNotFound)
+}
+
+// ListUsers returns all platform users without changing their data-space scope.
+func (s *Store) ListUsers(_ context.Context) ([]identity.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	users := make([]identity.User, 0, len(s.users))
+	for _, user := range s.users {
+		users = append(users, user)
+	}
+	return users, nil
 }
 
 // SaveComponentVerifyTicket stores the latest component verify ticket.
