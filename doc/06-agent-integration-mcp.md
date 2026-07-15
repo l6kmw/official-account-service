@@ -122,6 +122,12 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码，或�
 ## 暴露的 MCP Tools
 
 - `official_account_list_accounts`
+- `official_account_list_drafts`
+- `official_account_get_draft`
+- `official_account_create_draft`
+- `official_account_update_draft`
+- `official_account_delete_draft`
+- `official_account_publish_draft`
 - `official_account_list_articles`
 - `official_account_list_published_articles`
 - `official_account_list_permanent_materials`
@@ -141,13 +147,17 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码，或�
 
 安全约束：
 
+- `official_account_publish_draft` 必须传 `confirm_publish=true`。
+- `official_account_delete_draft` 必须传 `confirm_delete="DELETE"`，并且只接受本地 `draft` / `failed` 状态的草稿。
 - `official_account_publish_article` 必须传 `confirm_publish=true`。
 - `official_account_delete_article` 必须传 `confirm_delete="DELETE"`；后端会先清理微信侧已发布副本，再删除本地文章和素材。
 - `official_account_delete_published_record` 必须传 `confirm_delete="DELETE"`。
 - `official_account_delete_permanent_material` 必须传 `confirm_delete="DELETE"`，并且只删除用户明确选择的 `media_id`。
 - 所有工具都复用现有后台 API，只能访问 token 所属用户的数据，不返回 token、secret、refresh token。
 
-`official_account_list_articles` 读取本地草稿和文章；`official_account_list_published_articles` 每次直接读取微信侧已发布列表，也会包含不经过本服务发布的历史文章。后者按微信消息使用 `offset` / `count` 分页，单条多图文消息可能展开成多个文章条目。
+草稿管理工具全部操作本服务数据库，不直接把内容写入微信草稿箱：`official_account_create_draft`、`official_account_update_draft`、`official_account_delete_draft`、`official_account_list_drafts` 和 `official_account_get_draft` 管理本地草稿；只有 `official_account_publish_draft` 会在用户确认后调用现有发布链路，临时创建微信草稿并提交发布。`official_account_list_drafts` 返回 `draft` 和可重试的 `failed` 状态，不返回 `publishing` / `published` 文章。
+
+原有 `official_account_*_article` 工具继续保留以兼容已有 Agent。`official_account_list_articles` 读取全部本地草稿和文章；`official_account_list_published_articles` 每次直接读取微信侧已发布列表，也会包含不经过本服务发布的历史文章。后者按微信消息使用 `offset` / `count` 分页，单条多图文消息可能展开成多个文章条目。
 
 `official_account_get_article_metrics` 按文章发表日期查询阅读、分享、爱心赞、拇指赞、评论数、收藏、赞赏、阅读后关注、完成率和来源明细。`date` 必须为 `YYYY-MM-DD`，一次只能查一天，最晚为昨天；微信只保留每篇文章发表后 30 天内的统计。
 
@@ -183,11 +193,11 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码，或�
 1. 调 `official_account_list_accounts` 查看是否已有授权公众号。
 2. 如果没有账号，调 `official_account_get_authorization_entry`，把返回链接或二维码给用户扫码授权。
 3. 生成文章内容，整理为微信兼容 HTML。
-4. 调 `official_account_create_article` 创建草稿。
+4. 调 `official_account_create_draft` 创建本地草稿。
 5. 如有正文图片，调 `official_account_upload_image` 上传 `inline_image`；线上附件使用 `image_url`，并把返回的 `wechat_url` 写回正文 HTML。
 6. 上传封面图：调 `official_account_upload_image`，`usage=cover`；线上附件同样使用 `image_url`。
-7. 调 `official_account_update_article` 写入最终标题、摘要、正文 HTML、`cover_media_asset_id`。
+7. 调 `official_account_update_draft` 写入最终标题、摘要、正文 HTML、`cover_media_asset_id`。
 8. 发布前向用户确认标题、公众号、封面、摘要。
-9. 调 `official_account_publish_article` 发布，传 `confirm_publish=true`。
+9. 调 `official_account_publish_draft` 发布，传 `confirm_publish=true`。
 10. 调 `official_account_sync_publish_status` 同步结果。
 11. 调 `official_account_list_publish_records` 核对状态。

@@ -41,6 +41,8 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 		return nil, map[string]any{"items": items}, nil
 	})
 
+	registerLocalDraftTools(server, client)
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_articles",
 		Title:       "List articles",
@@ -286,6 +288,128 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	return server
 }
 
+func registerLocalDraftTools(server *mcp.Server, client *Client) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_list_drafts",
+		Title:       "List local drafts",
+		Description: "List unpublished drafts stored in this service for the authenticated MCP user. Includes drafts whose previous publish attempt failed; excludes publishing and published articles.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listArticlesInput) (*mcp.CallToolResult, any, error) {
+		articles, err := client.ListArticles(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		drafts := make([]Article, 0, len(articles))
+		for _, item := range articles {
+			if isEditableLocalDraft(item) {
+				drafts = append(drafts, item)
+			}
+		}
+		return nil, map[string]any{"items": drafts}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_get_draft",
+		Title:       "Get local draft",
+		Description: "Get the full local draft, including content_html and cover_media_asset_id. Required: draft_id returned by official_account_list_drafts or official_account_create_draft.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getDraftToolInput) (*mcp.CallToolResult, any, error) {
+		draft, err := getEditableLocalDraft(ctx, client, input.DraftID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"draft": draft}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_create_draft",
+		Title:       "Create local draft",
+		Description: "Create a draft in this service's local database. Required: authorizer_id and title. Optional: author, digest, and content_html. This does not create or publish content on WeChat.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createArticleToolInput) (*mcp.CallToolResult, any, error) {
+		draft, err := client.CreateArticle(ctx, CreateArticleInput{
+			AuthorizerID: input.AuthorizerID,
+			Title:        input.Title,
+			Author:       input.Author,
+			Digest:       input.Digest,
+			ContentHTML:  input.ContentHTML,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"draft": draft}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_update_draft",
+		Title:       "Update local draft",
+		Description: "Replace an editable local draft. Required in every update: draft_id, title, author, digest, content_html, and cover_media_asset_id. author and digest may be empty, and cover_media_asset_id may be 0 while drafting.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateDraftToolInput) (*mcp.CallToolResult, any, error) {
+		if _, err := getEditableLocalDraft(ctx, client, input.DraftID); err != nil {
+			return nil, nil, err
+		}
+		draft, err := client.UpdateArticle(ctx, input.DraftID, UpdateArticleInput{
+			Title:             input.Title,
+			Author:            input.Author,
+			Digest:            input.Digest,
+			ContentHTML:       input.ContentHTML,
+			CoverMediaAssetID: input.CoverMediaAssetID,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"draft": draft}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_delete_draft",
+		Title:       "Delete local draft",
+		Description: "Delete one unpublished local draft and its local materials. Required: draft_id and confirm_delete=\"DELETE\". This tool refuses publishing or published articles.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteDraftToolInput) (*mcp.CallToolResult, any, error) {
+		if input.ConfirmDelete != "DELETE" {
+			return nil, nil, fmt.Errorf("confirm_delete must be DELETE before deleting a local draft")
+		}
+		if _, err := getEditableLocalDraft(ctx, client, input.DraftID); err != nil {
+			return nil, nil, err
+		}
+		draft, err := client.DeleteArticle(ctx, input.DraftID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"deleted_draft": draft}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_publish_draft",
+		Title:       "Publish local draft",
+		Description: "Submit one local draft through this service's WeChat publish pipeline. Required: draft_id and confirm_publish=true. The local draft must have content_html and a valid uploaded cover bound through cover_media_asset_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input publishDraftToolInput) (*mcp.CallToolResult, any, error) {
+		if !input.ConfirmPublish {
+			return nil, nil, fmt.Errorf("confirm_publish must be true before publishing a local draft to WeChat")
+		}
+		if _, err := getEditableLocalDraft(ctx, client, input.DraftID); err != nil {
+			return nil, nil, err
+		}
+		record, err := client.PublishArticle(ctx, input.DraftID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"record": record}, nil
+	})
+}
+
+func getEditableLocalDraft(ctx context.Context, client *Client, draftID int64) (Article, error) {
+	draft, err := client.GetArticle(ctx, draftID)
+	if err != nil {
+		return Article{}, err
+	}
+	if !isEditableLocalDraft(draft) {
+		return Article{}, fmt.Errorf("article %d is not an editable local draft (status %q)", draftID, draft.Status)
+	}
+	return draft, nil
+}
+
+func isEditableLocalDraft(item Article) bool {
+	return item.Status == "draft" || item.Status == "failed"
+}
+
 func apiTokenContextMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		extra := req.GetExtra()
@@ -310,6 +434,10 @@ func bearerTokenFromHeader(header string) string {
 type listAccountsInput struct{}
 
 type listArticlesInput struct{}
+
+type getDraftToolInput struct {
+	DraftID int64 `json:"draft_id" jsonschema:"Required. Local draft id returned by official_account_list_drafts or official_account_create_draft."`
+}
 
 type listPublishedArticlesToolInput struct {
 	AuthorizerID   int64 `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
@@ -363,6 +491,15 @@ type updateArticleToolInput struct {
 	CoverMediaAssetID int64  `json:"cover_media_asset_id" jsonschema:"Required in the update request. Use the asset.id returned by official_account_upload_image with usage=cover; use 0 to keep no cover while drafting."`
 }
 
+type updateDraftToolInput struct {
+	DraftID           int64  `json:"draft_id" jsonschema:"Required. Local draft id returned by official_account_list_drafts or official_account_create_draft."`
+	Title             string `json:"title" jsonschema:"Required in the update request. Full replacement title."`
+	Author            string `json:"author" jsonschema:"Required in the update request. May be an empty string."`
+	Digest            string `json:"digest" jsonschema:"Required in the update request. May be an empty string."`
+	ContentHTML       string `json:"content_html" jsonschema:"Required in the update request. May be empty while drafting, but publishing requires non-empty HTML."`
+	CoverMediaAssetID int64  `json:"cover_media_asset_id" jsonschema:"Required in the update request. Use the asset.id returned by official_account_upload_image with usage=cover; use 0 to keep no cover while drafting."`
+}
+
 type uploadImageToolInput struct {
 	AuthorizerID  int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
 	ArticleID     int64  `json:"article_id" jsonschema:"Required. Local article id that owns this image."`
@@ -378,9 +515,19 @@ type publishArticleToolInput struct {
 	ConfirmPublish bool  `json:"confirm_publish" jsonschema:"Required and must be true to publish real WeChat content."`
 }
 
+type publishDraftToolInput struct {
+	DraftID        int64 `json:"draft_id" jsonschema:"Required. Editable local draft id returned by official_account_list_drafts or official_account_create_draft."`
+	ConfirmPublish bool  `json:"confirm_publish" jsonschema:"Required. Must be true after the user confirms publishing real WeChat content."`
+}
+
 type deleteArticleToolInput struct {
 	ArticleID     int64  `json:"article_id" jsonschema:"Local article id to delete."`
 	ConfirmDelete string `json:"confirm_delete" jsonschema:"Must be DELETE to delete the local article."`
+}
+
+type deleteDraftToolInput struct {
+	DraftID       int64  `json:"draft_id" jsonschema:"Required. Editable local draft id returned by official_account_list_drafts or official_account_create_draft."`
+	ConfirmDelete string `json:"confirm_delete" jsonschema:"Required. Must equal DELETE after explicit confirmation."`
 }
 
 type syncPublishStatusToolInput struct {
