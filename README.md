@@ -416,7 +416,7 @@ Header value: <USER_MCP_TOKEN>
 - `official_account_sync_publish_status`
 - `official_account_delete_published_record`
 
-`official_account_get_authorization_entry` 返回的是已经绑定当前 MCP 用户的一次性微信授权 URL，可直接打开或作为二维码内容，不需要先登录管理后台。
+`official_account_get_authorization_entry` 返回的是已经绑定当前 MCP 用户的一次性同域授权发起页 URL，可直接打开或作为二维码内容，不需要先登录管理后台。授权发起页会校验微信目标地址、组件 AppID、回调域名和一次性 state，再跳转到微信扫码页面；不要绕过它直接分发 `mp.weixin.qq.com` 链接。
 
 删除时注意区分：
 

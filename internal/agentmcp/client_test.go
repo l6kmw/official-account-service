@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,6 +243,33 @@ func TestAuthorizationEntryUsesConfiguredPublicURL(t *testing.T) {
 	require.Equal(t, "wx-component", entry.ComponentAppID)
 	require.Equal(t, "https://public.example.com/wechat-authorize.html?component_appid=wx-component", entry.AuthorizationEntryURL)
 	require.Equal(t, entry.AuthorizationEntryURL, entry.QRCodePayloadURL)
+}
+
+func TestAuthorizationEntryForURLUsesFirstPartyLaunchPage(t *testing.T) {
+	client, err := NewClient(Config{
+		BaseURL:        "https://mp.example.com",
+		PublicBaseURL:  "https://public.example.com/",
+		TenantID:       "tenant-test",
+		ComponentAppID: "wx-component",
+	})
+	require.NoError(t, err)
+	directURL := "https://mp.weixin.qq.com/cgi-bin/componentloginpage?component_appid=wx-component&redirect_uri=https%3A%2F%2Fpublic.example.com%2Fapi%2Fv1%2Fwechat%2Fauthorization-callback%3Fstate%3Duser-bound"
+
+	entry, err := client.AuthorizationEntryForURL("", directURL)
+	require.NoError(t, err)
+	parsed, err := url.Parse(entry.AuthorizationEntryURL)
+	require.NoError(t, err)
+	require.Equal(t, "public.example.com", parsed.Host)
+	require.Equal(t, "/wechat-authorize.html", parsed.Path)
+	require.Equal(t, "wx-component", parsed.Query().Get("component_appid"))
+	fragment, err := url.ParseQuery(parsed.EscapedFragment())
+	require.NoError(t, err)
+	require.Equal(t, directURL, fragment.Get("authorization_url"))
+	require.Equal(t, entry.AuthorizationEntryURL, entry.QRCodePayloadURL)
+	require.Empty(t, entry.TenantID)
+
+	_, err = client.AuthorizationEntryForURL("", "https://example.com/cgi-bin/componentloginpage")
+	require.ErrorIs(t, err, ErrInvalidConfig)
 }
 
 func TestGenerateAuthorizationURLUsesConfiguredDefaults(t *testing.T) {

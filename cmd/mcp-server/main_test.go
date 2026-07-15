@@ -160,7 +160,8 @@ func TestStreamableHTTPClientListsToolsAndCallsOfficialAccountTools(t *testing.T
 	require.NoError(t, err)
 	require.False(t, authEntry.IsError)
 	require.NotNil(t, authEntry.StructuredContent)
-	require.Contains(t, fmt.Sprint(authEntry.StructuredContent), "state=user-bound")
+	require.Contains(t, fmt.Sprint(authEntry.StructuredContent), "https://mp.example.com/wechat-authorize.html")
+	require.Contains(t, fmt.Sprint(authEntry.StructuredContent), "state%3Duser-bound")
 
 	accounts, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "official_account_list_accounts",
@@ -216,7 +217,8 @@ func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) 
 	authorization, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_get_authorization_entry", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.False(t, authorization.IsError)
-	require.Contains(t, fmt.Sprint(authorization.StructuredContent), "state=user-2-bound")
+	require.Contains(t, fmt.Sprint(authorization.StructuredContent), "wechat-authorize.html")
+	require.Contains(t, fmt.Sprint(authorization.StructuredContent), "state%3Duser-2-bound")
 }
 
 type bearerTokenHandler struct {

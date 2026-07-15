@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex,nofollow" />
+    <meta name="referrer" content="origin" />
     <meta name="color-scheme" content="light" />
     <title>微信授权跳转</title>
     <style>
@@ -114,12 +115,47 @@
           return apiURL
         }
 
+        function authorizationURLFromFragment() {
+          var fragment = new URLSearchParams(window.location.hash.slice(1))
+          var rawURL = (fragment.get('authorization_url') || '').trim()
+          if (!rawURL) return ''
+
+          var target = new URL(rawURL)
+          var componentAppID = value('component_appid')
+          if (target.protocol !== 'https:' || target.host !== 'mp.weixin.qq.com' || target.pathname !== '/cgi-bin/componentloginpage') {
+            throw new Error('微信授权地址无效。')
+          }
+          if (!componentAppID || target.searchParams.get('component_appid') !== componentAppID) {
+            throw new Error('微信授权组件 AppID 不匹配。')
+          }
+          if (!target.searchParams.get('pre_auth_code')) {
+            throw new Error('微信预授权码为空。')
+          }
+
+          var redirectValue = target.searchParams.get('redirect_uri')
+          if (!redirectValue) throw new Error('微信授权回调地址为空。')
+          var redirect = new URL(redirectValue)
+          if (redirect.origin !== window.location.origin || redirect.pathname !== '/api/v1/wechat/authorization-callback') {
+            throw new Error('微信授权回调域名不匹配。')
+          }
+          if (!redirect.searchParams.get('state') || redirect.searchParams.has('tenant_id')) {
+            throw new Error('微信授权 state 无效。')
+          }
+          return target.toString()
+        }
+
         async function openAuthorization() {
           retry.hidden = true
           title.textContent = '正在打开微信授权'
           message.textContent = '正在生成公众号授权二维码，请稍候。'
 
           try {
+            var preparedURL = authorizationURLFromFragment()
+            if (preparedURL) {
+              message.textContent = '正在进入微信授权页面。'
+              window.location.replace(preparedURL)
+              return
+            }
             var apiURL = buildURL()
             var response = await fetch(apiURL.toString(), {
               credentials: 'same-origin',

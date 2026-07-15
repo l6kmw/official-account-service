@@ -276,8 +276,8 @@ type AuthorizationURL struct {
 type AuthorizationEntry struct {
 	AuthorizationEntryURL string `json:"authorization_entry_url"`
 	QRCodePayloadURL      string `json:"qr_code_payload_url"`
-	TenantID              string `json:"tenant_id"`
-	ComponentAppID        string `json:"component_appid"`
+	TenantID              string `json:"tenant_id,omitempty"`
+	ComponentAppID        string `json:"component_appid,omitempty"`
 }
 
 type CreateArticleInput struct {
@@ -554,6 +554,24 @@ func (c *Client) AuthorizationEntry(componentAppID string) (AuthorizationEntry, 
 		TenantID:              c.tenantID,
 		ComponentAppID:        componentAppID,
 	}, nil
+}
+
+// AuthorizationEntryForURL wraps a user-bound WeChat URL in the configured
+// first-party launch page so WeChat can verify the authorization-entry domain.
+func (c *Client) AuthorizationEntryForURL(componentAppID string, authorizationURL string) (AuthorizationEntry, error) {
+	entry, err := c.AuthorizationEntry(componentAppID)
+	if err != nil {
+		return AuthorizationEntry{}, err
+	}
+	target, err := url.Parse(strings.TrimSpace(authorizationURL))
+	if err != nil || target.Scheme != "https" || target.Host != "mp.weixin.qq.com" || target.Path != "/cgi-bin/componentloginpage" {
+		return AuthorizationEntry{}, fmt.Errorf("validate WeChat authorization url: %w", ErrInvalidConfig)
+	}
+	wrapped := entry.AuthorizationEntryURL + "#authorization_url=" + url.QueryEscape(target.String())
+	entry.AuthorizationEntryURL = wrapped
+	entry.QRCodePayloadURL = wrapped
+	entry.TenantID = ""
+	return entry, nil
 }
 
 func (c *Client) resolveComponentAppID(componentAppID string) string {
