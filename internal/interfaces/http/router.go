@@ -16,9 +16,11 @@ import (
 )
 
 const (
-	maxRequestBodyBytes        int64 = 10 << 20
-	loggerContextKey                 = "logger"
-	maxLoggedErrorMessageRunes       = 1000
+	maxRequestBodyBytes          int64 = 10 << 20
+	loggerContextKey                   = "logger"
+	currentUserIDContextKey            = "current_user_id"
+	legacyTenantHeaderContextKey       = "legacy_tenant_header_allowed"
+	maxLoggedErrorMessageRunes         = 1000
 )
 
 var sensitiveLogValuePattern = regexp.MustCompile(`(?i)("?(?:access[_-]?token|component[_-]?access[_-]?token|authorizer[_-]?access[_-]?token|refresh[_-]?token|admin[_-]?api[_-]?key|authorization|app[_-]?secret|appsecret|secret|password)"?\s*[:=]\s*"?)([^\s,"'&}]+)("?)`)
@@ -37,9 +39,9 @@ type Dependencies struct {
 	Dashboard          *application.DashboardService
 	OfficialContent    *application.OfficialContentService
 	PermanentMaterials *application.PermanentMaterialService
+	Identity           *application.IdentityService
 	AdminAPIKey        string
-	AdminUsername      string
-	AdminPasswordHash  string
+	AdminUserID        string
 	AdminSessionSecret string
 	MCPToken           string
 	MCPPath            string
@@ -67,14 +69,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerWechatCallbackRoutes(r, deps.Callbacks)
 	registerAuthorizationCallbackRoutes(v1, deps.Authorization)
 	registerAuthorizationURLRoutes(v1, deps.Authorization)
-	adminSessions := newAdminSessionManager(adminSessionConfig{
-		Username:     deps.AdminUsername,
-		PasswordHash: deps.AdminPasswordHash,
-		Secret:       deps.AdminSessionSecret,
-	}, logger)
-	registerAdminSessionRoutes(v1, adminSessions, deps.AdminAPIKey)
+	adminSessions := newAdminSessionManager(adminSessionConfig{Secret: deps.AdminSessionSecret}, deps.Identity, logger)
+	registerAdminSessionRoutes(v1, adminSessions, deps.AdminAPIKey, deps.AdminUserID)
 	adminV1 := v1.Group("")
-	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, adminSessions))
+	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, deps.AdminUserID, adminSessions))
 	registerAccountRoutes(adminV1, deps.Accounts)
 	registerArticleRoutes(adminV1, deps.Articles, deps.Publishes)
 	registerMaterialRoutes(adminV1, deps.Materials)
@@ -100,22 +98,31 @@ func limitRequestBody(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-func requireAdminAuth(expectedAPIKey string, sessions *adminSessionManager) gin.HandlerFunc {
+func requireAdminAuth(expectedAPIKey string, apiUserID string, sessions *adminSessionManager) gin.HandlerFunc {
 	expectedAPIKey = strings.TrimSpace(expectedAPIKey)
+	apiUserID = strings.TrimSpace(apiUserID)
 	authEnabled := expectedAPIKey != "" || (sessions != nil && sessions.enabled())
 	if !authEnabled {
 		return func(c *gin.Context) {
+			c.Set(legacyTenantHeaderContextKey, true)
 			c.Next()
 		}
 	}
 	return func(c *gin.Context) {
 		if expectedAPIKey != "" && isValidAdminAPIKey(c, expectedAPIKey) {
+			if apiUserID == "" {
+				writeError(c, http.StatusUnauthorized, "unauthorized")
+				c.Abort()
+				return
+			}
+			c.Set(currentUserIDContextKey, apiUserID)
 			c.Next()
 			return
 		}
 		if sessions != nil {
 			session, ok := sessions.sessionFromRequest(c)
 			if ok && sessions.validCSRF(c, session) {
+				c.Set(currentUserIDContextKey, session.UserID)
 				c.Next()
 				return
 			}
@@ -296,12 +303,30 @@ func registerArticleRoutes(r gin.IRouter, service *application.ArticleService, p
 }
 
 func bindTenant(c *gin.Context) (string, bool) {
+	if currentUserID, ok := c.Get(currentUserIDContextKey); ok {
+		if userID, ok := currentUserID.(string); ok && strings.TrimSpace(userID) != "" {
+			return strings.TrimSpace(userID), true
+		}
+	}
+	if allowed, ok := c.Get(legacyTenantHeaderContextKey); !ok || allowed != true {
+		writeError(c, http.StatusUnauthorized, "unauthorized")
+		return "", false
+	}
 	var header tenantHeader
 	if err := c.ShouldBindHeader(&header); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_request")
 		return "", false
 	}
 	return header.TenantID, true
+}
+
+func currentUserID(c *gin.Context) string {
+	value, ok := c.Get(currentUserIDContextKey)
+	if !ok {
+		return ""
+	}
+	userID, _ := value.(string)
+	return strings.TrimSpace(userID)
 }
 
 func bindTenantAndID(c *gin.Context) (string, int64, bool) {
@@ -380,7 +405,7 @@ func logInternalServiceError(c *gin.Context, err error) {
 		zap.String("method", requestMethod(c)),
 		zap.String("route", requestRoute(c)),
 		zap.String("path", requestPath(c)),
-		zap.String("tenant_id", strings.TrimSpace(c.GetHeader("X-Tenant-ID"))),
+		zap.String("user_id", currentUserID(c)),
 		zap.String("error", safeLogError(err)),
 	)
 }

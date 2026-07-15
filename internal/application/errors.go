@@ -10,3 +10,6 @@ var ErrNotFound = errors.New("not found")
 
 // ErrNotImplemented indicates a dependency is intentionally unavailable in the current stage.
 var ErrNotImplemented = errors.New("not implemented")
+
+// ErrInvalidCredentials indicates that a login identity cannot be authenticated.
+var ErrInvalidCredentials = errors.New("invalid credentials")

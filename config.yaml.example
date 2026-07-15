@@ -16,6 +16,8 @@ redis:
   addr: ""
 
 security:
+  # Stable id of the existing administrator data space. Keep tenant-1 when upgrading.
+  admin_user_id: "tenant-1"
   # Required when app.env is prod. For public admin pages, prefer a gateway that injects this header.
   admin_api_key: ""
   # Optional administrator login. Configure all three values together to enable the login page.

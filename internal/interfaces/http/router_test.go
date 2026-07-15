@@ -22,6 +22,7 @@ import (
 	"official-account-service/internal/application"
 	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
+	"official-account-service/internal/domain/identity"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/infra/persistence/memory"
 )
@@ -198,6 +199,7 @@ func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
 	router := NewRouter(Dependencies{
 		Logger:        zap.NewNop(),
 		AdminAPIKey:   "admin-key",
+		AdminUserID:   "user-1",
 		MCPToken:      "mcp-token",
 		MCPPath:       "/mcp",
 		Authorization: application.NewAuthorizationService(store, fixedRouteTime),
@@ -235,11 +237,18 @@ func TestAdminSessionLoginProtectsManagementRoutes(t *testing.T) {
 	store := memory.NewStore(fixedRouteTime)
 	hash, err := bcrypt.GenerateFromPassword([]byte("secret-password"), bcrypt.MinCost)
 	require.NoError(t, err)
+	_, err = store.SaveUser(t.Context(), identity.User{
+		ID: "user-1", Username: "admin", PasswordHash: string(hash), Role: identity.RoleAdmin, Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	_, err = store.SaveAccount(t.Context(), "user-1", authorization.Account{AppID: "wx-owned", Name: "Owned", Status: authorization.AccountStatusActive})
+	require.NoError(t, err)
+	_, err = store.SaveAccount(t.Context(), "user-2", authorization.Account{AppID: "wx-other", Name: "Other", Status: authorization.AccountStatusActive})
+	require.NoError(t, err)
 	router := NewRouter(Dependencies{
 		Logger:             zap.NewNop(),
-		AdminUsername:      "admin",
-		AdminPasswordHash:  string(hash),
 		AdminSessionSecret: "test-session-secret",
+		Identity:           application.NewIdentityService(store),
 		Authorization:      application.NewAuthorizationService(store, fixedRouteTime),
 		Accounts:           application.NewAccountService(store),
 		Articles:           application.NewArticleService(store),
@@ -261,6 +270,8 @@ func TestAdminSessionLoginProtectsManagementRoutes(t *testing.T) {
 	require.NoError(t, json.Unmarshal(login.Body.Bytes(), &loginBody))
 	require.True(t, loginBody.Authenticated)
 	require.Equal(t, "admin", loginBody.Username)
+	require.Equal(t, "user-1", loginBody.UserID)
+	require.Equal(t, "admin", loginBody.Role)
 	require.NotEmpty(t, loginBody.CSRFToken)
 	sessionCookie := firstCookie(t, login, adminSessionCookieName)
 	require.True(t, sessionCookie.HttpOnly)
@@ -271,14 +282,17 @@ func TestAdminSessionLoginProtectsManagementRoutes(t *testing.T) {
 	require.Contains(t, sessionStatus.Body.String(), `"authenticated":true`)
 	require.Contains(t, sessionStatus.Body.String(), `"csrf_token"`)
 
-	accounts := doJSONWithCookiesAndHeaders(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", []*http.Cookie{sessionCookie}, nil)
+	accounts := doJSONWithCookiesAndHeaders(t, router, http.MethodGet, "/api/v1/accounts", ``, "user-2", []*http.Cookie{sessionCookie}, nil)
 	require.Equal(t, http.StatusOK, accounts.Code)
+	require.Contains(t, accounts.Body.String(), `"app_id":"wx-owned"`)
+	require.NotContains(t, accounts.Body.String(), "wx-other")
 
 	missingCSRF := doJSONWithCookiesAndHeaders(t, router, http.MethodPost, "/api/v1/articles", `{"authorizer_id":1,"title":"hello"}`, "tenant-1", []*http.Cookie{sessionCookie}, nil)
 	require.Equal(t, http.StatusUnauthorized, missingCSRF.Code)
 
 	created := doJSONWithCookiesAndHeaders(t, router, http.MethodPost, "/api/v1/articles", `{"authorizer_id":1,"title":"hello"}`, "tenant-1", []*http.Cookie{sessionCookie}, map[string]string{adminCSRFHeaderName: loginBody.CSRFToken})
 	require.Equal(t, http.StatusCreated, created.Code)
+	require.Contains(t, created.Body.String(), `"tenant_id":"user-1"`)
 
 	logout := doJSONWithCookiesAndHeaders(t, router, http.MethodDelete, "/api/v1/admin/session", ``, "", []*http.Cookie{sessionCookie}, map[string]string{adminCSRFHeaderName: loginBody.CSRFToken})
 	require.Equal(t, http.StatusOK, logout.Code)
@@ -377,6 +391,7 @@ func TestWriteServiceErrorLogsInternalErrorSafely(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/articles/1/publish?access_token=query-secret", nil)
 	c.Request.Header.Set("X-Tenant-ID", "tenant-1")
 	c.Set(loggerContextKey, logger)
+	c.Set(currentUserIDContextKey, "user-1")
 
 	ok := writeServiceError(c, errors.New("submit failed: access_token=token-secret admin_api_key=admin-secret password=pw"))
 
@@ -389,7 +404,7 @@ func TestWriteServiceErrorLogsInternalErrorSafely(t *testing.T) {
 	require.Equal(t, "internal_error", fields["error_code"])
 	require.Equal(t, "POST", fields["method"])
 	require.Equal(t, "/api/v1/articles/1/publish", fields["path"])
-	require.Equal(t, "tenant-1", fields["tenant_id"])
+	require.Equal(t, "user-1", fields["user_id"])
 	errorMessage, ok := fields["error"].(string)
 	require.True(t, ok)
 	require.Contains(t, errorMessage, "[REDACTED]")

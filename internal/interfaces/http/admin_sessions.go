@@ -1,11 +1,13 @@
 package http
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -14,7 +16,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/bcrypt"
+
+	"official-account-service/internal/application"
+	"official-account-service/internal/domain/identity"
 )
 
 const (
@@ -26,19 +30,21 @@ const (
 )
 
 type adminSessionConfig struct {
-	Username     string
-	PasswordHash string
-	Secret       string
+	Secret string
 }
 
 type adminSessionManager struct {
-	username     string
-	passwordHash []byte
-	secret       []byte
-	now          func() time.Time
-	logger       *zap.Logger
-	mu           sync.Mutex
-	failures     map[string]adminLoginFailure
+	identities identityAuthenticator
+	secret     []byte
+	now        func() time.Time
+	logger     *zap.Logger
+	mu         sync.Mutex
+	failures   map[string]adminLoginFailure
+}
+
+type identityAuthenticator interface {
+	Authenticate(ctx context.Context, username string, password string) (identity.User, error)
+	GetActiveUser(ctx context.Context, userID string) (identity.User, error)
 }
 
 type adminLoginFailure struct {
@@ -48,6 +54,8 @@ type adminLoginFailure struct {
 
 type adminSessionClaims struct {
 	Username  string `json:"username"`
+	UserID    string `json:"user_id"`
+	Role      string `json:"role"`
 	ExpiresAt int64  `json:"expires_at"`
 	CSRFToken string `json:"csrf_token"`
 }
@@ -62,30 +70,29 @@ type adminSessionResponse struct {
 	AuthEnabled   bool   `json:"auth_enabled"`
 	LoginEnabled  bool   `json:"login_enabled"`
 	Username      string `json:"username,omitempty"`
+	UserID        string `json:"user_id,omitempty"`
+	Role          string `json:"role,omitempty"`
 	CSRFToken     string `json:"csrf_token,omitempty"`
 }
 
-func newAdminSessionManager(cfg adminSessionConfig, logger *zap.Logger) *adminSessionManager {
-	username := strings.TrimSpace(cfg.Username)
-	passwordHash := strings.TrimSpace(cfg.PasswordHash)
+func newAdminSessionManager(cfg adminSessionConfig, identities identityAuthenticator, logger *zap.Logger) *adminSessionManager {
 	secret := strings.TrimSpace(cfg.Secret)
-	if username == "" || passwordHash == "" || secret == "" {
+	if identities == nil || secret == "" {
 		return nil
 	}
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &adminSessionManager{
-		username:     username,
-		passwordHash: []byte(passwordHash),
-		secret:       []byte(secret),
-		now:          time.Now,
-		logger:       logger,
-		failures:     make(map[string]adminLoginFailure),
+		identities: identities,
+		secret:     []byte(secret),
+		now:        time.Now,
+		logger:     logger,
+		failures:   make(map[string]adminLoginFailure),
 	}
 }
 
-func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, adminAPIKey string) {
+func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, adminAPIKey string, apiUserID string) {
 	r.GET("/admin/session", func(c *gin.Context) {
 		authEnabled := strings.TrimSpace(adminAPIKey) != "" || (sessions != nil && sessions.enabled())
 		response := adminSessionResponse{
@@ -95,6 +102,8 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, ad
 		if strings.TrimSpace(adminAPIKey) != "" && isValidAdminAPIKey(c, adminAPIKey) {
 			response.Authenticated = true
 			response.Username = "api-key"
+			response.UserID = strings.TrimSpace(apiUserID)
+			response.Role = string(identity.RoleAdmin)
 			c.JSON(http.StatusOK, response)
 			return
 		}
@@ -102,6 +111,8 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, ad
 			if session, ok := sessions.sessionFromRequest(c); ok {
 				response.Authenticated = true
 				response.Username = session.Username
+				response.UserID = session.UserID
+				response.Role = session.Role
 				response.CSRFToken = session.CSRFToken
 				c.JSON(http.StatusOK, response)
 				return
@@ -128,7 +139,7 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, ad
 			writeRequestReadError(c, err)
 			return
 		}
-		session, ok := sessions.authenticate(body.Username, body.Password)
+		session, ok := sessions.authenticate(c.Request.Context(), body.Username, body.Password)
 		if !ok {
 			sessions.recordFailure(clientKey)
 			writeError(c, http.StatusUnauthorized, "unauthorized")
@@ -147,6 +158,8 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, ad
 			AuthEnabled:   true,
 			LoginEnabled:  true,
 			Username:      session.Username,
+			UserID:        session.UserID,
+			Role:          session.Role,
 			CSRFToken:     session.CSRFToken,
 		})
 	})
@@ -164,13 +177,15 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, ad
 }
 
 func (m *adminSessionManager) enabled() bool {
-	return m != nil && m.username != "" && len(m.passwordHash) > 0 && len(m.secret) > 0
+	return m != nil && m.identities != nil && len(m.secret) > 0
 }
 
-func (m *adminSessionManager) authenticate(username string, password string) (adminSessionClaims, bool) {
-	userOK := constantTimeStringEqual(strings.TrimSpace(username), m.username)
-	passwordOK := bcrypt.CompareHashAndPassword(m.passwordHash, []byte(password)) == nil
-	if !userOK || !passwordOK {
+func (m *adminSessionManager) authenticate(ctx context.Context, username string, password string) (adminSessionClaims, bool) {
+	user, err := m.identities.Authenticate(ctx, username, password)
+	if err != nil {
+		if !errors.Is(err, application.ErrInvalidCredentials) {
+			m.logger.Error("authenticate user", zap.String("error_code", "internal_error"), zap.Error(err))
+		}
 		return adminSessionClaims{}, false
 	}
 	csrfToken, err := randomToken()
@@ -179,7 +194,9 @@ func (m *adminSessionManager) authenticate(username string, password string) (ad
 		return adminSessionClaims{}, false
 	}
 	return adminSessionClaims{
-		Username:  m.username,
+		Username:  user.Username,
+		UserID:    user.ID,
+		Role:      string(user.Role),
 		ExpiresAt: m.now().Add(adminSessionTTL).Unix(),
 		CSRFToken: csrfToken,
 	}, true
@@ -200,10 +217,10 @@ func (m *adminSessionManager) sessionFromRequest(c *gin.Context) (adminSessionCl
 	if err != nil || strings.TrimSpace(cookie) == "" {
 		return adminSessionClaims{}, false
 	}
-	return m.verify(cookie)
+	return m.verify(c.Request.Context(), cookie)
 }
 
-func (m *adminSessionManager) verify(token string) (adminSessionClaims, bool) {
+func (m *adminSessionManager) verify(ctx context.Context, token string) (adminSessionClaims, bool) {
 	payload, signature, ok := strings.Cut(strings.TrimSpace(token), ".")
 	if !ok || payload == "" || signature == "" {
 		return adminSessionClaims{}, false
@@ -219,10 +236,11 @@ func (m *adminSessionManager) verify(token string) (adminSessionClaims, bool) {
 	if err := json.Unmarshal(rawPayload, &session); err != nil {
 		return adminSessionClaims{}, false
 	}
-	if !constantTimeStringEqual(session.Username, m.username) {
+	if session.UserID == "" || session.Username == "" || session.CSRFToken == "" || session.ExpiresAt <= m.now().Unix() {
 		return adminSessionClaims{}, false
 	}
-	if session.CSRFToken == "" || session.ExpiresAt <= m.now().Unix() {
+	user, err := m.identities.GetActiveUser(ctx, session.UserID)
+	if err != nil || !constantTimeStringEqual(user.Username, session.Username) || string(user.Role) != session.Role {
 		return adminSessionClaims{}, false
 	}
 	return session, true

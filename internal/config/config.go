@@ -20,6 +20,7 @@ type Config struct {
 	DBDSN                    string
 	RedisAddr                string
 	AdminAPIKey              string
+	AdminUserID              string
 	AdminUsername            string
 	AdminPasswordHash        string
 	AdminSessionSecret       string
@@ -53,6 +54,7 @@ func Load(path string) (Config, error) {
 		DBDSN:                    v.GetString("database.dsn"),
 		RedisAddr:                v.GetString("redis.addr"),
 		AdminAPIKey:              v.GetString("security.admin_api_key"),
+		AdminUserID:              v.GetString("security.admin_user_id"),
 		AdminUsername:            v.GetString("security.admin_username"),
 		AdminPasswordHash:        v.GetString("security.admin_password_hash"),
 		AdminSessionSecret:       v.GetString("security.admin_session_secret"),
@@ -76,6 +78,7 @@ func Load(path string) (Config, error) {
 
 func validateAdminAuth(cfg Config) error {
 	adminAPIKey := strings.TrimSpace(cfg.AdminAPIKey)
+	adminUserID := strings.TrimSpace(cfg.AdminUserID)
 	adminUsername := strings.TrimSpace(cfg.AdminUsername)
 	adminPasswordHash := strings.TrimSpace(cfg.AdminPasswordHash)
 	adminSessionSecret := strings.TrimSpace(cfg.AdminSessionSecret)
@@ -87,6 +90,9 @@ func validateAdminAuth(cfg Config) error {
 	}
 	if adminSessionValues > 0 && adminSessionValues < 3 {
 		return fmt.Errorf("validate config: security.admin_username, security.admin_password_hash and security.admin_session_secret must be configured together")
+	}
+	if (adminAPIKey != "" || adminSessionValues == 3) && adminUserID == "" {
+		return fmt.Errorf("validate config: security.admin_user_id is required when administrator authentication is enabled")
 	}
 	if adminPasswordHash != "" {
 		if _, err := bcrypt.Cost([]byte(adminPasswordHash)); err != nil {
@@ -109,6 +115,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.dsn", "")
 	v.SetDefault("redis.addr", "")
 	v.SetDefault("security.admin_api_key", "")
+	v.SetDefault("security.admin_user_id", "tenant-1")
 	v.SetDefault("security.admin_username", "")
 	v.SetDefault("security.admin_password_hash", "")
 	v.SetDefault("security.admin_session_secret", "")
