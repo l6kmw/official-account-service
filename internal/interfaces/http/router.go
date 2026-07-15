@@ -16,12 +16,15 @@ import (
 )
 
 const (
-	maxRequestBodyBytes          int64 = 10 << 20
-	loggerContextKey                   = "logger"
-	currentUserIDContextKey            = "current_user_id"
-	currentUserRoleContextKey          = "current_user_role"
-	legacyTenantHeaderContextKey       = "legacy_tenant_header_allowed"
-	maxLoggedErrorMessageRunes         = 1000
+	maxRequestBodyBytes            int64 = 10 << 20
+	loggerContextKey                     = "logger"
+	currentUserIDContextKey              = "current_user_id"
+	currentUserRoleContextKey            = "current_user_role"
+	currentActorTypeContextKey           = "current_actor_type"
+	currentAgentRecordIDContextKey       = "current_agent_record_id"
+	currentAgentIDContextKey             = "current_agent_id"
+	legacyTenantHeaderContextKey         = "legacy_tenant_header_allowed"
+	maxLoggedErrorMessageRunes           = 1000
 )
 
 var sensitiveLogValuePattern = regexp.MustCompile(`(?i)("?(?:access[_-]?token|component[_-]?access[_-]?token|authorizer[_-]?access[_-]?token|refresh[_-]?token|admin[_-]?api[_-]?key|authorization|app[_-]?secret|appsecret|secret|password)"?\s*[:=]\s*"?)([^\s,"'&}]+)("?)`)
@@ -75,6 +78,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, deps.AdminUserID, deps.Identity, adminSessions))
 	registerAuthorizationURLRoutes(adminV1, deps.Authorization)
 	registerUserRoutes(adminV1, deps.Identity)
+	registerAgentRoutes(adminV1, deps.Identity)
 	registerAccountRoutes(adminV1, deps.Accounts)
 	registerArticleRoutes(adminV1, deps.Articles, deps.Publishes)
 	registerMaterialRoutes(adminV1, deps.Materials)
@@ -119,17 +123,25 @@ func requireAdminAuth(expectedAPIKey string, apiUserID string, identities *appli
 			}
 			c.Set(currentUserIDContextKey, apiUserID)
 			c.Set(currentUserRoleContextKey, "admin")
+			c.Set(currentActorTypeContextKey, string(application.ActorTypeAdminAPIKey))
 			c.Next()
 			return
 		}
 		if identities != nil {
 			if token := requestAPIToken(c); token != "" {
-				user, err := identities.AuthenticateAPIToken(c.Request.Context(), token)
+				principal, err := identities.AuthenticatePrincipal(c.Request.Context(), token)
 				if err == nil {
-					c.Set(currentUserIDContextKey, user.ID)
-					c.Set(currentUserRoleContextKey, string(user.Role))
+					setPrincipalContext(c, principal)
 					c.Next()
 					return
+				}
+				if !errors.Is(err, application.ErrInvalidCredentials) {
+					loggerFromContext(c).Error("authenticate api token",
+						zap.String("error_code", "internal_error"),
+						zap.String("method", requestMethod(c)),
+						zap.String("path", requestPath(c)),
+						zap.String("error", safeLogError(err)),
+					)
 				}
 			}
 		}
@@ -138,12 +150,23 @@ func requireAdminAuth(expectedAPIKey string, apiUserID string, identities *appli
 			if ok && sessions.validCSRF(c, session) {
 				c.Set(currentUserIDContextKey, session.UserID)
 				c.Set(currentUserRoleContextKey, session.Role)
+				c.Set(currentActorTypeContextKey, string(application.ActorTypeBrowserSession))
 				c.Next()
 				return
 			}
 		}
 		writeError(c, http.StatusUnauthorized, "unauthorized")
 		c.Abort()
+	}
+}
+
+func setPrincipalContext(c *gin.Context, principal application.Principal) {
+	c.Set(currentUserIDContextKey, principal.User.ID)
+	c.Set(currentUserRoleContextKey, string(principal.User.Role))
+	c.Set(currentActorTypeContextKey, string(principal.ActorType))
+	if principal.Agent != nil {
+		c.Set(currentAgentRecordIDContextKey, principal.Agent.ID)
+		c.Set(currentAgentIDContextKey, principal.Agent.AgentID)
 	}
 }
 
@@ -358,6 +381,33 @@ func currentUserRole(c *gin.Context) string {
 	return strings.TrimSpace(role)
 }
 
+func currentActorType(c *gin.Context) string {
+	value, ok := c.Get(currentActorTypeContextKey)
+	if !ok {
+		return ""
+	}
+	actorType, _ := value.(string)
+	return strings.TrimSpace(actorType)
+}
+
+func currentAgentRecordID(c *gin.Context) string {
+	value, ok := c.Get(currentAgentRecordIDContextKey)
+	if !ok {
+		return ""
+	}
+	id, _ := value.(string)
+	return strings.TrimSpace(id)
+}
+
+func currentAgentID(c *gin.Context) string {
+	value, ok := c.Get(currentAgentIDContextKey)
+	if !ok {
+		return ""
+	}
+	id, _ := value.(string)
+	return strings.TrimSpace(id)
+}
+
 func bindTenantAndID(c *gin.Context) (string, int64, bool) {
 	tenant, ok := bindTenant(c)
 	if !ok {
@@ -439,6 +489,7 @@ func logInternalServiceError(c *gin.Context, err error) {
 		zap.String("route", requestRoute(c)),
 		zap.String("path", requestPath(c)),
 		zap.String("user_id", currentUserID(c)),
+		zap.String("agent_id", currentAgentID(c)),
 		zap.String("error", safeLogError(err)),
 	)
 }

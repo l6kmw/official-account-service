@@ -72,6 +72,11 @@ type adminSessionResponse struct {
 	Username      string `json:"username,omitempty"`
 	UserID        string `json:"user_id,omitempty"`
 	Role          string `json:"role,omitempty"`
+	ActorType     string `json:"actor_type,omitempty"`
+	AgentRecordID string `json:"agent_record_id,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	AgentName     string `json:"agent_name,omitempty"`
+	AgentPurpose  string `json:"agent_purpose,omitempty"`
 	CSRFToken     string `json:"csrf_token,omitempty"`
 }
 
@@ -104,16 +109,26 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, id
 			response.Username = "api-key"
 			response.UserID = strings.TrimSpace(apiUserID)
 			response.Role = string(identity.RoleAdmin)
+			response.ActorType = string(application.ActorTypeAdminAPIKey)
 			c.JSON(http.StatusOK, response)
 			return
 		}
 		if identities != nil {
-			if user, err := identities.AuthenticateAPIToken(c.Request.Context(), requestAPIToken(c)); err == nil {
+			principal, err := identities.AuthenticatePrincipal(c.Request.Context(), requestAPIToken(c))
+			if err == nil {
 				response.Authenticated = true
-				response.Username = user.Username
-				response.UserID = user.ID
-				response.Role = string(user.Role)
+				applyPrincipalToSessionResponse(&response, principal)
 				c.JSON(http.StatusOK, response)
+				return
+			}
+			if !errors.Is(err, application.ErrInvalidCredentials) {
+				loggerFromContext(c).Error("authenticate api token session",
+					zap.String("error_code", "internal_error"),
+					zap.String("method", requestMethod(c)),
+					zap.String("path", requestPath(c)),
+					zap.String("error", safeLogError(err)),
+				)
+				writeError(c, http.StatusInternalServerError, "internal_error")
 				return
 			}
 		}
@@ -123,6 +138,7 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, id
 				response.Username = session.Username
 				response.UserID = session.UserID
 				response.Role = session.Role
+				response.ActorType = string(application.ActorTypeBrowserSession)
 				response.CSRFToken = session.CSRFToken
 				c.JSON(http.StatusOK, response)
 				return
@@ -170,6 +186,7 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, id
 			Username:      session.Username,
 			UserID:        session.UserID,
 			Role:          session.Role,
+			ActorType:     string(application.ActorTypeBrowserSession),
 			CSRFToken:     session.CSRFToken,
 		})
 	})
@@ -184,6 +201,20 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, id
 			LoginEnabled:  sessions != nil && sessions.enabled(),
 		})
 	})
+}
+
+func applyPrincipalToSessionResponse(response *adminSessionResponse, principal application.Principal) {
+	response.Username = principal.User.Username
+	response.UserID = principal.User.ID
+	response.Role = string(principal.User.Role)
+	response.ActorType = string(principal.ActorType)
+	if principal.Agent == nil {
+		return
+	}
+	response.AgentRecordID = principal.Agent.ID
+	response.AgentID = principal.Agent.AgentID
+	response.AgentName = principal.Agent.Name
+	response.AgentPurpose = principal.Agent.Purpose
 }
 
 func (m *adminSessionManager) enabled() bool {

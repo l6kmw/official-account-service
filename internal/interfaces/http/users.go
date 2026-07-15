@@ -70,6 +70,7 @@ func registerUserRoutes(r gin.IRouter, service *application.IdentityService) {
 		if !writeServiceError(c, err) {
 			return
 		}
+		preventCredentialCaching(c)
 		c.JSON(http.StatusCreated, generatedAPITokenResponse{Token: generated.Token, User: toUserResponse(generated.User)})
 	})
 	r.DELETE("/admin/users/:user_id/api-token", func(c *gin.Context) {

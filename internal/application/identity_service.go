@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -19,13 +20,19 @@ const invalidPasswordHash = "$2y$12$QnmwaSNnA6XLj0psgijIF.TFmph4HHbplvdjh/ddcWpG
 
 // IdentityService authenticates users who own isolated data spaces.
 type IdentityService struct {
-	users     identity.Repository
-	newUserID func() (string, error)
+	users      identity.Repository
+	agents     identity.AgentRepository
+	newUserID  func() (string, error)
+	newAgentID func() (string, error)
+	now        func() time.Time
 }
 
 // NewIdentityService constructs an identity service.
 func NewIdentityService(users identity.Repository) *IdentityService {
-	return &IdentityService{users: users, newUserID: randomUserID}
+	agents, _ := users.(identity.AgentRepository)
+	return &IdentityService{
+		users: users, agents: agents, newUserID: randomUserID, newAgentID: randomAgentID, now: time.Now,
+	}
 }
 
 // CreateUserInput contains administrator-provided credentials for a new isolated user.
@@ -34,10 +41,11 @@ type CreateUserInput struct {
 	Password string
 }
 
-// GeneratedAPIToken is returned once when an administrator rotates a user's API/MCP credential.
+// GeneratedAPIToken is returned once when an administrator rotates a user's default Agent credential.
 type GeneratedAPIToken struct {
 	Token string
 	User  identity.User
+	Agent *identity.Agent
 }
 
 // CreateUser creates an active non-admin user with an independent data-space id.
@@ -78,78 +86,13 @@ func (s *IdentityService) ListUsers(ctx context.Context) ([]identity.User, error
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
+	for i := range users {
+		users[i], err = s.userWithDefaultAgentToken(ctx, users[i])
+		if err != nil {
+			return nil, err
+		}
+	}
 	return users, nil
-}
-
-// GenerateAPIToken replaces a user's API/MCP credential and returns the plaintext once.
-func (s *IdentityService) GenerateAPIToken(ctx context.Context, userID string) (GeneratedAPIToken, error) {
-	if s == nil || s.users == nil {
-		return GeneratedAPIToken{}, fmt.Errorf("validate identity service: %w", ErrNotImplemented)
-	}
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return GeneratedAPIToken{}, fmt.Errorf("validate api token user: %w", ErrInvalidInput)
-	}
-	user, err := s.users.GetUser(ctx, userID)
-	if errors.Is(err, identity.ErrNotFound) {
-		return GeneratedAPIToken{}, fmt.Errorf("get api token user: %w", ErrNotFound)
-	}
-	if err != nil {
-		return GeneratedAPIToken{}, fmt.Errorf("get api token user: %w", err)
-	}
-	if user.Status != identity.StatusActive {
-		return GeneratedAPIToken{}, fmt.Errorf("validate api token user status: %w", ErrConflict)
-	}
-	raw, err := randomAPIToken()
-	if err != nil {
-		return GeneratedAPIToken{}, fmt.Errorf("generate api token: %w", err)
-	}
-	user, err = s.users.SaveUserAPIToken(ctx, userID, apiTokenHash(raw), apiTokenHint(raw))
-	if err != nil {
-		return GeneratedAPIToken{}, fmt.Errorf("save api token: %w", err)
-	}
-	return GeneratedAPIToken{Token: raw, User: user}, nil
-}
-
-// RevokeAPIToken immediately invalidates a user's API/MCP credential.
-func (s *IdentityService) RevokeAPIToken(ctx context.Context, userID string) (identity.User, error) {
-	if s == nil || s.users == nil {
-		return identity.User{}, fmt.Errorf("validate identity service: %w", ErrNotImplemented)
-	}
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return identity.User{}, fmt.Errorf("validate api token user: %w", ErrInvalidInput)
-	}
-	user, err := s.users.RevokeUserAPIToken(ctx, userID)
-	if errors.Is(err, identity.ErrNotFound) {
-		return identity.User{}, fmt.Errorf("revoke api token: %w", ErrNotFound)
-	}
-	if err != nil {
-		return identity.User{}, fmt.Errorf("revoke api token: %w", err)
-	}
-	return user, nil
-}
-
-// AuthenticateAPIToken resolves an active user from a high-entropy API/MCP token.
-func (s *IdentityService) AuthenticateAPIToken(ctx context.Context, token string) (identity.User, error) {
-	if s == nil || s.users == nil {
-		return identity.User{}, fmt.Errorf("validate identity service: %w", ErrNotImplemented)
-	}
-	token = strings.TrimSpace(token)
-	if !strings.HasPrefix(token, "oat_") || len(token) < 40 {
-		return identity.User{}, ErrInvalidCredentials
-	}
-	user, err := s.users.GetUserByAPITokenHash(ctx, apiTokenHash(token))
-	if errors.Is(err, identity.ErrNotFound) {
-		return identity.User{}, ErrInvalidCredentials
-	}
-	if err != nil {
-		return identity.User{}, fmt.Errorf("get api token user: %w", err)
-	}
-	if user.Status != identity.StatusActive {
-		return identity.User{}, ErrInvalidCredentials
-	}
-	return user, nil
 }
 
 // BootstrapUserInput activates the existing configured administrator without changing its data-space id.
@@ -230,6 +173,14 @@ func randomUserID() (string, error) {
 		return "", err
 	}
 	return "usr_" + base64.RawURLEncoding.EncodeToString(raw[:]), nil
+}
+
+func randomAgentID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return "agt_" + base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 func randomAPIToken() (string, error) {

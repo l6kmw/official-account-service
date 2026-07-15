@@ -55,14 +55,44 @@ paths:
   /api/v1/admin/users/{user_id}/api-token:
     post:
       tags: [AdminAuth]
-      summary: Generate or rotate one user's API and MCP token
+      summary: Generate or rotate one user's compatibility default Agent token
       parameters: [{name: user_id, in: path, required: true, schema: {type: string}}]
       responses: {"201": {description: Plaintext token returned once, content: {application/json: {schema: {$ref: "#/components/schemas/GeneratedAPIToken"}}}}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}, "409": {$ref: "#/components/responses/Conflict"}}
     delete:
       tags: [AdminAuth]
-      summary: Revoke one user's API and MCP token
+      summary: Revoke one user's compatibility default Agent token
       parameters: [{name: user_id, in: path, required: true, schema: {type: string}}]
       responses: {"200": {description: User with revoked token metadata, content: {application/json: {schema: {$ref: "#/components/schemas/User"}}}}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}}
+  /api/v1/admin/users/{user_id}/agents:
+    get:
+      tags: [AdminAuth]
+      summary: List one user's Agents without token hashes
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: Agent list, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/Agent"}}}}}}}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}}
+    post:
+      tags: [AdminAuth]
+      summary: Create one Agent and return its first token once
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CreateAgentRequest"}}}}
+      responses: {"201": {description: Created Agent and plaintext token, content: {application/json: {schema: {$ref: "#/components/schemas/GeneratedAgentAPIToken"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}, "409": {$ref: "#/components/responses/Conflict"}}
+  /api/v1/admin/users/{user_id}/agents/{agent_record_id}:
+    patch:
+      tags: [AdminAuth]
+      summary: Update or disable one user-owned Agent
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}, {name: agent_record_id, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/UpdateAgentRequest"}}}}
+      responses: {"200": {description: Updated Agent, content: {application/json: {schema: {$ref: "#/components/schemas/Agent"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}}
+  /api/v1/admin/users/{user_id}/agents/{agent_record_id}/api-token:
+    post:
+      tags: [AdminAuth]
+      summary: Rotate only the selected Agent token
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}, {name: agent_record_id, in: path, required: true, schema: {type: string}}]
+      responses: {"201": {description: Rotated plaintext token returned once, content: {application/json: {schema: {$ref: "#/components/schemas/GeneratedAgentAPIToken"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}, "409": {$ref: "#/components/responses/Conflict"}}
+    delete:
+      tags: [AdminAuth]
+      summary: Revoke only the selected Agent token
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}, {name: agent_record_id, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: Agent with revoked token metadata, content: {application/json: {schema: {$ref: "#/components/schemas/Agent"}}}}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}}
   /api/v1/admin/mcp-config:
     get:
       tags: [AdminAuth]
@@ -306,7 +336,7 @@ components:
     InvalidRequest: {description: Invalid request, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     Unauthorized: {description: Unauthorized request, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     Forbidden: {description: Administrator role required, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
-    Conflict: {description: Resource already belongs to another user, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    Conflict: {description: Resource conflicts with existing ownership or state, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     RateLimited: {description: Too many login attempts, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     NotImplemented: {description: Dependency not configured, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
@@ -318,11 +348,15 @@ components:
     HealthResponse: {type: object, required: [status], properties: {status: {type: string, example: ok}}}
     Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, request_too_large, unauthorized, forbidden, conflict, rate_limited, not_found, not_implemented, internal_error]}}}
     AdminLoginRequest: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string, format: password}}}
-    AdminSession: {type: object, required: [authenticated, auth_enabled, login_enabled], properties: {authenticated: {type: boolean}, auth_enabled: {type: boolean}, login_enabled: {type: boolean}, username: {type: string}, user_id: {type: string}, role: {type: string, enum: [admin, user]}, csrf_token: {type: string, description: Required as X-CSRF-Token for unsafe management requests when using the admin session cookie.}}}
+    AdminSession: {type: object, required: [authenticated, auth_enabled, login_enabled], properties: {authenticated: {type: boolean}, auth_enabled: {type: boolean}, login_enabled: {type: boolean}, username: {type: string}, user_id: {type: string}, role: {type: string, enum: [admin, user]}, actor_type: {type: string, enum: [agent_token, legacy_user_token, browser_session, admin_api_key]}, agent_record_id: {type: string}, agent_id: {type: string}, agent_name: {type: string}, agent_purpose: {type: string}, csrf_token: {type: string, description: Required as X-CSRF-Token for unsafe management requests when using the admin session cookie.}}}
     CreateUserRequest: {type: object, required: [username, password], properties: {username: {type: string, minLength: 3, maxLength: 64}, password: {type: string, format: password, minLength: 12, maxLength: 72}}}
     User: {type: object, required: [id, username, role, status, api_token_configured, created_at, updated_at], properties: {id: {type: string}, username: {type: string}, role: {type: string, enum: [admin, user]}, status: {type: string, enum: [active, disabled]}, api_token_configured: {type: boolean}, api_token_hint: {type: string}, api_token_created_at: {type: string, format: date-time}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
     GeneratedAPIToken: {type: object, required: [token, user], properties: {token: {type: string, description: Returned once; store it in the MCP client secret configuration.}, user: {$ref: "#/components/schemas/User"}}}
-    MCPConfig: {type: object, required: [transport, path, header_name, token, configured, revealable], properties: {transport: {type: string, enum: [streamable-http]}, path: {type: string}, header_name: {type: string, enum: [Authorization]}, token: {type: string, description: Empty for hashed per-user credentials.}, token_hint: {type: string}, configured: {type: boolean}, revealable: {type: boolean}}}
+    CreateAgentRequest: {type: object, required: [agent_id, name], properties: {agent_id: {type: string, minLength: 1, maxLength: 128}, name: {type: string, minLength: 1, maxLength: 64}, purpose: {type: string, maxLength: 200}}}
+    UpdateAgentRequest: {type: object, required: [name, status], properties: {name: {type: string, minLength: 1, maxLength: 64}, purpose: {type: string, maxLength: 200}, status: {type: string, enum: [active, disabled]}}}
+    Agent: {type: object, required: [id, user_id, agent_id, name, purpose, status, api_token_configured, created_at, updated_at], properties: {id: {type: string}, user_id: {type: string}, agent_id: {type: string}, name: {type: string}, purpose: {type: string}, status: {type: string, enum: [active, disabled]}, api_token_configured: {type: boolean}, api_token_hint: {type: string}, api_token_created_at: {type: string, format: date-time}, last_used_at: {type: string, format: date-time}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
+    GeneratedAgentAPIToken: {type: object, required: [token, agent], properties: {token: {type: string, description: Returned once; only configure it on the matching Agent.}, agent: {$ref: "#/components/schemas/Agent"}}}
+    MCPConfig: {type: object, required: [transport, path, header_name, token, configured, revealable, management_path], properties: {transport: {type: string, enum: [streamable-http]}, path: {type: string}, header_name: {type: string, enum: [Authorization]}, token: {type: string, description: Empty for hashed Agent credentials.}, token_hint: {type: string}, configured: {type: boolean}, revealable: {type: boolean}, agent_id: {type: string}, agent_name: {type: string}, agent_purpose: {type: string}, management_path: {type: string, example: "#/users"}}}
     AuthorizationURL: {type: object, required: [authorization_url, pre_auth_code_expires_in_sec], properties: {authorization_url: {type: string, format: uri}, pre_auth_code_expires_in_sec: {type: integer}}}
     Account:
       type: object

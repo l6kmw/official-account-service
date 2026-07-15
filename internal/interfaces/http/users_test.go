@@ -45,6 +45,7 @@ func TestAdminCreatesUserWithoutExposingPasswordHash(t *testing.T) {
 
 	generated := doJSONWithAdminKey(t, router, http.MethodPost, "/api/v1/admin/users/"+user.ID+"/api-token", ``, "spoofed-user", "admin-key")
 	require.Equal(t, http.StatusCreated, generated.Code)
+	require.Equal(t, "no-store", generated.Header().Get("Cache-Control"))
 	require.NotContains(t, generated.Body.String(), "api_token_hash")
 	var credential generatedAPITokenResponse
 	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &credential))
