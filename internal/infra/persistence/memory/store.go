@@ -67,6 +67,9 @@ func (s *Store) SaveUser(_ context.Context, user identity.User) (identity.User, 
 	now := s.now()
 	if current, ok := s.users[user.ID]; ok {
 		user.CreatedAt = current.CreatedAt
+		user.APITokenHash = current.APITokenHash
+		user.APITokenHint = current.APITokenHint
+		user.APITokenCreatedAt = current.APITokenCreatedAt
 	} else {
 		user.CreatedAt = now
 	}
@@ -98,6 +101,18 @@ func (s *Store) GetUserByUsername(_ context.Context, username string) (identity.
 	return identity.User{}, fmt.Errorf("get user by username lookup: %w", identity.ErrNotFound)
 }
 
+// GetUserByAPITokenHash returns one user by a non-reversible API token digest.
+func (s *Store) GetUserByAPITokenHash(_ context.Context, tokenHash string) (identity.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, user := range s.users {
+		if user.APITokenHash == tokenHash && tokenHash != "" {
+			return user, nil
+		}
+	}
+	return identity.User{}, fmt.Errorf("get user by api token lookup: %w", identity.ErrNotFound)
+}
+
 // ListUsers returns all platform users without changing their data-space scope.
 func (s *Store) ListUsers(_ context.Context) ([]identity.User, error) {
 	s.mu.RLock()
@@ -107,6 +122,44 @@ func (s *Store) ListUsers(_ context.Context) ([]identity.User, error) {
 		users = append(users, user)
 	}
 	return users, nil
+}
+
+// SaveUserAPIToken replaces one user's API/MCP credential metadata.
+func (s *Store) SaveUserAPIToken(_ context.Context, userID string, tokenHash string, tokenHint string) (identity.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[userID]
+	if !ok {
+		return identity.User{}, fmt.Errorf("save user api token lookup: %w", identity.ErrNotFound)
+	}
+	for id, current := range s.users {
+		if id != userID && current.APITokenHash == tokenHash && tokenHash != "" {
+			return identity.User{}, fmt.Errorf("save user api token hash: %w", identity.ErrConflict)
+		}
+	}
+	now := s.now()
+	user.APITokenHash = tokenHash
+	user.APITokenHint = tokenHint
+	user.APITokenCreatedAt = &now
+	user.UpdatedAt = now
+	s.users[userID] = user
+	return user, nil
+}
+
+// RevokeUserAPIToken removes one user's API/MCP credential.
+func (s *Store) RevokeUserAPIToken(_ context.Context, userID string) (identity.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[userID]
+	if !ok {
+		return identity.User{}, fmt.Errorf("revoke user api token lookup: %w", identity.ErrNotFound)
+	}
+	user.APITokenHash = ""
+	user.APITokenHint = ""
+	user.APITokenCreatedAt = nil
+	user.UpdatedAt = s.now()
+	s.users[userID] = user
+	return user, nil
 }
 
 // SaveComponentVerifyTicket stores the latest component verify ticket.

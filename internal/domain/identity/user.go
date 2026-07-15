@@ -31,13 +31,16 @@ const (
 
 // User owns one isolated data space. ID is also used as the existing tenant_id value.
 type User struct {
-	ID           string
-	Username     string
-	PasswordHash string
-	Role         Role
-	Status       Status
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                string
+	Username          string
+	PasswordHash      string
+	Role              Role
+	Status            Status
+	APITokenHash      string
+	APITokenHint      string
+	APITokenCreatedAt *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // Repository persists platform users and authentication data.
@@ -45,5 +48,8 @@ type Repository interface {
 	SaveUser(ctx context.Context, user User) (User, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetUserByAPITokenHash(ctx context.Context, tokenHash string) (User, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	SaveUserAPIToken(ctx context.Context, userID string, tokenHash string, tokenHint string) (User, error)
+	RevokeUserAPIToken(ctx context.Context, userID string) (User, error)
 }

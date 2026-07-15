@@ -22,7 +22,7 @@ func (s *Store) SaveUser(ctx context.Context, user identity.User) (identity.User
 			role = EXCLUDED.role,
 			status = EXCLUDED.status,
 			updated_at = NOW()
-		RETURNING id, username, password_hash, role, status, created_at, updated_at`,
+		RETURNING id, username, password_hash, role, status, COALESCE(api_token_hash, ''), api_token_hint, api_token_created_at, created_at, updated_at`,
 		user.ID, user.Username, user.PasswordHash, user.Role, user.Status)
 	saved, err := scanUser(row)
 	if err != nil {
@@ -49,6 +49,15 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (identit
 	return user, nil
 }
 
+// GetUserByAPITokenHash returns one user by a non-reversible API token digest.
+func (s *Store) GetUserByAPITokenHash(ctx context.Context, tokenHash string) (identity.User, error) {
+	user, err := scanUser(s.db.QueryRowContext(ctx, userSelectSQL+` WHERE api_token_hash = $1`, tokenHash))
+	if err != nil {
+		return identity.User{}, mapUserError("get user by api token", err)
+	}
+	return user, nil
+}
+
 // ListUsers returns platform users for administration. Business resources remain user-scoped.
 func (s *Store) ListUsers(ctx context.Context) ([]identity.User, error) {
 	rows, err := s.db.QueryContext(ctx, userSelectSQL+` ORDER BY username`)
@@ -70,7 +79,35 @@ func (s *Store) ListUsers(ctx context.Context) ([]identity.User, error) {
 	return users, nil
 }
 
-const userSelectSQL = `SELECT id, username, password_hash, role, status, created_at, updated_at FROM app_user`
+// SaveUserAPIToken replaces one user's API/MCP credential metadata.
+func (s *Store) SaveUserAPIToken(ctx context.Context, userID string, tokenHash string, tokenHint string) (identity.User, error) {
+	user, err := scanUser(s.db.QueryRowContext(ctx, `
+		UPDATE app_user
+		SET api_token_hash = $2, api_token_hint = $3, api_token_created_at = NOW(), updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, username, password_hash, role, status, api_token_hash, api_token_hint, api_token_created_at, created_at, updated_at`,
+		userID, tokenHash, tokenHint))
+	if err != nil {
+		return identity.User{}, mapUserError("save user api token", err)
+	}
+	return user, nil
+}
+
+// RevokeUserAPIToken removes one user's API/MCP credential.
+func (s *Store) RevokeUserAPIToken(ctx context.Context, userID string) (identity.User, error) {
+	user, err := scanUser(s.db.QueryRowContext(ctx, `
+		UPDATE app_user
+		SET api_token_hash = NULL, api_token_hint = '', api_token_created_at = NULL, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, username, password_hash, role, status, COALESCE(api_token_hash, ''), api_token_hint, api_token_created_at, created_at, updated_at`,
+		userID))
+	if err != nil {
+		return identity.User{}, mapUserError("revoke user api token", err)
+	}
+	return user, nil
+}
+
+const userSelectSQL = `SELECT id, username, password_hash, role, status, COALESCE(api_token_hash, ''), api_token_hint, api_token_created_at, created_at, updated_at FROM app_user`
 
 type userScanner interface {
 	Scan(dest ...any) error
@@ -78,7 +115,7 @@ type userScanner interface {
 
 func scanUser(scanner userScanner) (identity.User, error) {
 	var user identity.User
-	if err := scanner.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.Status, &user.CreatedAt, &user.UpdatedAt); err != nil {
+	if err := scanner.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.Status, &user.APITokenHash, &user.APITokenHint, &user.APITokenCreatedAt, &user.CreatedAt, &user.UpdatedAt); err != nil {
 		return identity.User{}, err
 	}
 	return user, nil

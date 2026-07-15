@@ -40,4 +40,18 @@ func TestAdminCreatesUserWithoutExposingPasswordHash(t *testing.T) {
 
 	users := doJSONWithCookiesAndHeaders(t, router, http.MethodGet, "/api/v1/admin/users", ``, "tenant-1", []*http.Cookie{cookie}, nil)
 	require.Equal(t, http.StatusForbidden, users.Code)
+
+	generated := doJSONWithAdminKey(t, router, http.MethodPost, "/api/v1/admin/users/"+user.ID+"/api-token", ``, "spoofed-user", "admin-key")
+	require.Equal(t, http.StatusCreated, generated.Code)
+	require.NotContains(t, generated.Body.String(), "api_token_hash")
+	var credential generatedAPITokenResponse
+	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &credential))
+	require.Contains(t, credential.Token, "oat_")
+	require.True(t, credential.User.APITokenConfigured)
+
+	revoked := doJSONWithAdminKey(t, router, http.MethodDelete, "/api/v1/admin/users/"+user.ID+"/api-token", ``, "spoofed-user", "admin-key")
+	require.Equal(t, http.StatusOK, revoked.Code)
+	var revokedUser userResponse
+	require.NoError(t, json.Unmarshal(revoked.Body.Bytes(), &revokedUser))
+	require.False(t, revokedUser.APITokenConfigured)
 }

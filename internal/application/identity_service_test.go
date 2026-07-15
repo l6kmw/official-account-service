@@ -61,3 +61,48 @@ func TestIdentityServiceCreatesIndependentUser(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "user-2", authenticated.ID)
 }
+
+func TestIdentityServiceGeneratesAuthenticatesAndRevokesAPIToken(t *testing.T) {
+	store := memory.NewStore(nil)
+	_, err := store.SaveUser(context.Background(), identity.User{
+		ID: "user-1", Username: "writer", PasswordHash: "hash", Role: identity.RoleUser, Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	service := NewIdentityService(store)
+
+	generated, err := service.GenerateAPIToken(context.Background(), "user-1")
+	require.NoError(t, err)
+	require.Contains(t, generated.Token, "oat_")
+	require.NotEmpty(t, generated.User.APITokenHash)
+	require.NotContains(t, generated.User.APITokenHint, generated.Token)
+	require.NotNil(t, generated.User.APITokenCreatedAt)
+
+	authenticated, err := service.AuthenticateAPIToken(context.Background(), generated.Token)
+	require.NoError(t, err)
+	require.Equal(t, "user-1", authenticated.ID)
+	_, err = service.AuthenticateAPIToken(context.Background(), "oat_invalid-token-value-that-is-long-enough")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+
+	_, err = service.RevokeAPIToken(context.Background(), "user-1")
+	require.NoError(t, err)
+	_, err = service.AuthenticateAPIToken(context.Background(), generated.Token)
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+}
+
+func TestIdentityServiceRejectsAPITokenForDisabledUser(t *testing.T) {
+	store := memory.NewStore(nil)
+	_, err := store.SaveUser(context.Background(), identity.User{
+		ID: "user-1", Username: "writer", PasswordHash: "hash", Role: identity.RoleUser, Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	service := NewIdentityService(store)
+	generated, err := service.GenerateAPIToken(context.Background(), "user-1")
+	require.NoError(t, err)
+
+	_, err = store.SaveUser(context.Background(), identity.User{
+		ID: "user-1", Username: "writer", PasswordHash: "hash", Role: identity.RoleUser, Status: identity.StatusDisabled,
+	})
+	require.NoError(t, err)
+	_, err = service.AuthenticateAPIToken(context.Background(), generated.Token)
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+}

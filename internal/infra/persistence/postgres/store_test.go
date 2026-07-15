@@ -40,6 +40,17 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	byUsername, err := store.GetUserByUsername(ctx, strings.ToUpper(user.Username))
 	require.NoError(t, err)
 	require.Equal(t, tenantID, byUsername.ID)
+	tokenHash := fmt.Sprintf("%064x", time.Now().UnixNano())
+	withToken, err := store.SaveUserAPIToken(ctx, tenantID, tokenHash, "oat_...abc123")
+	require.NoError(t, err)
+	require.Equal(t, tokenHash, withToken.APITokenHash)
+	require.NotNil(t, withToken.APITokenCreatedAt)
+	byToken, err := store.GetUserByAPITokenHash(ctx, tokenHash)
+	require.NoError(t, err)
+	require.Equal(t, tenantID, byToken.ID)
+	revokedTokenUser, err := store.RevokeUserAPIToken(ctx, tenantID)
+	require.NoError(t, err)
+	require.Empty(t, revokedTokenUser.APITokenHash)
 	account, err := store.SaveAccount(ctx, tenantID, authorization.Account{
 		AppID: appID, Name: "account", Status: authorization.AccountStatusActive,
 		EncryptedAuthorizerRefreshToken: "encrypted-refresh-1",
@@ -187,6 +198,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/009_publish_in_progress_unique.sql",
 		"../../../../migrations/010_app_user.sql",
 		"../../../../migrations/011_account_global_owner.sql",
+		"../../../../migrations/012_user_api_token.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)

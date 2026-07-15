@@ -46,3 +46,18 @@ func TestStoreRejectsUsernameOwnedByAnotherUser(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, identity.ErrConflict))
 }
+
+func TestStorePreservesAPITokenWhenBootstrapUserIsUpdated(t *testing.T) {
+	store := NewStore(time.Now)
+	ctx := context.Background()
+	_, err := store.SaveUser(ctx, identity.User{ID: "tenant-1", Username: "admin", Role: identity.RoleAdmin, Status: identity.StatusActive})
+	require.NoError(t, err)
+	withToken, err := store.SaveUserAPIToken(ctx, "tenant-1", "token-hash", "oat_...abc123")
+	require.NoError(t, err)
+	require.NotNil(t, withToken.APITokenCreatedAt)
+
+	updated, err := store.SaveUser(ctx, identity.User{ID: "tenant-1", Username: "admin", PasswordHash: "new-hash", Role: identity.RoleAdmin, Status: identity.StatusActive})
+	require.NoError(t, err)
+	require.Equal(t, "token-hash", updated.APITokenHash)
+	require.Equal(t, "oat_...abc123", updated.APITokenHint)
+}
