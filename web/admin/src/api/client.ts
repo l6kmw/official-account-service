@@ -33,6 +33,11 @@ export async function putJSON<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export async function patchJSON<T>(path: string, body: unknown): Promise<T> {
+  const response = await request(path, { method: 'PATCH', body })
+  return response.json() as Promise<T>
+}
+
 export async function deleteJSON(path: string): Promise<void> {
   await request(path, { method: 'DELETE' })
 }
@@ -64,7 +69,7 @@ export async function postForm<T>(path: string, body: FormData): Promise<T> {
   return response.json() as Promise<T>
 }
 
-async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown }): Promise<Response> {
+async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown }): Promise<Response> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...adminAuthHeaders()
