@@ -45,7 +45,7 @@ func (s *AgentAuditService) ListAgentAudit(ctx context.Context, input ListAgentA
 	if input.Limit == 0 {
 		input.Limit = defaultAuditLimit
 	}
-	entries, err := s.audits.List(ctx, input.UserID, agentaudit.Filter{
+	entries, err := s.audits.ListAuditEntries(ctx, input.UserID, agentaudit.Filter{
 		AgentRecordID: input.AgentRecordID, Action: input.Action, ResourceType: input.ResourceType, Limit: input.Limit,
 	})
 	if err != nil {

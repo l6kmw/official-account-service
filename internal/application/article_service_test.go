@@ -203,7 +203,7 @@ func (r *recordingAuditRepository) Append(_ context.Context, entry agentaudit.En
 	return entry, nil
 }
 
-func (r *recordingAuditRepository) List(_ context.Context, userID string, filter agentaudit.Filter) ([]agentaudit.Entry, error) {
+func (r *recordingAuditRepository) ListAuditEntries(_ context.Context, userID string, filter agentaudit.Filter) ([]agentaudit.Entry, error) {
 	items := make([]agentaudit.Entry, 0)
 	for index := len(r.entries) - 1; index >= 0; index-- {
 		entry := r.entries[index]

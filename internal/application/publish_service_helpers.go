@@ -12,11 +12,15 @@ import (
 )
 
 func (s *PublishService) syncArticleStatus(ctx context.Context, tenantID string, draft article.Article, status article.Status) error {
-	if draft.Status == status {
+	latest, err := s.articles.Get(ctx, tenantID, draft.ID)
+	if err != nil {
+		return wrapPublishArticleError("get article for status sync", err)
+	}
+	if latest.Status == status {
 		return nil
 	}
-	draft.Status = status
-	if _, err := s.articles.Update(ctx, tenantID, draft); err != nil {
+	latest.Status = status
+	if _, err := s.articles.Update(ctx, tenantID, latest); err != nil {
 		return wrapPublishArticleError("sync article status", err)
 	}
 	return nil

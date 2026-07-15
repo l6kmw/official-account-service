@@ -44,5 +44,5 @@ type Filter struct {
 // Repository stores and lists append-only Agent audit entries.
 type Repository interface {
 	Append(ctx context.Context, entry Entry) (Entry, error)
-	List(ctx context.Context, userID string, filter Filter) ([]Entry, error)
+	ListAuditEntries(ctx context.Context, userID string, filter Filter) ([]Entry, error)
 }
