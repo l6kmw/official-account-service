@@ -26,7 +26,7 @@ func (s *Store) CreatePublishRecord(ctx context.Context, tenantID string, record
 		}
 		return publish.Record{}, fmt.Errorf("create publish record: %w", err)
 	}
-	return created, nil
+	return s.attachArticleCreatedAgent(ctx, created)
 }
 
 // UpdatePublishRecordSubmission stores the WeChat publish id for an active publish record.
@@ -42,7 +42,7 @@ func (s *Store) UpdatePublishRecordSubmission(ctx context.Context, tenantID stri
 	if err != nil {
 		return publish.Record{}, mapPublishError("update publish record submission", err)
 	}
-	return updated, nil
+	return s.attachArticleCreatedAgent(ctx, updated)
 }
 
 // GetPublishRecord returns one tenant-scoped publish record.
@@ -142,7 +142,21 @@ func (s *Store) UpdatePublishRecordStatus(ctx context.Context, tenantID string, 
 	if err != nil {
 		return publish.Record{}, mapPublishError("update publish record", err)
 	}
-	return updated, nil
+	return s.attachArticleCreatedAgent(ctx, updated)
+}
+
+func (s *Store) attachArticleCreatedAgent(ctx context.Context, record publish.Record) (publish.Record, error) {
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(created_by_agent_id, '')
+		FROM wechat_article
+		WHERE tenant_id = $1 AND id = $2`, record.TenantID, record.ArticleID).Scan(&record.ArticleCreatedByAgentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return record, nil
+	}
+	if err != nil {
+		return publish.Record{}, fmt.Errorf("attach publish article agent: %w", err)
+	}
+	return record, nil
 }
 
 const publishRecordWithAgentSelectSQL = `

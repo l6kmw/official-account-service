@@ -201,12 +201,14 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	publishID := fmt.Sprintf("pub-%d", time.Now().UnixNano())
 	record, err := store.CreatePublishRecord(ctx, tenantID, publish.Record{AuthorizerID: account.ID, ArticleID: created.ID, WeChatPublishID: publishID, Status: publish.StatusPublishing, SubmittedAt: time.Now()})
 	require.NoError(t, err)
+	require.Equal(t, agentA.ID, record.ArticleCreatedByAgentID)
 	record.Status = publish.StatusPublished
 	record.WeChatArticleID = "article-1"
 	record.FinishedAt = time.Now()
 	updatedRecord, err := store.UpdatePublishRecordStatus(ctx, tenantID, record)
 	require.NoError(t, err)
 	require.Equal(t, publish.StatusPublished, updatedRecord.Status)
+	require.Equal(t, agentA.ID, updatedRecord.ArticleCreatedByAgentID)
 	records, err := store.ListPublishRecordsByArticle(ctx, tenantID, created.ID)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
