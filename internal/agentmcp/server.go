@@ -26,7 +26,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 		Title:   "Official Account Service",
 		Version: "0.1.0",
 	}, nil)
-	server.AddReceivingMiddleware(apiTokenContextMiddleware)
+	server.AddReceivingMiddleware(apiTokenContextMiddleware, toolGuidanceMiddleware)
 	remoteImageHTTPClient := newRemoteImageHTTPClient()
 
 	mcp.AddTool(server, &mcp.Tool{

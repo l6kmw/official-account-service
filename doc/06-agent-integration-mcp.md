@@ -121,29 +121,81 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码，或�
 
 ## 暴露的 MCP Tools
 
-- `official_account_list_accounts`
-- `official_account_list_drafts`
-- `official_account_get_draft`
-- `official_account_create_draft`
-- `official_account_update_draft`
-- `official_account_delete_draft`
-- `official_account_publish_draft`
-- `official_account_list_articles`
-- `official_account_list_published_articles`
-- `official_account_list_permanent_materials`
-- `official_account_delete_permanent_material`
-- `official_account_get_article_metrics`
-- `official_account_list_article_comments`
-- `official_account_create_article`
-- `official_account_update_article`
-- `official_account_upload_image`
-- `official_account_publish_article`
-- `official_account_delete_article`
-- `official_account_list_publish_records`
-- `official_account_sync_publish_status`
-- `official_account_delete_published_record`
-- `official_account_get_authorization_entry`
-- `official_account_generate_authorization_url`
+每个工具的线上 `description` 都包含“调用前、输入、返回、后续、出错时”五部分。Agent 调用前应先用用户当前语言说明操作目的；缺少 ID、确认值或正文时先询问，不得猜测。
+
+| Tool | 功能 | 关键输入 | 返回与下一步 |
+|---|---|---|---|
+| `official_account_list_accounts` | 列出当前用户已授权公众号 | 无 | 使用 `items[].id` 作为后续 `authorizer_id`；为空时生成授权入口 |
+| `official_account_get_authorization_entry` | 生成绑定当前用户的一次性授权入口 | 可选 `component_appid` | 把完整 `authorization_entry_url` 或二维码交给公众号管理员扫码 |
+| `official_account_generate_authorization_url` | 生成可限定授权类型/预选 AppID 的高级授权入口 | 可选 `auth_type`、`biz_appid`；通常不要传 `redirect_uri` | 原样打开首方 `authorization_url`，不得提取内部微信直链 |
+| `official_account_list_drafts` | 列出本地 `draft` / `failed` 草稿 | 无 | 使用草稿 `id` 读取、编辑、发布或删除 |
+| `official_account_get_draft` | 读取一个可编辑本地草稿的完整内容 | `draft_id` | 返回正文、封面 asset id 和状态 |
+| `official_account_create_draft` | 创建本地草稿，不写微信草稿箱 | `authorizer_id`、`title` | 保存 `draft.id`，再上传图片和编辑 |
+| `official_account_update_draft` | 完整替换本地草稿字段 | `draft_id`、标题、作者、摘要、HTML、封面 asset id | 返回保存后的草稿；未传字段不会自动保留 |
+| `official_account_delete_draft` | 删除未发布本地草稿及本地素材 | `draft_id`、`confirm_delete="DELETE"` | 删除后用草稿列表复查；拒绝发布中/已发布文章 |
+| `official_account_publish_draft` | 将本地草稿真实公开发布到微信 | `draft_id`、`confirm_publish=true` | 返回发布记录，继续同步状态 |
+| `official_account_list_articles` | 列出全部本地文章状态 | 无 | 使用本地 article id 调用兼容工具；实时微信列表用下一个工具 |
+| `official_account_create_article` | 兼容旧 Agent 的本地草稿创建工具 | `authorizer_id`、`title` | 新 Agent 优先使用 `create_draft` |
+| `official_account_update_article` | 兼容旧 Agent 的完整文章更新工具 | `article_id`、标题、作者、摘要、HTML、封面 asset id | 返回保存后的本地文章 |
+| `official_account_upload_image` | 上传正文图片或封面 | `authorizer_id`、`article_id`、`usage`，且三个图片来源只能选一个 | 正文使用 `asset.wechat_url`；封面绑定使用 `asset.id`，不是 `media_id` |
+| `official_account_publish_article` | 兼容旧 Agent 的真实发布工具 | `article_id`、`confirm_publish=true` | 返回发布记录，继续同步状态 |
+| `official_account_delete_article` | 删除微信已发布副本、本地文章和本地素材 | `article_id`、`confirm_delete="DELETE"` | 发布记录仍保留审计；用本地和微信列表复查 |
+| `official_account_list_publish_records` | 列出本地发布审计记录 | 无 | `publishing` 继续同步；`published` 可删除微信副本 |
+| `official_account_sync_publish_status` | 向微信同步一次发布任务状态 | `publish_record_id` | 返回 `publishing` / `published` / `failed` / `deleted` |
+| `official_account_delete_published_record` | 只删除某条发布记录对应的微信副本，保留本地文章 | `publish_record_id`、`confirm_delete="DELETE"` | 成功后记录状态为 `deleted`，可编辑本地文章后重发 |
+| `official_account_list_published_articles` | 实时读取微信已发布列表 | `authorizer_id`；可选分页和正文/删除项开关 | 返回 `msgid` 供评论查询，也包含非本系统发布的历史文章 |
+| `official_account_get_article_metrics` | 查询某发表日期的阅读、分享、点赞、评论、收藏和完成率 | `authorizer_id`、`date=YYYY-MM-DD`，最晚昨天 | 返回该日文章累计指标；微信仅保留发表后 30 天数据 |
+| `official_account_list_article_comments` | 实时读取一篇微信文章的评论 | `authorizer_id`、发布列表/统计返回的 `msgid` | 按 `next_begin` 分页，不返回评论者 OpenID |
+| `official_account_list_permanent_materials` | 实时读取微信永久图片素材库 | `authorizer_id`；可选分页 | 返回名称、URL 和 `media_id`，删除前必须让用户核对 |
+| `official_account_delete_permanent_material` | 不可恢复地删除微信永久素材 | `authorizer_id`、`media_id`、`confirm_delete="DELETE"` | 删除后复查素材库和引用它的草稿/文章 |
+
+## MCP 参数错误与执行错误
+
+调用参数会在进入业务逻辑前统一校验：
+
+- 一次列出所有缺失字段，而不是只报第一个。
+- 拒绝未知字段；`tenant_id` / `user_id` 不能由调用方覆盖。
+- 检查 ID 正整数、分页范围、枚举、布尔类型、日期和确认值。
+- `official_account_upload_image` 会检查三个图片来源必须且只能提供一个。
+- 正文、Base64、文件路径、图片 URL 和回调 URL 不会原样回显到错误中。
+
+缺参或错参时，`isError=true`，文本内容可以直接向用户解释，`structuredContent.error` 便于 Agent 自动修正：
+
+```json
+{
+  "error": {
+    "code": "invalid_tool_arguments",
+    "tool": "official_account_create_draft",
+    "issues": [
+      {
+        "code": "missing_argument",
+        "field": "authorizer_id",
+        "received": "未提供",
+        "expected": "大于 0 的整数",
+        "fix": "先调用 official_account_list_accounts，让用户确认公众号后使用返回的 id。"
+      }
+    ],
+    "expected_inputs": "必填 authorizer_id、title；author、digest、content_html 可选。",
+    "next_step": "如需图片先调用 upload_image，再用 update_draft 写入正文和封面。",
+    "retryable": true
+  }
+}
+```
+
+业务执行错误同样返回可恢复信息：
+
+| code | 含义 | Agent 应如何处理 |
+|---|---|---|
+| `resource_not_found` | 资源不存在、已删除或不属于当前用户 | 重新调用对应列表工具获取 ID，不要猜测 |
+| `invalid_request` | 参数组合或资源状态不允许当前操作 | 按错误中的 `check` 检查状态、正文、封面或确认值 |
+| `unauthorized` | MCP Token 无效、撤销或用户停用 | 请用户更新 Token，禁止输出旧 Token |
+| `forbidden` | 用户或公众号缺少权限 | 核对公众号授权权限，必要时重新授权 |
+| `conflict` | 资源被并发修改或公众号已归属其他用户 | 重新读取最新状态，不要覆盖别人的数据 |
+| `configuration_required` | 服务配置或微信权限未完成 | 完成对应配置/授权后重试 |
+| `timeout` | 微信或服务端超时，结果尚未确认 | 先查询列表/同步状态，避免盲目重复写操作 |
+| `service_error` | 服务端内部错误 | 向用户说明稍后重试；内部细节只写安全日志 |
+
+Agent 收到错误后必须逐项告诉用户：哪个 `field` 有问题、当前 `received` 内容、正确 `expected` 格式和 `fix`。不得只回复“参数错误”，也不得静默补造 ID、`media_id`、`msgid`、确认值或用户内容。
 
 安全约束：
 

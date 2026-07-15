@@ -418,6 +418,8 @@ Header value: <USER_MCP_TOKEN>
 
 `official_account_get_authorization_entry` 返回的是已经绑定当前 MCP 用户的一次性同域授权发起页 URL，可直接打开或作为二维码内容，不需要先登录管理后台。授权发起页会校验微信目标地址、组件 AppID、回调域名和一次性 state，再跳转到微信扫码页面；不要绕过它直接分发 `mp.weixin.qq.com` 链接。需要传 `auth_type` 或 `biz_appid` 时可调用 `official_account_generate_authorization_url`，它的 `authorization_url` 同样是安全的同域授权发起页。
 
+全部 23 个工具的功能、输入来源、成功返回、下一步和错误恢复方式见 [Agent 接入与 MCP 工具目录](doc/06-agent-integration-mcp.md#暴露的-mcp-tools)。线上 `tools/list` 也会返回同样的调用指南。缺参、错参或未知字段会以 `structuredContent.error.issues` 一次列出 `field`、`received`、`expected`、`fix`；Agent 应逐项告诉用户，不得只回复“参数错误”或猜测 ID。业务错误会返回 `resource_not_found`、`invalid_request`、`unauthorized`、`forbidden`、`conflict`、`configuration_required`、`timeout` 或 `service_error` 以及恢复步骤。
+
 删除时注意区分：
 
 - `official_account_delete_article`：完整删除文章。后端会先删除所有已发布的微信内容，再删除本地文章和素材；发布记录会保留为 `deleted` 供审计。
