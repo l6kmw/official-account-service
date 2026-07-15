@@ -50,6 +50,9 @@ func (s *AccountService) SaveAccount(ctx context.Context, input SaveAccountInput
 		Status: input.Status, EncryptedAuthorizerRefreshToken: input.EncryptedAuthorizerRefreshToken,
 		LastSyncedAt: input.LastSyncedAt,
 	})
+	if errors.Is(err, authorization.ErrConflict) {
+		return authorization.Account{}, fmt.Errorf("save account: %w", ErrConflict)
+	}
 	if err != nil {
 		return authorization.Account{}, fmt.Errorf("save account: %w", err)
 	}

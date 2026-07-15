@@ -9,6 +9,9 @@ import (
 // ErrNotFound indicates a tenant-scoped authorization account was not found.
 var ErrNotFound = errors.New("authorization account not found")
 
+// ErrConflict indicates that an official account AppID already belongs to another user.
+var ErrConflict = errors.New("authorization account conflict")
+
 // AccountStatus describes an authorized official account status.
 type AccountStatus string
 

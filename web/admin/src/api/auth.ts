@@ -6,6 +6,8 @@ export type AdminSessionStatus = {
   auth_enabled: boolean
   login_enabled: boolean
   username?: string
+  user_id?: string
+  role?: 'admin' | 'user'
   csrf_token?: string
 }
 

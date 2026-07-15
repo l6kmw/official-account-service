@@ -13,3 +13,6 @@ var ErrNotImplemented = errors.New("not implemented")
 
 // ErrInvalidCredentials indicates that a login identity cannot be authenticated.
 var ErrInvalidCredentials = errors.New("invalid credentials")
+
+// ErrConflict indicates that a globally unique resource is already owned.
+var ErrConflict = errors.New("conflict")

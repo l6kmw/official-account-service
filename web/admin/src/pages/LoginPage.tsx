@@ -56,20 +56,20 @@ export function LoginPage({ loginEnabled, onAuthenticated }: LoginPageProps) {
           </BrandText>
         </Brand>
         <CopyBlock>
-          <SecurityBadge><ShieldIcon />管理员访问</SecurityBadge>
+          <SecurityBadge><ShieldIcon />用户访问</SecurityBadge>
           <Title>登录控制台</Title>
-          <Description>请输入管理员账号进入后台。</Description>
+          <Description>请输入你的账号进入独立数据空间。</Description>
         </CopyBlock>
 
         {!loginEnabled ? (
           <ConfigNotice role="alert">
-            管理员登录尚未完成服务端配置，请先配置 `security.admin_username`、`security.admin_password_hash` 和 `security.admin_session_secret`。
+            用户登录尚未完成服务端配置，请先配置初始管理员账号和会话密钥。
           </ConfigNotice>
         ) : null}
 
         <Form onSubmit={submit}>
           <Field>
-            <Label>管理员账号</Label>
+            <Label>账号</Label>
             <Input
               autoComplete="username"
               disabled={!loginEnabled || submitting}

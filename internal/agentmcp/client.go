@@ -504,7 +504,6 @@ func (c *Client) GenerateAuthorizationURL(ctx context.Context, componentAppID, r
 		redirectURI = c.authorizationCallbackURL()
 	}
 	query := url.Values{}
-	query.Set("tenant_id", c.tenantID)
 	query.Set("component_appid", componentAppID)
 	query.Set("redirect_uri", redirectURI)
 	if authType > 0 {
@@ -531,7 +530,6 @@ func (c *Client) AuthorizationEntry(componentAppID string) (AuthorizationEntry, 
 		return AuthorizationEntry{}, fmt.Errorf("build authorization entry url: %w", err)
 	}
 	query := entryURL.Query()
-	query.Set("tenant_id", c.tenantID)
 	query.Set("component_appid", componentAppID)
 	entryURL.RawQuery = query.Encode()
 	return AuthorizationEntry{

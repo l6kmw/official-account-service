@@ -153,6 +153,11 @@ func (s *Store) GetAuthorizerTenantBinding(_ context.Context, componentAppID str
 func (s *Store) CreateAccount(_ context.Context, tenantID string, account authorization.Account) (authorization.Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, current := range s.accounts {
+		if current.AppID == account.AppID {
+			return authorization.Account{}, fmt.Errorf("create account app id: %w", authorization.ErrConflict)
+		}
+	}
 	s.nextAccountID++
 	now := s.now()
 	account.ID = s.nextAccountID
@@ -168,7 +173,10 @@ func (s *Store) SaveAccount(_ context.Context, tenantID string, account authoriz
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, current := range s.accounts {
-		if current.TenantID == tenantID && current.AppID == account.AppID {
+		if current.AppID == account.AppID && current.TenantID != tenantID {
+			return authorization.Account{}, fmt.Errorf("save account app id: %w", authorization.ErrConflict)
+		}
+		if current.AppID == account.AppID {
 			account.ID = id
 			account.TenantID = tenantID
 			account.CreatedAt = current.CreatedAt

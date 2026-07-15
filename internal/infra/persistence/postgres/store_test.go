@@ -31,6 +31,7 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	runMigrations(t, store)
 
 	tenantID := fmt.Sprintf("tenant-%d", time.Now().UnixNano())
+	appID := "wx-" + tenantID
 	user, err := store.SaveUser(ctx, identity.User{
 		ID: tenantID, Username: "user-" + tenantID, PasswordHash: "hash", Role: identity.RoleUser, Status: identity.StatusActive,
 	})
@@ -40,7 +41,7 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tenantID, byUsername.ID)
 	account, err := store.SaveAccount(ctx, tenantID, authorization.Account{
-		AppID: "wx123", Name: "account", Status: authorization.AccountStatusActive,
+		AppID: appID, Name: "account", Status: authorization.AccountStatusActive,
 		EncryptedAuthorizerRefreshToken: "encrypted-refresh-1",
 	})
 	require.NoError(t, err)
@@ -65,23 +66,28 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.Equal(t, "ticket-2", foundTicket.Ticket)
 
 	saved, err := store.SaveAccount(ctx, tenantID, authorization.Account{
-		AppID: "wx123", Name: "renamed", Status: authorization.AccountStatusActive,
+		AppID: appID, Name: "renamed", Status: authorization.AccountStatusActive,
 		EncryptedAuthorizerRefreshToken: "encrypted-refresh-2",
 	})
 	require.NoError(t, err)
 	require.Equal(t, account.ID, saved.ID)
 	require.Equal(t, "renamed", saved.Name)
 	require.Equal(t, "encrypted-refresh-2", saved.EncryptedAuthorizerRefreshToken)
+	_, err = store.SaveAccount(ctx, tenantID+"-other", authorization.Account{
+		AppID: appID, Name: "not-owner", Status: authorization.AccountStatusActive,
+	})
+	require.ErrorIs(t, err, authorization.ErrConflict)
 
 	_, err = store.SaveAuthorizerTenantBinding(ctx, authorization.AuthorizerTenantBinding{
-		ComponentAppID: "wx-component", AuthorizerAppID: "wx123", TenantID: tenantID,
+		ComponentAppID: "wx-component", AuthorizerAppID: appID, TenantID: tenantID,
 	})
 	require.NoError(t, err)
-	binding, err := store.GetAuthorizerTenantBinding(ctx, "wx-component", "wx123")
+	binding, err := store.GetAuthorizerTenantBinding(ctx, "wx-component", appID)
 	require.NoError(t, err)
 	require.Equal(t, tenantID, binding.TenantID)
+	stateDigest := "state-digest-" + tenantID
 	authorizationState, err := store.SaveAuthorizationState(ctx, authorization.AuthorizationState{
-		Digest: "state-digest", TenantID: tenantID, ComponentAppID: "wx-component", ExpiresAt: time.Now().Add(10 * time.Minute),
+		Digest: stateDigest, TenantID: tenantID, ComponentAppID: "wx-component", ExpiresAt: time.Now().Add(10 * time.Minute),
 	})
 	require.NoError(t, err)
 	consumedState, err := store.ConsumeAuthorizationState(ctx, authorizationState.Digest, time.Now())
@@ -91,7 +97,7 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, authorization.ErrAuthorizationStateNotFound))
 
-	revoked, err := store.RevokeAccountByAppID(ctx, tenantID, "wx123")
+	revoked, err := store.RevokeAccountByAppID(ctx, tenantID, appID)
 	require.NoError(t, err)
 	require.Equal(t, authorization.AccountStatusRevoked, revoked.Status)
 	require.Empty(t, revoked.EncryptedAuthorizerRefreshToken)
@@ -143,7 +149,7 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.Equal(t, updatedRecord.ID, byPublishID.ID)
 
 	callbackEvent, err := store.SaveCallbackEvent(ctx, wechatcallback.Event{
-		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: "wx123",
+		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: appID,
 		EventType: wechatcallback.EventTypePublishResult, EventKey: publishID, RawBody: "<xml></xml>",
 		ReceivedAt: time.Now(), RetainUntil: time.Now().Add(30 * 24 * time.Hour),
 	})
@@ -152,7 +158,7 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	_, err = store.GetCallbackEventByKey(ctx, tenantID, wechatcallback.EventTypePublishResult, publishID)
 	require.NoError(t, err)
 	_, err = store.SaveCallbackEvent(ctx, wechatcallback.Event{
-		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: "wx123",
+		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: appID,
 		EventType: wechatcallback.EventTypePublishResult, EventKey: publishID, RawBody: "<xml></xml>",
 		ReceivedAt: time.Now(), RetainUntil: time.Now().Add(30 * 24 * time.Hour),
 	})
@@ -180,6 +186,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/008_authorization_state.sql",
 		"../../../../migrations/009_publish_in_progress_unique.sql",
 		"../../../../migrations/010_app_user.sql",
+		"../../../../migrations/011_account_global_owner.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)

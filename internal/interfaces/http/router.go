@@ -19,6 +19,7 @@ const (
 	maxRequestBodyBytes          int64 = 10 << 20
 	loggerContextKey                   = "logger"
 	currentUserIDContextKey            = "current_user_id"
+	currentUserRoleContextKey          = "current_user_role"
 	legacyTenantHeaderContextKey       = "legacy_tenant_header_allowed"
 	maxLoggedErrorMessageRunes         = 1000
 )
@@ -68,11 +69,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerAuthorizationRoutes(r, deps.Authorization)
 	registerWechatCallbackRoutes(r, deps.Callbacks)
 	registerAuthorizationCallbackRoutes(v1, deps.Authorization)
-	registerAuthorizationURLRoutes(v1, deps.Authorization)
 	adminSessions := newAdminSessionManager(adminSessionConfig{Secret: deps.AdminSessionSecret}, deps.Identity, logger)
 	registerAdminSessionRoutes(v1, adminSessions, deps.AdminAPIKey, deps.AdminUserID)
 	adminV1 := v1.Group("")
 	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, deps.AdminUserID, adminSessions))
+	registerAuthorizationURLRoutes(adminV1, deps.Authorization)
+	registerUserRoutes(adminV1, deps.Identity)
 	registerAccountRoutes(adminV1, deps.Accounts)
 	registerArticleRoutes(adminV1, deps.Articles, deps.Publishes)
 	registerMaterialRoutes(adminV1, deps.Materials)
@@ -116,6 +118,7 @@ func requireAdminAuth(expectedAPIKey string, apiUserID string, sessions *adminSe
 				return
 			}
 			c.Set(currentUserIDContextKey, apiUserID)
+			c.Set(currentUserRoleContextKey, "admin")
 			c.Next()
 			return
 		}
@@ -123,6 +126,7 @@ func requireAdminAuth(expectedAPIKey string, apiUserID string, sessions *adminSe
 			session, ok := sessions.sessionFromRequest(c)
 			if ok && sessions.validCSRF(c, session) {
 				c.Set(currentUserIDContextKey, session.UserID)
+				c.Set(currentUserRoleContextKey, session.Role)
 				c.Next()
 				return
 			}
@@ -329,6 +333,15 @@ func currentUserID(c *gin.Context) string {
 	return strings.TrimSpace(userID)
 }
 
+func currentUserRole(c *gin.Context) string {
+	value, ok := c.Get(currentUserRoleContextKey)
+	if !ok {
+		return ""
+	}
+	role, _ := value.(string)
+	return strings.TrimSpace(role)
+}
+
 func bindTenantAndID(c *gin.Context) (string, int64, bool) {
 	tenant, ok := bindTenant(c)
 	if !ok {
@@ -377,6 +390,10 @@ func writeServiceError(c *gin.Context, err error) bool {
 	}
 	if errors.Is(err, application.ErrNotFound) {
 		writeError(c, http.StatusNotFound, "not_found")
+		return false
+	}
+	if errors.Is(err, application.ErrConflict) {
+		writeError(c, http.StatusConflict, "conflict")
 		return false
 	}
 	if errors.Is(err, application.ErrNotImplemented) {

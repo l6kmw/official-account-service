@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgconn"
-
 	"official-account-service/internal/domain/identity"
 )
 
@@ -90,8 +88,7 @@ func mapUserError(action string, err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%s: %w", action, identity.ErrNotFound)
 	}
-	var postgresError *pgconn.PgError
-	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+	if isUniqueViolation(err) {
 		return fmt.Errorf("%s: %w", action, identity.ErrConflict)
 	}
 	return fmt.Errorf("%s: %w", action, err)

@@ -45,3 +45,19 @@ func TestIdentityServiceRejectsDisabledSessionUser(t *testing.T) {
 
 	require.True(t, errors.Is(err, ErrInvalidCredentials))
 }
+
+func TestIdentityServiceCreatesIndependentUser(t *testing.T) {
+	store := memory.NewStore(nil)
+	service := NewIdentityService(store)
+	service.newUserID = func() (string, error) { return "user-2", nil }
+
+	created, err := service.CreateUser(context.Background(), CreateUserInput{Username: "writer", Password: "strong-password-123"})
+
+	require.NoError(t, err)
+	require.Equal(t, "user-2", created.ID)
+	require.Equal(t, identity.RoleUser, created.Role)
+	require.NotEqual(t, "strong-password-123", created.PasswordHash)
+	authenticated, err := service.Authenticate(context.Background(), "writer", "strong-password-123")
+	require.NoError(t, err)
+	require.Equal(t, "user-2", authenticated.ID)
+}

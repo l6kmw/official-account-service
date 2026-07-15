@@ -124,9 +124,9 @@ func TestAuthorizationURLRoute(t *testing.T) {
 		Logger:        zap.NewNop(),
 		Authorization: application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, routeFakePreAuthCodeCreator{}, nil, nil, nil, time.Now),
 	})
-	path := "/api/v1/wechat/authorization-url?tenant_id=tenant-1&component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&auth_type=3&biz_appid=wx-authorizer"
+	path := "/api/v1/wechat/authorization-url?component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&auth_type=3&biz_appid=wx-authorizer"
 
-	recorder := doJSON(t, router, http.MethodGet, path, ``, "")
+	recorder := doJSON(t, router, http.MethodGet, path, ``, "tenant-1")
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var body authorizationURLResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
@@ -143,10 +143,10 @@ func TestAuthorizationURLRoute(t *testing.T) {
 	require.Equal(t, "3", parsed.Query().Get("auth_type"))
 	require.Equal(t, "wx-authorizer", parsed.Query().Get("biz_appid"))
 
-	bad := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component", ``, "")
+	bad := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component", ``, "tenant-1")
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 
-	unavailable := doJSON(t, testRouter(), http.MethodGet, "/api/v1/wechat/authorization-url?tenant_id=tenant-1&component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback", ``, "")
+	unavailable := doJSON(t, testRouter(), http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback", ``, "tenant-1")
 	require.Equal(t, http.StatusNotImplemented, unavailable.Code)
 }
 
@@ -165,7 +165,7 @@ func TestAuthorizationCallbackRoute(t *testing.T) {
 		Logger:        zap.NewNop(),
 		Authorization: authorizationService,
 	})
-	generated := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?tenant_id=tenant-1&component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Fwechat%2Fauthorization-callback", ``, "")
+	generated := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component&redirect_uri=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Fwechat%2Fauthorization-callback", ``, "tenant-1")
 	require.Equal(t, http.StatusOK, generated.Code)
 	var authorizationURL authorizationURLResponse
 	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &authorizationURL))
@@ -210,7 +210,7 @@ func TestAdminAPIKeyProtectsManagementRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, health.Code)
 
 	publicAuthorization := doJSON(t, router, http.MethodGet, "/api/v1/wechat/authorization-url?component_appid=wx-component", ``, "")
-	require.Equal(t, http.StatusBadRequest, publicAuthorization.Code)
+	require.Equal(t, http.StatusUnauthorized, publicAuthorization.Code)
 
 	missingKey := doJSON(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1")
 	require.Equal(t, http.StatusUnauthorized, missingKey.Code)

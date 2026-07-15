@@ -9,7 +9,6 @@ import (
 )
 
 type authorizationURLRequest struct {
-	TenantID       string `form:"tenant_id" binding:"required"`
 	ComponentAppID string `form:"component_appid" binding:"required"`
 	RedirectURI    string `form:"redirect_uri" binding:"required"`
 	AuthType       int    `form:"auth_type" binding:"omitempty,oneof=1 2 3"`
@@ -23,13 +22,17 @@ type authorizationURLResponse struct {
 
 func registerAuthorizationURLRoutes(r gin.IRouter, service *application.AuthorizationService) {
 	r.GET("/wechat/authorization-url", func(c *gin.Context) {
+		tenantID, ok := bindTenant(c)
+		if !ok {
+			return
+		}
 		var query authorizationURLRequest
 		if err := c.ShouldBindQuery(&query); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid_request")
 			return
 		}
 		result, err := service.GenerateAuthorizationURL(c.Request.Context(), application.GenerateAuthorizationURLInput{
-			TenantID:       query.TenantID,
+			TenantID:       tenantID,
 			ComponentAppID: query.ComponentAppID,
 			RedirectURI:    query.RedirectURI,
 			AuthType:       query.AuthType,

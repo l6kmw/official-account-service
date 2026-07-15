@@ -96,8 +96,8 @@ func newIntegrationWorkflowRouter() (stdhttp.Handler, *integrationUploader, *int
 func authorizeIntegrationAccount(t *testing.T, router stdhttp.Handler, tenantID string, authCode string) accountResponse {
 	t.Helper()
 	redirectURI := "https://example.com/api/v1/wechat/authorization-callback"
-	generatePath := fmt.Sprintf("/api/v1/wechat/authorization-url?tenant_id=%s&component_appid=wx-component&redirect_uri=%s", url.QueryEscape(tenantID), url.QueryEscape(redirectURI))
-	generated := doJSON(t, router, stdhttp.MethodGet, generatePath, "", "")
+	generatePath := fmt.Sprintf("/api/v1/wechat/authorization-url?component_appid=wx-component&redirect_uri=%s", url.QueryEscape(redirectURI))
+	generated := doJSON(t, router, stdhttp.MethodGet, generatePath, "", tenantID)
 	require.Equal(t, stdhttp.StatusOK, generated.Code)
 	var generatedBody authorizationURLResponse
 	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &generatedBody))

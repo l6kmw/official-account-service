@@ -53,7 +53,7 @@ func (s *Store) CreateAccount(ctx context.Context, tenantID string, account auth
 		tenantID, account.AppID, account.Name, account.AvatarURL, account.Status, account.EncryptedAuthorizerRefreshToken, nullableTime(account.LastSyncedAt))
 	created, err := scanAccountRow(row)
 	if err != nil {
-		return authorization.Account{}, fmt.Errorf("create account: %w", err)
+		return authorization.Account{}, mapAccountError("create account", err)
 	}
 	return created, nil
 }
@@ -75,7 +75,7 @@ func (s *Store) SaveAccount(ctx context.Context, tenantID string, account author
 		tenantID, account.AppID, account.Name, account.AvatarURL, account.Status, account.EncryptedAuthorizerRefreshToken, nullableTime(account.LastSyncedAt))
 	saved, err := scanAccountRow(row)
 	if err != nil {
-		return authorization.Account{}, fmt.Errorf("save account: %w", err)
+		return authorization.Account{}, mapAccountError("save account", err)
 	}
 	return saved, nil
 }
@@ -326,6 +326,9 @@ func scanMaterialRows(rows *sql.Rows) (material.Asset, error) {
 func mapAccountError(action string, err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%s: %w", action, authorization.ErrNotFound)
+	}
+	if isUniqueViolation(err) {
+		return fmt.Errorf("%s: %w", action, authorization.ErrConflict)
 	}
 	return fmt.Errorf("%s: %w", action, err)
 }

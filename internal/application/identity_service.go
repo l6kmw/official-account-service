@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,12 +17,60 @@ const invalidPasswordHash = "$2y$12$QnmwaSNnA6XLj0psgijIF.TFmph4HHbplvdjh/ddcWpG
 
 // IdentityService authenticates users who own isolated data spaces.
 type IdentityService struct {
-	users identity.Repository
+	users     identity.Repository
+	newUserID func() (string, error)
 }
 
 // NewIdentityService constructs an identity service.
 func NewIdentityService(users identity.Repository) *IdentityService {
-	return &IdentityService{users: users}
+	return &IdentityService{users: users, newUserID: randomUserID}
+}
+
+// CreateUserInput contains administrator-provided credentials for a new isolated user.
+type CreateUserInput struct {
+	Username string
+	Password string
+}
+
+// CreateUser creates an active non-admin user with an independent data-space id.
+func (s *IdentityService) CreateUser(ctx context.Context, input CreateUserInput) (identity.User, error) {
+	if s == nil || s.users == nil || s.newUserID == nil {
+		return identity.User{}, fmt.Errorf("validate identity service: %w", ErrNotImplemented)
+	}
+	username := strings.TrimSpace(input.Username)
+	if len([]rune(username)) < 3 || len([]rune(username)) > 64 || len(input.Password) < 12 || len([]byte(input.Password)) > 72 {
+		return identity.User{}, fmt.Errorf("validate new user: %w", ErrInvalidInput)
+	}
+	userID, err := s.newUserID()
+	if err != nil {
+		return identity.User{}, fmt.Errorf("generate user id: %w", err)
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(input.Password), 12)
+	if err != nil {
+		return identity.User{}, fmt.Errorf("hash user password: %w", err)
+	}
+	user, err := s.users.SaveUser(ctx, identity.User{
+		ID: userID, Username: username, PasswordHash: string(passwordHash), Role: identity.RoleUser, Status: identity.StatusActive,
+	})
+	if errors.Is(err, identity.ErrConflict) {
+		return identity.User{}, fmt.Errorf("create user: %w", ErrConflict)
+	}
+	if err != nil {
+		return identity.User{}, fmt.Errorf("create user: %w", err)
+	}
+	return user, nil
+}
+
+// ListUsers returns platform users for administrator management.
+func (s *IdentityService) ListUsers(ctx context.Context) ([]identity.User, error) {
+	if s == nil || s.users == nil {
+		return nil, fmt.Errorf("validate identity service: %w", ErrNotImplemented)
+	}
+	users, err := s.users.ListUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	return users, nil
 }
 
 // BootstrapUserInput activates the existing configured administrator without changing its data-space id.
@@ -93,4 +143,12 @@ func (s *IdentityService) GetActiveUser(ctx context.Context, userID string) (ide
 		return identity.User{}, ErrInvalidCredentials
 	}
 	return user, nil
+}
+
+func randomUserID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return "usr_" + base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }

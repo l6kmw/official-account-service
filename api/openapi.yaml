@@ -35,6 +35,16 @@ paths:
       tags: [AdminAuth]
       summary: Logout administrator session
       responses: {"200": {description: Logged out, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}}
+  /api/v1/admin/users:
+    get:
+      tags: [AdminAuth]
+      summary: List platform users as an administrator
+      responses: {"200": {description: Safe user list without password hashes, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/User"}}}}}}}, "403": {$ref: "#/components/responses/Forbidden"}}
+    post:
+      tags: [AdminAuth]
+      summary: Create one isolated platform user
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CreateUserRequest"}}}}
+      responses: {"201": {description: Created user without password hash, content: {application/json: {schema: {$ref: "#/components/schemas/User"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "403": {$ref: "#/components/responses/Forbidden"}, "409": {$ref: "#/components/responses/Conflict"}}
   /wechat/component/callback:
     post:
       tags: [WeChatCallbacks]
@@ -54,12 +64,11 @@ paths:
       tags: [Authorization]
       summary: Generate a WeChat component authorization URL
       parameters:
-        - {name: tenant_id, in: query, required: true, schema: {type: string}}
         - {name: component_appid, in: query, required: true, schema: {type: string}}
         - {name: redirect_uri, in: query, required: true, schema: {type: string, format: uri}}
         - {name: auth_type, in: query, schema: {type: integer, enum: [1, 2, 3]}}
         - {name: biz_appid, in: query, schema: {type: string}}
-      responses: {"200": {description: Authorization URL, content: {application/json: {schema: {$ref: "#/components/schemas/AuthorizationURL"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+      responses: {"200": {description: Authorization URL, content: {application/json: {schema: {$ref: "#/components/schemas/AuthorizationURL"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "401": {$ref: "#/components/responses/Unauthorized"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/wechat/authorization-callback:
     get:
       tags: [Authorization]
@@ -280,6 +289,8 @@ components:
     CallbackOK: {description: Callback accepted, content: {text/plain: {schema: {type: string, example: success}}}}
     InvalidRequest: {description: Invalid request, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     Unauthorized: {description: Unauthorized request, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    Forbidden: {description: Administrator role required, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    Conflict: {description: Resource already belongs to another user, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     RateLimited: {description: Too many login attempts, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
     NotImplemented: {description: Dependency not configured, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
@@ -289,9 +300,11 @@ components:
     ArchivedTaskList: {description: Archived task list, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/ArchivedTask"}}}}}}}
   schemas:
     HealthResponse: {type: object, required: [status], properties: {status: {type: string, example: ok}}}
-    Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, request_too_large, unauthorized, rate_limited, not_found, not_implemented, internal_error]}}}
+    Error: {type: object, required: [error], properties: {error: {type: string, enum: [invalid_request, request_too_large, unauthorized, forbidden, conflict, rate_limited, not_found, not_implemented, internal_error]}}}
     AdminLoginRequest: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string, format: password}}}
-    AdminSession: {type: object, required: [authenticated, auth_enabled, login_enabled], properties: {authenticated: {type: boolean}, auth_enabled: {type: boolean}, login_enabled: {type: boolean}, username: {type: string}, csrf_token: {type: string, description: Required as X-CSRF-Token for unsafe management requests when using the admin session cookie.}}}
+    AdminSession: {type: object, required: [authenticated, auth_enabled, login_enabled], properties: {authenticated: {type: boolean}, auth_enabled: {type: boolean}, login_enabled: {type: boolean}, username: {type: string}, user_id: {type: string}, role: {type: string, enum: [admin, user]}, csrf_token: {type: string, description: Required as X-CSRF-Token for unsafe management requests when using the admin session cookie.}}}
+    CreateUserRequest: {type: object, required: [username, password], properties: {username: {type: string, minLength: 3, maxLength: 64}, password: {type: string, format: password, minLength: 12, maxLength: 72}}}
+    User: {type: object, required: [id, username, role, status, created_at, updated_at], properties: {id: {type: string}, username: {type: string}, role: {type: string, enum: [admin, user]}, status: {type: string, enum: [active, disabled]}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
     AuthorizationURL: {type: object, required: [authorization_url, pre_auth_code_expires_in_sec], properties: {authorization_url: {type: string, format: uri}, pre_auth_code_expires_in_sec: {type: integer}}}
     Account:
       type: object

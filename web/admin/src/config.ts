@@ -42,7 +42,6 @@ export function normalizePublicBaseURL(value: string) {
 
 export function buildAuthorizationEntryURL(input: { publicBaseURL: string; componentAppID: string; tenantID?: string }) {
   const url = new URL('/wechat-authorize.html', `${input.publicBaseURL}/`)
-  url.searchParams.set('tenant_id', input.tenantID ?? adminConfig.tenantID)
   url.searchParams.set('component_appid', input.componentAppID.trim())
   return url.toString()
 }

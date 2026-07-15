@@ -2,7 +2,7 @@ import { adminConfig } from '../config'
 
 export const DEFAULT_TENANT_ID = adminConfig.tenantID
 
-export type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'rate_limited' | 'not_found' | 'not_implemented' | 'internal_error'
+export type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'forbidden' | 'conflict' | 'rate_limited' | 'not_found' | 'not_implemented' | 'internal_error'
 
 type APIErrorBody = {
   error?: APIErrorCode
@@ -130,12 +130,16 @@ async function readErrorBody(response: Response): Promise<APIErrorBody> {
 
 function toUserMessage(code: APIErrorCode): string {
   switch (code) {
-    case 'invalid_request':
-      return '请求参数不完整，请检查租户和输入内容。'
+	case 'invalid_request':
+		return '请求参数不完整，请检查输入内容。'
     case 'request_too_large':
       return '请求内容过大，请压缩图片或减少正文内容后重试。'
-    case 'unauthorized':
-      return '登录已失效，请重新登录后继续操作。'
+	case 'unauthorized':
+		return '登录已失效，请重新登录后继续操作。'
+	case 'forbidden':
+		return '当前用户没有执行此操作的权限。'
+	case 'conflict':
+		return '该资源已属于其他用户。'
     case 'rate_limited':
       return '登录尝试过于频繁，请稍后再试。'
     case 'not_found':

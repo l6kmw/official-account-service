@@ -75,3 +75,15 @@ func TestAccountServiceValidatesInput(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
+
+func TestAccountServiceRejectsOfficialAccountOwnedByAnotherUser(t *testing.T) {
+	ctx := context.Background()
+	service := NewAccountService(memory.NewStore(time.Now))
+	_, err := service.SaveAccount(ctx, SaveAccountInput{TenantID: "user-1", AppID: "wx123", Status: authorization.AccountStatusActive})
+	require.NoError(t, err)
+
+	_, err = service.SaveAccount(ctx, SaveAccountInput{TenantID: "user-2", AppID: "wx123", Status: authorization.AccountStatusActive})
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrConflict))
+}

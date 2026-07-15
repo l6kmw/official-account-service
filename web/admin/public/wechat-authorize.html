@@ -98,15 +98,12 @@
         }
 
         function buildURL() {
-          var tenantID = value('tenant_id')
           var componentAppID = value('component_appid')
-          if (!tenantID) throw new Error('缺少 tenant_id 参数。')
           if (!componentAppID) throw new Error('缺少 component_appid 参数。')
 
 	          var callbackURL = new URL('/api/v1/wechat/authorization-callback', window.location.origin)
 
 	          var apiURL = new URL('/api/v1/wechat/authorization-url', window.location.origin)
-	          apiURL.searchParams.set('tenant_id', tenantID)
 	          apiURL.searchParams.set('component_appid', componentAppID)
           apiURL.searchParams.set('redirect_uri', callbackURL.toString())
 

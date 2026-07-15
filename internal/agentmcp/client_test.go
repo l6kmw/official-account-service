@@ -240,14 +240,14 @@ func TestAuthorizationEntryUsesConfiguredPublicURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "tenant-test", entry.TenantID)
 	require.Equal(t, "wx-component", entry.ComponentAppID)
-	require.Equal(t, "https://public.example.com/wechat-authorize.html?component_appid=wx-component&tenant_id=tenant-test", entry.AuthorizationEntryURL)
+	require.Equal(t, "https://public.example.com/wechat-authorize.html?component_appid=wx-component", entry.AuthorizationEntryURL)
 	require.Equal(t, entry.AuthorizationEntryURL, entry.QRCodePayloadURL)
 }
 
 func TestGenerateAuthorizationURLUsesConfiguredDefaults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/wechat/authorization-url", r.URL.Path)
-		require.Equal(t, "tenant-test", r.URL.Query().Get("tenant_id"))
+		require.Empty(t, r.URL.Query().Get("tenant_id"))
 		require.Equal(t, "wx-component", r.URL.Query().Get("component_appid"))
 		require.Equal(t, "https://public.example.com/api/v1/wechat/authorization-callback", r.URL.Query().Get("redirect_uri"))
 		w.WriteHeader(http.StatusOK)
