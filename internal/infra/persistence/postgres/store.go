@@ -144,10 +144,15 @@ func (s *Store) UpdateAccountStatus(ctx context.Context, tenantID string, id int
 // Create stores a tenant-scoped article.
 func (s *Store) Create(ctx context.Context, tenantID string, draft article.Article) (article.Article, error) {
 	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO wechat_article (tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status, created_at, updated_at`,
-		tenantID, draft.AuthorizerID, draft.Title, draft.Author, draft.Digest, draft.ContentHTML, draft.CoverMediaAssetID, draft.Status)
+		INSERT INTO wechat_article (
+			tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status,
+			created_by_agent_id, updated_by_agent_id, version
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''), 1)
+		RETURNING id, tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status,
+		          COALESCE(created_by_agent_id, ''), COALESCE(updated_by_agent_id, ''), version, created_at, updated_at`,
+		tenantID, draft.AuthorizerID, draft.Title, draft.Author, draft.Digest, draft.ContentHTML, draft.CoverMediaAssetID, draft.Status,
+		draft.CreatedByAgentID, draft.UpdatedByAgentID)
 	created, err := scanArticleRow(row)
 	if err != nil {
 		return article.Article{}, fmt.Errorf("create article: %w", err)
@@ -186,17 +191,41 @@ func (s *Store) List(ctx context.Context, tenantID string) ([]article.Article, e
 	return items, nil
 }
 
+// ListByCreatedByAgent returns tenant-scoped articles owned by one creating Agent.
+func (s *Store) ListByCreatedByAgent(ctx context.Context, tenantID string, agentRecordID string) ([]article.Article, error) {
+	rows, err := s.db.QueryContext(ctx, articleSelectSQL+` WHERE tenant_id = $1 AND created_by_agent_id = $2 ORDER BY id`, tenantID, agentRecordID)
+	if err != nil {
+		return nil, fmt.Errorf("list articles by agent query: %w", err)
+	}
+	defer rows.Close()
+	items := make([]article.Article, 0)
+	for rows.Next() {
+		draft, err := scanArticleRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list articles by agent scan: %w", err)
+		}
+		items = append(items, draft)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list articles by agent rows: %w", err)
+	}
+	return items, nil
+}
+
 // Update replaces a tenant-scoped article.
 func (s *Store) Update(ctx context.Context, tenantID string, draft article.Article) (article.Article, error) {
 	row := s.db.QueryRowContext(ctx, `
 		UPDATE wechat_article
-		SET title = $3, author = $4, digest = $5, content_html = $6, cover_media_asset_id = $7, status = $8, updated_at = NOW()
-		WHERE tenant_id = $1 AND id = $2
-		RETURNING id, tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status, created_at, updated_at`,
-		tenantID, draft.ID, draft.Title, draft.Author, draft.Digest, draft.ContentHTML, draft.CoverMediaAssetID, draft.Status)
+		SET title = $3, author = $4, digest = $5, content_html = $6, cover_media_asset_id = $7, status = $8,
+		    updated_by_agent_id = NULLIF($9, ''), version = version + 1, updated_at = NOW()
+		WHERE tenant_id = $1 AND id = $2 AND version = $10
+		RETURNING id, tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status,
+		          COALESCE(created_by_agent_id, ''), COALESCE(updated_by_agent_id, ''), version, created_at, updated_at`,
+		tenantID, draft.ID, draft.Title, draft.Author, draft.Digest, draft.ContentHTML, draft.CoverMediaAssetID, draft.Status,
+		draft.UpdatedByAgentID, draft.Version)
 	updated, err := scanArticleRow(row)
 	if err != nil {
-		return article.Article{}, mapArticleError("update article", err)
+		return article.Article{}, s.mapArticleUpdateError(ctx, tenantID, draft.ID, err)
 	}
 	return updated, nil
 }
@@ -268,7 +297,8 @@ const accountSelectSQL = `
 	FROM wechat_authorization_account`
 
 const articleSelectSQL = `
-	SELECT id, tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status, created_at, updated_at
+	SELECT id, tenant_id, authorizer_id, title, author, digest, content_html, cover_media_asset_id, status,
+	       COALESCE(created_by_agent_id, ''), COALESCE(updated_by_agent_id, ''), version, created_at, updated_at
 	FROM wechat_article`
 
 const materialSelectSQL = `
@@ -293,7 +323,11 @@ func scanAccountRows(rows *sql.Rows) (authorization.Account, error) {
 
 func scanArticleRow(row *sql.Row) (article.Article, error) {
 	var draft article.Article
-	if err := row.Scan(&draft.ID, &draft.TenantID, &draft.AuthorizerID, &draft.Title, &draft.Author, &draft.Digest, &draft.ContentHTML, &draft.CoverMediaAssetID, &draft.Status, &draft.CreatedAt, &draft.UpdatedAt); err != nil {
+	if err := row.Scan(
+		&draft.ID, &draft.TenantID, &draft.AuthorizerID, &draft.Title, &draft.Author, &draft.Digest, &draft.ContentHTML,
+		&draft.CoverMediaAssetID, &draft.Status, &draft.CreatedByAgentID, &draft.UpdatedByAgentID, &draft.Version,
+		&draft.CreatedAt, &draft.UpdatedAt,
+	); err != nil {
 		return article.Article{}, fmt.Errorf("scan article: %w", err)
 	}
 	return draft, nil
@@ -301,7 +335,11 @@ func scanArticleRow(row *sql.Row) (article.Article, error) {
 
 func scanArticleRows(rows *sql.Rows) (article.Article, error) {
 	var draft article.Article
-	if err := rows.Scan(&draft.ID, &draft.TenantID, &draft.AuthorizerID, &draft.Title, &draft.Author, &draft.Digest, &draft.ContentHTML, &draft.CoverMediaAssetID, &draft.Status, &draft.CreatedAt, &draft.UpdatedAt); err != nil {
+	if err := rows.Scan(
+		&draft.ID, &draft.TenantID, &draft.AuthorizerID, &draft.Title, &draft.Author, &draft.Digest, &draft.ContentHTML,
+		&draft.CoverMediaAssetID, &draft.Status, &draft.CreatedByAgentID, &draft.UpdatedByAgentID, &draft.Version,
+		&draft.CreatedAt, &draft.UpdatedAt,
+	); err != nil {
 		return article.Article{}, fmt.Errorf("scan article: %w", err)
 	}
 	return draft, nil
@@ -338,6 +376,20 @@ func mapArticleError(action string, err error) error {
 		return fmt.Errorf("%s: %w", action, article.ErrNotFound)
 	}
 	return fmt.Errorf("%s: %w", action, err)
+}
+
+func (s *Store) mapArticleUpdateError(ctx context.Context, tenantID string, id int64, err error) error {
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("update article: %w", err)
+	}
+	var exists bool
+	if queryErr := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM wechat_article WHERE tenant_id = $1 AND id = $2)`, tenantID, id).Scan(&exists); queryErr != nil {
+		return fmt.Errorf("resolve article update conflict: %w", errors.Join(err, queryErr))
+	}
+	if exists {
+		return fmt.Errorf("update article version: %w", article.ErrVersionConflict)
+	}
+	return fmt.Errorf("update article lookup: %w", article.ErrNotFound)
 }
 
 func mapMaterialError(action string, err error) error {

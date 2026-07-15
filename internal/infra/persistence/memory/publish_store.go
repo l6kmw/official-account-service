@@ -26,7 +26,7 @@ func (s *Store) CreatePublishRecord(_ context.Context, tenantID string, record p
 	record.CreatedAt = now
 	record.UpdatedAt = now
 	s.publishRecords[record.ID] = record
-	return record, nil
+	return s.withArticleAgent(record), nil
 }
 
 // UpdatePublishRecordSubmission stores the WeChat publish id for an active publish record.
@@ -40,7 +40,7 @@ func (s *Store) UpdatePublishRecordSubmission(_ context.Context, tenantID string
 	current.WeChatPublishID = record.WeChatPublishID
 	current.UpdatedAt = s.now()
 	s.publishRecords[current.ID] = current
-	return current, nil
+	return s.withArticleAgent(current), nil
 }
 
 // GetPublishRecord returns one tenant-scoped publish record.
@@ -51,7 +51,7 @@ func (s *Store) GetPublishRecord(_ context.Context, tenantID string, id int64) (
 	if !ok || record.TenantID != tenantID {
 		return publish.Record{}, fmt.Errorf("get publish record lookup: %w", publish.ErrNotFound)
 	}
-	return record, nil
+	return s.withArticleAgent(record), nil
 }
 
 // GetPublishRecordByPublishID returns one tenant-scoped publish record by WeChat publish id.
@@ -60,7 +60,7 @@ func (s *Store) GetPublishRecordByPublishID(_ context.Context, tenantID string, 
 	defer s.mu.RUnlock()
 	for _, record := range s.publishRecords {
 		if record.TenantID == tenantID && record.WeChatPublishID == publishID {
-			return record, nil
+			return s.withArticleAgent(record), nil
 		}
 	}
 	return publish.Record{}, fmt.Errorf("get publish record by publish id lookup: %w", publish.ErrNotFound)
@@ -73,7 +73,7 @@ func (s *Store) ListPublishRecords(_ context.Context, tenantID string) ([]publis
 	items := make([]publish.Record, 0)
 	for _, record := range s.publishRecords {
 		if record.TenantID == tenantID {
-			items = append(items, record)
+			items = append(items, s.withArticleAgent(record))
 		}
 	}
 	sortPublishRecords(items)
@@ -87,7 +87,22 @@ func (s *Store) ListPublishRecordsByArticle(_ context.Context, tenantID string, 
 	items := make([]publish.Record, 0)
 	for _, record := range s.publishRecords {
 		if record.TenantID == tenantID && record.ArticleID == articleID {
-			items = append(items, record)
+			items = append(items, s.withArticleAgent(record))
+		}
+	}
+	sortPublishRecords(items)
+	return items, nil
+}
+
+// ListPublishRecordsByAgent returns records whose article was created by the selected Agent.
+func (s *Store) ListPublishRecordsByAgent(_ context.Context, tenantID string, agentRecordID string) ([]publish.Record, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]publish.Record, 0)
+	for _, record := range s.publishRecords {
+		draft, ok := s.articles[record.ArticleID]
+		if record.TenantID == tenantID && ok && draft.TenantID == tenantID && draft.CreatedByAgentID == agentRecordID {
+			items = append(items, s.withArticleAgent(record))
 		}
 	}
 	sortPublishRecords(items)
@@ -112,7 +127,15 @@ func (s *Store) UpdatePublishRecordStatus(_ context.Context, tenantID string, re
 	current.FinishedAt = record.FinishedAt
 	current.UpdatedAt = s.now()
 	s.publishRecords[current.ID] = current
-	return current, nil
+	return s.withArticleAgent(current), nil
+}
+
+func (s *Store) withArticleAgent(record publish.Record) publish.Record {
+	draft, ok := s.articles[record.ArticleID]
+	if ok && draft.TenantID == record.TenantID {
+		record.ArticleCreatedByAgentID = draft.CreatedByAgentID
+	}
+	return record
 }
 
 func sortPublishRecords(items []publish.Record) {

@@ -47,8 +47,8 @@ func (s *Store) UpdatePublishRecordSubmission(ctx context.Context, tenantID stri
 
 // GetPublishRecord returns one tenant-scoped publish record.
 func (s *Store) GetPublishRecord(ctx context.Context, tenantID string, id int64) (publish.Record, error) {
-	row := s.db.QueryRowContext(ctx, publishRecordSelectSQL+` WHERE tenant_id = $1 AND id = $2`, tenantID, id)
-	record, err := scanPublishRecordRow(row)
+	row := s.db.QueryRowContext(ctx, publishRecordWithAgentSelectSQL+` WHERE record.tenant_id = $1 AND record.id = $2`, tenantID, id)
+	record, err := scanPublishRecordWithAgentRow(row)
 	if err != nil {
 		return publish.Record{}, mapPublishError("get publish record", err)
 	}
@@ -57,8 +57,8 @@ func (s *Store) GetPublishRecord(ctx context.Context, tenantID string, id int64)
 
 // GetPublishRecordByPublishID returns one tenant-scoped publish record by WeChat publish id.
 func (s *Store) GetPublishRecordByPublishID(ctx context.Context, tenantID string, publishID string) (publish.Record, error) {
-	row := s.db.QueryRowContext(ctx, publishRecordSelectSQL+` WHERE tenant_id = $1 AND wechat_publish_id = $2`, tenantID, publishID)
-	record, err := scanPublishRecordRow(row)
+	row := s.db.QueryRowContext(ctx, publishRecordWithAgentSelectSQL+` WHERE record.tenant_id = $1 AND record.wechat_publish_id = $2`, tenantID, publishID)
+	record, err := scanPublishRecordWithAgentRow(row)
 	if err != nil {
 		return publish.Record{}, mapPublishError("get publish record by publish id", err)
 	}
@@ -67,14 +67,14 @@ func (s *Store) GetPublishRecordByPublishID(ctx context.Context, tenantID string
 
 // ListPublishRecords returns tenant-scoped publish records.
 func (s *Store) ListPublishRecords(ctx context.Context, tenantID string) ([]publish.Record, error) {
-	rows, err := s.db.QueryContext(ctx, publishRecordSelectSQL+` WHERE tenant_id = $1 ORDER BY id`, tenantID)
+	rows, err := s.db.QueryContext(ctx, publishRecordWithAgentSelectSQL+` WHERE record.tenant_id = $1 ORDER BY record.id`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list publish records query: %w", err)
 	}
 	defer rows.Close()
 	items := make([]publish.Record, 0)
 	for rows.Next() {
-		record, err := scanPublishRecordRows(rows)
+		record, err := scanPublishRecordWithAgentRows(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list publish records scan: %w", err)
 		}
@@ -88,14 +88,14 @@ func (s *Store) ListPublishRecords(ctx context.Context, tenantID string) ([]publ
 
 // ListPublishRecordsByArticle returns publish records for an article.
 func (s *Store) ListPublishRecordsByArticle(ctx context.Context, tenantID string, articleID int64) ([]publish.Record, error) {
-	rows, err := s.db.QueryContext(ctx, publishRecordSelectSQL+` WHERE tenant_id = $1 AND article_id = $2 ORDER BY id`, tenantID, articleID)
+	rows, err := s.db.QueryContext(ctx, publishRecordWithAgentSelectSQL+` WHERE record.tenant_id = $1 AND record.article_id = $2 ORDER BY record.id`, tenantID, articleID)
 	if err != nil {
 		return nil, fmt.Errorf("list publish records query: %w", err)
 	}
 	defer rows.Close()
 	items := make([]publish.Record, 0)
 	for rows.Next() {
-		record, err := scanPublishRecordRows(rows)
+		record, err := scanPublishRecordWithAgentRows(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list publish records scan: %w", err)
 		}
@@ -103,6 +103,28 @@ func (s *Store) ListPublishRecordsByArticle(ctx context.Context, tenantID string
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list publish records rows: %w", err)
+	}
+	return items, nil
+}
+
+// ListPublishRecordsByAgent returns records whose article was created by the selected Agent.
+func (s *Store) ListPublishRecordsByAgent(ctx context.Context, tenantID string, agentRecordID string) ([]publish.Record, error) {
+	rows, err := s.db.QueryContext(ctx, publishRecordWithAgentSelectSQL+`
+		WHERE record.tenant_id = $1 AND article.created_by_agent_id = $2 ORDER BY record.id`, tenantID, agentRecordID)
+	if err != nil {
+		return nil, fmt.Errorf("list publish records by agent query: %w", err)
+	}
+	defer rows.Close()
+	items := make([]publish.Record, 0)
+	for rows.Next() {
+		record, err := scanPublishRecordWithAgentRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list publish records by agent scan: %w", err)
+		}
+		items = append(items, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list publish records by agent rows: %w", err)
 	}
 	return items, nil
 }
@@ -123,10 +145,14 @@ func (s *Store) UpdatePublishRecordStatus(ctx context.Context, tenantID string, 
 	return updated, nil
 }
 
-const publishRecordSelectSQL = `
-	SELECT id, tenant_id, authorizer_id, article_id, wechat_publish_id, wechat_article_id, status, error_code, error_message,
-	       submitted_at, finished_at, created_at, updated_at
-	FROM wechat_publish_record`
+const publishRecordWithAgentSelectSQL = `
+	SELECT record.id, record.tenant_id, record.authorizer_id, record.article_id, record.wechat_publish_id,
+	       record.wechat_article_id, record.status, record.error_code, record.error_message,
+	       record.submitted_at, record.finished_at, COALESCE(article.created_by_agent_id, ''),
+	       record.created_at, record.updated_at
+	FROM wechat_publish_record AS record
+	LEFT JOIN wechat_article AS article
+	  ON article.tenant_id = record.tenant_id AND article.id = record.article_id`
 
 func scanPublishRecordRow(row *sql.Row) (publish.Record, error) {
 	var record publish.Record
@@ -146,6 +172,38 @@ func scanPublishRecordRows(rows *sql.Rows) (publish.Record, error) {
 	var finishedAt sql.NullTime
 	if err := rows.Scan(&record.ID, &record.TenantID, &record.AuthorizerID, &record.ArticleID, &record.WeChatPublishID, &record.WeChatArticleID, &record.Status, &record.ErrorCode, &record.ErrorMessage, &submittedAt, &finishedAt, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return publish.Record{}, fmt.Errorf("scan publish record: %w", err)
+	}
+	record.SubmittedAt = nullTimeValue(submittedAt)
+	record.FinishedAt = nullTimeValue(finishedAt)
+	return record, nil
+}
+
+func scanPublishRecordWithAgentRow(row *sql.Row) (publish.Record, error) {
+	var record publish.Record
+	var submittedAt sql.NullTime
+	var finishedAt sql.NullTime
+	if err := row.Scan(
+		&record.ID, &record.TenantID, &record.AuthorizerID, &record.ArticleID, &record.WeChatPublishID,
+		&record.WeChatArticleID, &record.Status, &record.ErrorCode, &record.ErrorMessage, &submittedAt, &finishedAt,
+		&record.ArticleCreatedByAgentID, &record.CreatedAt, &record.UpdatedAt,
+	); err != nil {
+		return publish.Record{}, fmt.Errorf("scan publish record with agent: %w", err)
+	}
+	record.SubmittedAt = nullTimeValue(submittedAt)
+	record.FinishedAt = nullTimeValue(finishedAt)
+	return record, nil
+}
+
+func scanPublishRecordWithAgentRows(rows *sql.Rows) (publish.Record, error) {
+	var record publish.Record
+	var submittedAt sql.NullTime
+	var finishedAt sql.NullTime
+	if err := rows.Scan(
+		&record.ID, &record.TenantID, &record.AuthorizerID, &record.ArticleID, &record.WeChatPublishID,
+		&record.WeChatArticleID, &record.Status, &record.ErrorCode, &record.ErrorMessage, &submittedAt, &finishedAt,
+		&record.ArticleCreatedByAgentID, &record.CreatedAt, &record.UpdatedAt,
+	); err != nil {
+		return publish.Record{}, fmt.Errorf("scan publish record with agent: %w", err)
 	}
 	record.SubmittedAt = nullTimeValue(submittedAt)
 	record.FinishedAt = nullTimeValue(finishedAt)

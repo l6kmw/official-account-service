@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"official-account-service/internal/domain/agentaudit"
 	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
 	"official-account-service/internal/domain/identity"
@@ -22,12 +23,14 @@ type Store struct {
 	nextArticleID       int64
 	nextAssetID         int64
 	nextRecordID        int64
+	nextAuditID         int64
 	accounts            map[int64]authorization.Account
 	users               map[string]identity.User
 	agents              map[string]identity.Agent
 	articles            map[int64]article.Article
 	materialAssets      map[int64]material.Asset
 	publishRecords      map[int64]publish.Record
+	auditEntries        []agentaudit.Entry
 	callbackEvents      map[int64]wechatcallback.Event
 	tickets             map[string]authorization.ComponentVerifyTicket
 	bindings            map[string]authorization.AuthorizerTenantBinding
@@ -49,6 +52,7 @@ func NewStore(now func() time.Time) *Store {
 		articles:            make(map[int64]article.Article),
 		materialAssets:      make(map[int64]material.Asset),
 		publishRecords:      make(map[int64]publish.Record),
+		auditEntries:        make([]agentaudit.Entry, 0),
 		callbackEvents:      make(map[int64]wechatcallback.Event),
 		tickets:             make(map[string]authorization.ComponentVerifyTicket),
 		bindings:            make(map[string]authorization.AuthorizerTenantBinding),
@@ -312,6 +316,7 @@ func (s *Store) Create(_ context.Context, tenantID string, draft article.Article
 	now := s.now()
 	draft.ID = s.nextArticleID
 	draft.TenantID = tenantID
+	draft.Version = 1
 	draft.CreatedAt = now
 	draft.UpdatedAt = now
 	s.articles[draft.ID] = draft
@@ -342,6 +347,19 @@ func (s *Store) List(_ context.Context, tenantID string) ([]article.Article, err
 	return items, nil
 }
 
+// ListByCreatedByAgent returns tenant-scoped articles owned by one creating Agent.
+func (s *Store) ListByCreatedByAgent(_ context.Context, tenantID string, agentRecordID string) ([]article.Article, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]article.Article, 0)
+	for _, draft := range s.articles {
+		if draft.TenantID == tenantID && draft.CreatedByAgentID == agentRecordID {
+			items = append(items, draft)
+		}
+	}
+	return items, nil
+}
+
 // Update replaces a tenant-scoped article.
 func (s *Store) Update(_ context.Context, tenantID string, draft article.Article) (article.Article, error) {
 	s.mu.Lock()
@@ -350,8 +368,13 @@ func (s *Store) Update(_ context.Context, tenantID string, draft article.Article
 	if !ok || current.TenantID != tenantID {
 		return article.Article{}, fmt.Errorf("update article lookup: %w", article.ErrNotFound)
 	}
+	if draft.Version != current.Version {
+		return article.Article{}, fmt.Errorf("update article version: %w", article.ErrVersionConflict)
+	}
 	draft.TenantID = tenantID
 	draft.CreatedAt = current.CreatedAt
+	draft.CreatedByAgentID = current.CreatedByAgentID
+	draft.Version = current.Version + 1
 	draft.UpdatedAt = s.now()
 	s.articles[draft.ID] = draft
 	return draft, nil

@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"official-account-service/internal/domain/agentaudit"
 	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/authorization"
 	"official-account-service/internal/domain/identity"
@@ -118,16 +119,77 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.Len(t, accounts, 1)
 	require.Equal(t, account.ID, accounts[0].ID)
 
-	created, err := store.Create(ctx, tenantID, article.Article{AuthorizerID: account.ID, Title: "hello", Status: article.StatusDraft})
+	agentA, err := store.CreateAgent(ctx, identity.Agent{
+		ID: "agt-a-" + tenantID, UserID: tenantID, AgentID: "writer-a", Name: "Writer A", Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	agentB, err := store.CreateAgent(ctx, identity.Agent{
+		ID: "agt-b-" + tenantID, UserID: tenantID, AgentID: "writer-b", Name: "Writer B", Status: identity.StatusActive,
+	})
 	require.NoError(t, err)
 
-	updated, err := store.Update(ctx, tenantID, article.Article{ID: created.ID, AuthorizerID: account.ID, Title: "updated", Status: article.StatusDraft})
+	created, err := store.Create(ctx, tenantID, article.Article{
+		AuthorizerID: account.ID, Title: "hello", Status: article.StatusDraft,
+		CreatedByAgentID: agentA.ID, UpdatedByAgentID: agentA.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), created.Version)
+	require.Equal(t, agentA.ID, created.CreatedByAgentID)
+
+	updated, err := store.Update(ctx, tenantID, article.Article{
+		ID: created.ID, AuthorizerID: account.ID, Title: "updated", Status: article.StatusDraft,
+		UpdatedByAgentID: agentB.ID, Version: created.Version,
+	})
 	require.NoError(t, err)
 	require.Equal(t, "updated", updated.Title)
+	require.Equal(t, int64(2), updated.Version)
+	require.Equal(t, agentA.ID, updated.CreatedByAgentID)
+	require.Equal(t, agentB.ID, updated.UpdatedByAgentID)
+
+	_, err = store.Update(ctx, tenantID, article.Article{ID: created.ID, Title: "stale", Status: article.StatusDraft, Version: created.Version})
+	require.ErrorIs(t, err, article.ErrVersionConflict)
+
+	concurrentDraft, err := store.Create(ctx, tenantID, article.Article{
+		AuthorizerID: account.ID, Title: "concurrent", Status: article.StatusDraft,
+	})
+	require.NoError(t, err)
+	startUpdates := make(chan struct{})
+	updateResults := make(chan error, 2)
+	for _, title := range []string{"concurrent-a", "concurrent-b"} {
+		draft := concurrentDraft
+		draft.Title = title
+		go func() {
+			<-startUpdates
+			_, updateErr := store.Update(ctx, tenantID, draft)
+			updateResults <- updateErr
+		}()
+	}
+	close(startUpdates)
+	succeededUpdates := 0
+	conflictedUpdates := 0
+	for range 2 {
+		updateErr := <-updateResults
+		switch {
+		case updateErr == nil:
+			succeededUpdates++
+		case errors.Is(updateErr, article.ErrVersionConflict):
+			conflictedUpdates++
+		default:
+			require.NoError(t, updateErr)
+		}
+	}
+	require.Equal(t, 1, succeededUpdates)
+	require.Equal(t, 1, conflictedUpdates)
 
 	items, err := store.List(ctx, tenantID)
 	require.NoError(t, err)
-	require.Len(t, items, 1)
+	require.Len(t, items, 2)
+	agentArticles, err := store.ListByCreatedByAgent(ctx, tenantID, agentA.ID)
+	require.NoError(t, err)
+	require.Len(t, agentArticles, 1)
+	otherAgentArticles, err := store.ListByCreatedByAgent(ctx, tenantID, agentB.ID)
+	require.NoError(t, err)
+	require.Empty(t, otherAgentArticles)
 
 	asset, err := store.CreateMaterial(ctx, tenantID, material.Asset{AuthorizerID: account.ID, ArticleID: created.ID, Usage: material.UsageInlineImage, LocalURL: "body.png", WeChatURL: "https://wechat.example/body.png"})
 	require.NoError(t, err)
@@ -148,6 +210,13 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	records, err := store.ListPublishRecordsByArticle(ctx, tenantID, created.ID)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
+	require.Equal(t, agentA.ID, records[0].ArticleCreatedByAgentID)
+	agentRecords, err := store.ListPublishRecordsByAgent(ctx, tenantID, agentA.ID)
+	require.NoError(t, err)
+	require.Len(t, agentRecords, 1)
+	otherAgentRecords, err := store.ListPublishRecordsByAgent(ctx, tenantID, agentB.ID)
+	require.NoError(t, err)
+	require.Empty(t, otherAgentRecords)
 	allRecords, err := store.ListPublishRecords(ctx, tenantID)
 	require.NoError(t, err)
 	require.Len(t, allRecords, 1)
@@ -158,6 +227,29 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	byPublishID, err := store.GetPublishRecordByPublishID(ctx, tenantID, publishID)
 	require.NoError(t, err)
 	require.Equal(t, updatedRecord.ID, byPublishID.ID)
+
+	_, err = store.Append(ctx, agentaudit.Entry{
+		UserID: tenantID, AgentRecordID: agentA.ID, Action: agentaudit.ActionCreateArticle,
+		ResourceType: agentaudit.ResourceArticle, ResourceID: fmt.Sprint(created.ID),
+	})
+	require.NoError(t, err)
+	_, err = store.Append(ctx, agentaudit.Entry{
+		UserID: tenantID, AgentRecordID: agentB.ID, Action: agentaudit.ActionUpdateArticle,
+		ResourceType: agentaudit.ResourceArticle, ResourceID: fmt.Sprint(created.ID),
+	})
+	require.NoError(t, err)
+	agentAudit, err := store.ListAuditEntries(ctx, tenantID, agentaudit.Filter{AgentRecordID: agentB.ID, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, agentAudit, 1)
+	require.Equal(t, agentaudit.ActionUpdateArticle, agentAudit[0].Action)
+	otherTenantAudit, err := store.ListAuditEntries(ctx, tenantID+"-other", agentaudit.Filter{Limit: 10})
+	require.NoError(t, err)
+	require.Empty(t, otherTenantAudit)
+	_, err = store.Append(ctx, agentaudit.Entry{
+		UserID: tenantID, AgentRecordID: "agt-not-owned", Action: agentaudit.ActionUpdateArticle,
+		ResourceType: agentaudit.ResourceArticle, ResourceID: fmt.Sprint(created.ID),
+	})
+	require.Error(t, err)
 
 	callbackEvent, err := store.SaveCallbackEvent(ctx, wechatcallback.Event{
 		TenantID: tenantID, ComponentAppID: "wx-component", AuthorizerAppID: appID,
@@ -200,6 +292,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/011_account_global_owner.sql",
 		"../../../../migrations/012_user_api_token.sql",
 		"../../../../migrations/013_multi_agent_token.sql",
+		"../../../../migrations/014_article_agent_audit.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)
