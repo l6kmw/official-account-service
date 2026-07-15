@@ -8,6 +8,7 @@
 - 上传正文图片和封面
 - 发布文章、同步发布状态、删除已发布内容
 - 给外部 Agent 提供 MCP 工具
+- 多用户独立数据空间；每个用户可授权多个公众号，一个公众号只能属于一个用户
 
 服务由三部分组成：
 
@@ -58,7 +59,7 @@ http://localhost:8080
 - Redis
 - 微信开放平台第三方平台配置
 - 管理员账号密码
-- MCP token
+- 每个 Agent 用户的独立 MCP token
 
 建议先统一一个公网地址：
 
@@ -117,6 +118,7 @@ wechat:
   refresh_token_encryption_key: "<BASE64_32_BYTE_KEY>"
 
 mcp:
+  # 兼容 tenant-1 管理员的旧连接；新用户 token 在管理后台生成。
   token: "<LONG_RANDOM_MCP_TOKEN>"
   path: "/mcp"
 ```
@@ -134,12 +136,13 @@ openssl rand -base64 48
 htpasswd -bnBC 12 "" "your-admin-password" | tr -d ':\n'
 ```
 
-重点区分两个 token：
+重点区分三类凭证：
 
-- `security.admin_api_key`：给服务端脚本和 MCP 进程调用后端 API 用。
-- `mcp.token`：给外部 Agent 连接 MCP 用。
+- 管理员账号密码：登录管理后台。
+- 用户 API/MCP token：在“用户管理”中生成，每个用户独立，明文只返回一次。
+- `security.admin_api_key` 和 `mcp.token`：仅保留给内部脚本与 `tenant-1` 旧 MCP 连接兼容，不要发给普通用户。
 
-不要把这两个 token 写进前端 `admin-config.js`。
+不要把任何 token 写进前端 `admin-config.js`。
 
 ## 4. 启动后端、PostgreSQL、Redis
 
@@ -178,6 +181,8 @@ for f in migrations/*.sql; do
 done
 ```
 
+从单用户版本升级时，先备份数据库，再确认 `010_app_user.sql`、`011_account_global_owner.sql`、`012_user_api_token.sql` 已执行。旧登录 cookie 不含 `user_id`，升级后需要重新登录；原有数据继续归属于 `security.admin_user_id`（默认 `tenant-1`）。
+
 注意：当前后端启动时不会自动建表。
 
 如果使用 Docker Compose，并且 `postgres_data` 已经存在，PostgreSQL 不会自动重新执行新加入的 migration。每次更新代码后先备份数据库，再执行：
@@ -211,7 +216,6 @@ cp -R web/admin/dist/. /var/www/official-account-admin/
 
 ```js
 window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
-  tenantID: 'tenant-1',
   publicBaseURL: 'https://<PUBLIC_DOMAIN>',
   componentAppID: '<WX_COMPONENT_APPID>',
   adminAPIKey: ''
@@ -239,6 +243,7 @@ export OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
 export OFFICIAL_ACCOUNT_BASE_URL="http://127.0.0.1:8080"
 export OFFICIAL_ACCOUNT_PUBLIC_BASE_URL="https://<PUBLIC_DOMAIN>"
 export OFFICIAL_ACCOUNT_COMPONENT_APP_ID="<WX_COMPONENT_APPID>"
+# 以下两项只服务于 tenant-1 的旧静态 token/stdio 兼容路径。
 export OFFICIAL_ACCOUNT_TENANT_ID="tenant-1"
 export OFFICIAL_ACCOUNT_ADMIN_API_KEY="<LONG_RANDOM_ADMIN_API_KEY>"
 ```
@@ -359,7 +364,7 @@ https://<PUBLIC_DOMAIN>/api/v1/wechat/authorization-callback
 授权入口页是：
 
 ```text
-https://<PUBLIC_DOMAIN>/wechat-authorize.html?tenant_id=tenant-1&component_appid=<WX_COMPONENT_APPID>
+https://<PUBLIC_DOMAIN>/wechat-authorize.html?component_appid=<WX_COMPONENT_APPID>
 ```
 
 最重要的一点：
@@ -372,23 +377,25 @@ wechat-authorize.html 所在域名
 
 这三个必须一致，否则微信会报授权入口域名错误。
 
-授权发起时，服务端会自动生成一次性 `state` 并写入回调 URL。不要手工添加 `tenant_id` 或 `component_appid` 回调参数。
+从管理后台发起授权时必须先登录；从 MCP 发起时使用当前用户 token。服务端会把已认证用户写入一次性 `state`，回调时自动恢复归属。不要手工添加 `tenant_id` 回调参数。
 
 ## 9. Agent 如何连接 MCP
+
+管理员先打开“用户管理”，为对应用户点击“生成 token”，并立即保存本次返回的明文。数据库只保存摘要，关闭提示后无法找回，只能重新生成。
 
 Streamable HTTP 配置：
 
 ```text
 URL: https://<PUBLIC_DOMAIN>/mcp
 Transport: streamable-http
-Header: Authorization=Bearer <MCP_TOKEN>
+Header: Authorization=Bearer <USER_MCP_TOKEN>
 ```
 
 如果客户端是 API Key Header 模板，也可以填：
 
 ```text
 Header name: X-API-Key
-Header value: <MCP_TOKEN>
+Header value: <USER_MCP_TOKEN>
 ```
 
 常用工具：
@@ -408,6 +415,8 @@ Header value: <MCP_TOKEN>
 - `official_account_list_publish_records`
 - `official_account_sync_publish_status`
 - `official_account_delete_published_record`
+
+`official_account_get_authorization_entry` 返回的是已经绑定当前 MCP 用户的一次性微信授权 URL，可直接打开或作为二维码内容，不需要先登录管理后台。
 
 删除时注意区分：
 
@@ -457,9 +466,11 @@ curl https://<PUBLIC_DOMAIN>/mcp/healthz
 
 ## 常见问题
 
-### MCP 能用，但 config.yaml 里没有 mcp 配置
+### MCP 能用，但 config.yaml 里没有用户 token
 
-可能是 MCP token 来自环境变量：
+这是正常的。新用户 token 保存在 PostgreSQL 中，YAML 只保留 MCP 监听路径和旧管理员兼容 token。到“用户管理”查看配置状态；需要明文时重新生成。
+
+旧版 `tenant-1` 连接也可能来自环境变量：
 
 ```text
 OFFICIAL_ACCOUNT_MCP_TOKEN
@@ -478,14 +489,16 @@ mcp:
 检查请求头是不是：
 
 ```text
-Authorization: Bearer <MCP_TOKEN>
+Authorization: Bearer <USER_MCP_TOKEN>
 ```
 
-注意这里是 `mcp.token`，不是管理员密码，也不是 `security.admin_api_key`。
+这里应填写“用户管理”生成的用户 token，不是管理员密码，也不是 `security.admin_api_key`。
 
 ### MCP 工具能连，但创建文章或发布失败
 
-检查 MCP 进程环境变量：
+如果使用新用户 token，先确认该 token 没有被轮换、撤销或停用。MCP 会把 token 原样传给后端，并由后端解析用户归属。
+
+只有旧版 `mcp.token` 兼容连接需要检查 MCP 进程环境变量：
 
 ```text
 OFFICIAL_ACCOUNT_ADMIN_API_KEY
@@ -525,7 +538,7 @@ POST /api/v1/publish-records/:id/delete-published
 ## 安全提醒
 
 - 不要提交 `config.yaml`、`config.docker.yaml`。
-- 不要把 AppSecret、EncodingAESKey、数据库密码、`security.admin_api_key`、`mcp.token` 放进前端。
+- 不要把 AppSecret、EncodingAESKey、数据库密码、`security.admin_api_key`、`mcp.token` 或用户 token 写进 `admin-config.js`。
 - 不要把 PostgreSQL 和 Redis 暴露到公网。
-- MCP 必须走 HTTPS，并且必须配置长随机 token。
+- MCP 必须走 HTTPS；每个用户使用自己的高熵 token，不得多人共享。
 - 生产环境必须开启管理员登录或后台 API key。

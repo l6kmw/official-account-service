@@ -38,6 +38,7 @@ wechat:
   refresh_token_encryption_key: ""
 
 mcp:
-  # Remote MCP access token for trusted agents. Do not put this in admin-config.js.
+  # Legacy tenant-1 compatibility token. Generate per-user MCP tokens in User Management.
+  # Do not put any token in admin-config.js.
   token: ""
   path: "/mcp"

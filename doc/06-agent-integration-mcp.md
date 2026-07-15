@@ -34,7 +34,7 @@ OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
 ./official-account-mcp -config /opt/official-account-service/config.yaml
 ```
 
-远程 MCP token 建议保存在服务端 `config.yaml`：
+Streamable HTTP 进程仍需要一个兼容启动 token。它只用于已有 `tenant-1` 管理员连接，不应分发给新用户：
 
 ```yaml
 mcp:
@@ -42,7 +42,7 @@ mcp:
   path: "/mcp"
 ```
 
-`OFFICIAL_ACCOUNT_MCP_TOKEN` 仍可作为兼容环境变量使用；线上建议以 YAML 为准，避免 token 分散在多个位置。
+`OFFICIAL_ACCOUNT_MCP_TOKEN` 仍可覆盖这个兼容 token。新用户 token 由管理员在“用户管理”中生成，数据库只保存 SHA-256 摘要，明文只返回一次。
 
 公网连接地址：
 
@@ -50,14 +50,14 @@ mcp:
 URL: https://mp.example.com/mcp
 Transport: streamable-http
 Header name: Authorization
-Header value: Bearer <MCP_TOKEN>
+Header value: Bearer <USER_MCP_TOKEN>
 ```
 
 如果客户端只提供 API Key Header 配置，也可以使用：
 
 ```text
 Header name: X-API-Key
-Header value: <MCP_TOKEN>
+Header value: <USER_MCP_TOKEN>
 ```
 
 健康检查地址：
@@ -72,6 +72,7 @@ https://mp.example.com/mcp/healthz
 OFFICIAL_ACCOUNT_BASE_URL="https://mp.example.com"
 OFFICIAL_ACCOUNT_PUBLIC_BASE_URL="https://mp.example.com"
 OFFICIAL_ACCOUNT_COMPONENT_APP_ID="wx_component_appid"
+# 以下两项仅用于旧静态 token 或 stdio 的 tenant-1 兼容路径。
 OFFICIAL_ACCOUNT_TENANT_ID="tenant-1"
 OFFICIAL_ACCOUNT_ADMIN_API_KEY="replace-with-a-long-server-side-api-key"
 OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT="/path/to/agent/workspace"
@@ -85,38 +86,38 @@ OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
 - `OFFICIAL_ACCOUNT_BASE_URL`：MCP 调用后端 API 的服务地址。
 - `OFFICIAL_ACCOUNT_PUBLIC_BASE_URL`：用户浏览器可访问的公网 HTTPS 地址，用来生成授权接入链接和回调 URL；不填时默认使用 `OFFICIAL_ACCOUNT_BASE_URL`。
 - `OFFICIAL_ACCOUNT_COMPONENT_APP_ID`：微信第三方平台 Component AppID，用来生成授权入口。
-- `OFFICIAL_ACCOUNT_TENANT_ID`：MCP 固定绑定的租户。多租户建议启动多个 MCP server，而不是让 agent 任意传 tenant。
-- `OFFICIAL_ACCOUNT_ADMIN_API_KEY`：MCP 调用后台 API 使用的服务端密钥。不要放进前端运行时配置，也不要交给模型上下文。
+- `OFFICIAL_ACCOUNT_TENANT_ID`：仅用于旧静态 token / stdio 的兼容用户；用户 token 请求不会采用它。
+- `OFFICIAL_ACCOUNT_ADMIN_API_KEY`：仅用于旧静态 token / stdio 调用后台 API。Streamable HTTP 用户 token 会直接绑定当前用户并转发给后端。
 - `OFFICIAL_ACCOUNT_MCP_ALLOWED_ROOT`：可选。限制 `file_path` 图片上传只能读取该目录下的文件；线上 Agent 上传的附件建议通过 `image_url` 传入。
 - `OFFICIAL_ACCOUNT_MCP_TRANSPORT`：默认 `stdio`；线上远程连接使用 `streamable-http`。
 - `OFFICIAL_ACCOUNT_MCP_ADDR`：Streamable HTTP 监听地址。线上建议只监听 `127.0.0.1`，再由 Nginx 提供 HTTPS。
 - `OFFICIAL_ACCOUNT_MCP_PATH`：Streamable HTTP MCP 路径，默认 `/mcp`。
-- `OFFICIAL_ACCOUNT_MCP_TOKEN`：可选兼容环境变量。远程 MCP 访问令牌优先建议配置在 `mcp.token`，只给受信任 agent 使用。它不是后台 `admin_api_key`。
+- `OFFICIAL_ACCOUNT_MCP_TOKEN`：可选兼容环境变量，覆盖 YAML 中的旧管理员 token。不要把它当成多人共享 token。
 
 ## API Key
 
 stdio 模式通过本机进程通信，不需要给 agent 暴露 MCP API key。
 
-streamable-http 模式会暴露公网 HTTPS endpoint，必须配置 `mcp.token`，agent 连接时用：
+streamable-http 模式会暴露公网 HTTPS endpoint。管理员在“用户管理”中为每个用户单独生成 token，agent 连接时用：
 
 ```text
-Authorization: Bearer <MCP_TOKEN>
+Authorization: Bearer <USER_MCP_TOKEN>
 ```
 
 部分 MCP 客户端把 API key 作为 `X-API-Key` 发送；服务端也兼容这种格式。不要选择 OAuth 登录流，除非后续单独实现 OAuth 授权服务器。
 
-但 MCP 需要调用受保护的管理后台 API，所以线上服务应配置 `security.admin_api_key`，并通过 `OFFICIAL_ACCOUNT_ADMIN_API_KEY` 注入 MCP 进程。这样 agent 只能调用 MCP 工具，不能直接拿到后台 API key。
+MCP 会先向后端验证用户 token，再用同一个 token 调用后台 API。后端从 token 解析 `user_id`，忽略客户端提供的 `X-Tenant-ID`。token 被轮换、撤销或用户被停用后，后续 MCP 请求立即返回 `401`。
 
-如果线上只启用了管理员登录 cookie，没有配置 `security.admin_api_key`，MCP 无法稳定调用写接口。建议给 MCP 单独配置一个长随机 `security.admin_api_key`，或由内网网关注入 `X-Admin-API-Key`。
+`security.admin_api_key` 与 `OFFICIAL_ACCOUNT_ADMIN_API_KEY` 只为旧静态 token / stdio 兼容保留，不要交给远程 Agent。
 
 ## 授权二维码链接
 
-MCP 提供 `official_account_get_authorization_entry`，返回：
+MCP 提供 `official_account_get_authorization_entry`。工具会使用当前用户 token 在服务端生成一次性 state，并返回：
 
-- `authorization_entry_url`：可直接打开的公众号授权接入页。
-- `qr_code_payload_url`：二维码内容，通常和 `authorization_entry_url` 相同。
+- `authorization_entry_url`：可直接打开的微信官方授权页。
+- `qr_code_payload_url`：二维码内容，与 `authorization_entry_url` 相同。
 
-agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如果 UI 暂时不能渲染二维码，就直接给用户打开 `authorization_entry_url`。
+agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码，或直接打开 `authorization_entry_url`。链接不接受 `tenant_id`，同一公众号也不能被另一个用户重复认领。
 
 ## 暴露的 MCP Tools
 
@@ -141,10 +142,10 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 安全约束：
 
 - `official_account_publish_article` 必须传 `confirm_publish=true`。
-- `official_account_delete_article` 只删除本地 `draft` / `failed` 文章，必须传 `confirm_delete="DELETE"`；`publishing` / `published` 文章会拒绝删除。
+- `official_account_delete_article` 必须传 `confirm_delete="DELETE"`；后端会先清理微信侧已发布副本，再删除本地文章和素材。
 - `official_account_delete_published_record` 必须传 `confirm_delete="DELETE"`。
 - `official_account_delete_permanent_material` 必须传 `confirm_delete="DELETE"`，并且只删除用户明确选择的 `media_id`。
-- 所有工具都复用现有后台 API，不返回 token、secret、refresh token。
+- 所有工具都复用现有后台 API，只能访问 token 所属用户的数据，不返回 token、secret、refresh token。
 
 `official_account_list_articles` 读取本地草稿和文章；`official_account_list_published_articles` 每次直接读取微信侧已发布列表，也会包含不经过本服务发布的历史文章。后者按微信消息使用 `offset` / `count` 分页，单条多图文消息可能展开成多个文章条目。
 

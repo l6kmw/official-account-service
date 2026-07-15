@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -103,11 +104,17 @@ func TestStreamableHTTPAcceptsAPIKeyHeader(t *testing.T) {
 
 func TestStreamableHTTPClientListsToolsAndCallsOfficialAccountTools(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/accounts", r.URL.Path)
 		require.Equal(t, "tenant-test", r.Header.Get("X-Tenant-ID"))
 		require.Equal(t, "admin-key", r.Header.Get("X-Admin-API-Key"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"items":[{"id":1,"tenant_id":"tenant-test","app_id":"wx-account","name":"Account","status":"active"}]}`))
+		switch r.URL.Path {
+		case "/api/v1/accounts":
+			_, _ = w.Write([]byte(`{"items":[{"id":1,"tenant_id":"tenant-test","app_id":"wx-account","name":"Account","status":"active"}]}`))
+		case "/api/v1/wechat/authorization-url":
+			_, _ = w.Write([]byte(`{"authorization_url":"https://mp.weixin.qq.com/cgi-bin/componentloginpage?state=user-bound","pre_auth_code_expires_in_sec":600}`))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer apiServer.Close()
 
@@ -153,6 +160,7 @@ func TestStreamableHTTPClientListsToolsAndCallsOfficialAccountTools(t *testing.T
 	require.NoError(t, err)
 	require.False(t, authEntry.IsError)
 	require.NotNil(t, authEntry.StructuredContent)
+	require.Contains(t, fmt.Sprint(authEntry.StructuredContent), "state=user-bound")
 
 	accounts, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "official_account_list_accounts",
@@ -174,6 +182,8 @@ func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) 
 			_, _ = w.Write([]byte(`{"authenticated":true,"user_id":"user-2","username":"writer","role":"user"}`))
 		case "/api/v1/accounts":
 			_, _ = w.Write([]byte(`{"items":[{"id":2,"tenant_id":"user-2","app_id":"wx-user-2","name":"Writer","status":"active"}]}`))
+		case "/api/v1/wechat/authorization-url":
+			_, _ = w.Write([]byte(`{"authorization_url":"https://mp.weixin.qq.com/cgi-bin/componentloginpage?state=user-2-bound","pre_auth_code_expires_in_sec":600}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -181,7 +191,7 @@ func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) 
 	defer apiServer.Close()
 
 	client, err := agentmcp.NewClient(agentmcp.Config{
-		BaseURL: apiServer.URL, TenantID: "tenant-1", AdminAPIKey: "admin-key",
+		BaseURL: apiServer.URL, TenantID: "tenant-1", AdminAPIKey: "admin-key", ComponentAppID: "wx-component",
 	})
 	require.NoError(t, err)
 	mcpHTTPServer := httptest.NewServer(newStreamableHTTPMux(agentmcp.NewServer(client, agentmcp.ServerConfig{}), streamableHTTPConfig{
@@ -203,6 +213,10 @@ func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) 
 	require.NoError(t, err)
 	require.False(t, accounts.IsError)
 	require.Contains(t, accounts.StructuredContent, "items")
+	authorization, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_get_authorization_entry", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, authorization.IsError)
+	require.Contains(t, fmt.Sprint(authorization.StructuredContent), "state=user-2-bound")
 }
 
 type bearerTokenHandler struct {

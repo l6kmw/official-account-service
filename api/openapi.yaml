@@ -2,9 +2,13 @@ openapi: 3.0.3
 info:
   title: Official Account Service API
   version: 1.0.0
-  description: WeChat official-account authorization, article, material, publishing, callback, dashboard, and task-queue APIs.
+  description: WeChat official-account APIs. Management routes derive the data space from the authenticated session or per-user bearer token; clients must not choose a tenant id.
 servers:
   - url: http://localhost:8080
+security:
+  - SessionCookie: []
+  - UserBearer: []
+  - AdminAPIKey: []
 tags:
   - {name: Health}
   - {name: AdminAuth}
@@ -18,22 +22,25 @@ tags:
   - {name: WeChatCallbacks}
 paths:
   /healthz:
-    get: {tags: [Health], summary: Root health check, responses: {"200": {$ref: "#/components/responses/Health"}}}
+    get: {tags: [Health], summary: Root health check, security: [], responses: {"200": {$ref: "#/components/responses/Health"}}}
   /api/v1/healthz:
-    get: {tags: [Health], summary: Versioned health check, responses: {"200": {$ref: "#/components/responses/Health"}}}
+    get: {tags: [Health], summary: Versioned health check, security: [], responses: {"200": {$ref: "#/components/responses/Health"}}}
   /api/v1/admin/session:
     get:
       tags: [AdminAuth]
       summary: Get current administrator login status
+      security: []
       responses: {"200": {description: Admin session status, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}}
     post:
       tags: [AdminAuth]
       summary: Login as an administrator
+      security: []
       requestBody: {$ref: "#/components/requestBodies/AdminLogin"}
       responses: {"200": {description: Authenticated admin session, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "401": {$ref: "#/components/responses/Unauthorized"}, "429": {$ref: "#/components/responses/RateLimited"}, "501": {$ref: "#/components/responses/NotImplemented"}}
     delete:
       tags: [AdminAuth]
       summary: Logout administrator session
+      security: []
       responses: {"200": {description: Logged out, content: {application/json: {schema: {$ref: "#/components/schemas/AdminSession"}}}}}
   /api/v1/admin/users:
     get:
@@ -45,10 +52,27 @@ paths:
       summary: Create one isolated platform user
       requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CreateUserRequest"}}}}
       responses: {"201": {description: Created user without password hash, content: {application/json: {schema: {$ref: "#/components/schemas/User"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "403": {$ref: "#/components/responses/Forbidden"}, "409": {$ref: "#/components/responses/Conflict"}}
+  /api/v1/admin/users/{user_id}/api-token:
+    post:
+      tags: [AdminAuth]
+      summary: Generate or rotate one user's API and MCP token
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}]
+      responses: {"201": {description: Plaintext token returned once, content: {application/json: {schema: {$ref: "#/components/schemas/GeneratedAPIToken"}}}}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}, "409": {$ref: "#/components/responses/Conflict"}}
+    delete:
+      tags: [AdminAuth]
+      summary: Revoke one user's API and MCP token
+      parameters: [{name: user_id, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: User with revoked token metadata, content: {application/json: {schema: {$ref: "#/components/schemas/User"}}}}, "403": {$ref: "#/components/responses/Forbidden"}, "404": {$ref: "#/components/responses/NotFound"}}
+  /api/v1/admin/mcp-config:
+    get:
+      tags: [AdminAuth]
+      summary: Get the current user's safe MCP connection metadata
+      responses: {"200": {description: Token plaintext is returned only for the legacy administrator compatibility credential, content: {application/json: {schema: {$ref: "#/components/schemas/MCPConfig"}}}}, "401": {$ref: "#/components/responses/Unauthorized"}}
   /wechat/component/callback:
     post:
       tags: [WeChatCallbacks]
       summary: Receive WeChat component callbacks
+      security: []
       parameters: [{$ref: "#/components/parameters/EncryptType"}, {$ref: "#/components/parameters/MsgSignature"}, {$ref: "#/components/parameters/Timestamp"}, {$ref: "#/components/parameters/Nonce"}]
       requestBody: {$ref: "#/components/requestBodies/XMLCallback"}
       responses: {"200": {$ref: "#/components/responses/CallbackOK"}, "400": {$ref: "#/components/responses/InvalidRequest"}}
@@ -56,6 +80,7 @@ paths:
     post:
       tags: [WeChatCallbacks]
       summary: Receive WeChat authorizer callbacks
+      security: []
       parameters: [{name: app_id, in: path, required: true, schema: {type: string}}, {$ref: "#/components/parameters/EncryptType"}, {$ref: "#/components/parameters/MsgSignature"}, {$ref: "#/components/parameters/Timestamp"}, {$ref: "#/components/parameters/Nonce"}]
       requestBody: {$ref: "#/components/requestBodies/XMLCallback"}
       responses: {"200": {$ref: "#/components/responses/CallbackOK"}, "400": {$ref: "#/components/responses/InvalidRequest"}}
@@ -73,6 +98,7 @@ paths:
     get:
       tags: [Authorization]
       summary: Handle WeChat authorization redirect
+      security: []
       parameters:
         - {name: state, in: query, required: true, schema: {type: string}}
         - {name: auth_code, in: query, required: true, schema: {type: string}}
@@ -81,26 +107,24 @@ paths:
     get:
       tags: [Accounts]
       summary: List authorized accounts
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
       responses: {"200": {$ref: "#/components/responses/AccountList"}, "400": {$ref: "#/components/responses/InvalidRequest"}}
   /api/v1/accounts/{id}:
     get:
       tags: [Accounts]
       summary: Get an authorized account
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"200": {description: Account detail, content: {application/json: {schema: {$ref: "#/components/schemas/Account"}}}}, "404": {$ref: "#/components/responses/NotFound"}}
   /api/v1/accounts/{id}/token-status:
     get:
       tags: [Accounts]
       summary: Get cached authorizer token status without token values
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}, {name: component_appid, in: query, required: true, schema: {type: string}}]
+      parameters: [{$ref: "#/components/parameters/ID"}, {name: component_appid, in: query, required: true, schema: {type: string}}]
       responses: {"200": {description: Token status, content: {application/json: {schema: {$ref: "#/components/schemas/TokenStatus"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "404": {$ref: "#/components/responses/NotFound"}}
   /api/v1/accounts/{id}/published-articles:
     get:
       tags: [Accounts]
       summary: List live WeChat published articles
       parameters:
-        - {$ref: "#/components/parameters/TenantID"}
         - {$ref: "#/components/parameters/ID"}
         - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
         - {name: count, in: query, schema: {type: integer, minimum: 1, maximum: 20, default: 20}}
@@ -112,7 +136,6 @@ paths:
       tags: [Materials]
       summary: List live WeChat permanent image materials
       parameters:
-        - {$ref: "#/components/parameters/TenantID"}
         - {$ref: "#/components/parameters/ID"}
         - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
         - {name: count, in: query, schema: {type: integer, minimum: 1, maximum: 20, default: 20}}
@@ -122,7 +145,6 @@ paths:
       tags: [Materials]
       summary: Delete one WeChat permanent material
       parameters:
-        - {$ref: "#/components/parameters/TenantID"}
         - {$ref: "#/components/parameters/ID"}
         - {name: media_id, in: path, required: true, schema: {type: string}}
       responses: {"200": {description: Permanent material deleted, content: {application/json: {schema: {type: object, required: [deleted, media_id], properties: {deleted: {type: boolean}, media_id: {type: string}}}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
@@ -131,7 +153,6 @@ paths:
       tags: [Accounts]
       summary: Get live WeChat metrics for articles published on one date
       parameters:
-        - {$ref: "#/components/parameters/TenantID"}
         - {$ref: "#/components/parameters/ID"}
         - {name: date, in: query, required: true, schema: {type: string, format: date}}
       responses: {"200": {description: Live WeChat article metrics, content: {application/json: {schema: {$ref: "#/components/schemas/ArticleMetricsResult"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
@@ -140,7 +161,6 @@ paths:
       tags: [Accounts]
       summary: List live WeChat article comments without user OpenIDs
       parameters:
-        - {$ref: "#/components/parameters/TenantID"}
         - {$ref: "#/components/parameters/ID"}
         - {name: msgid, in: query, required: true, schema: {type: string, example: "2247490098_1"}}
         - {name: begin, in: query, schema: {type: integer, minimum: 0, default: 0}}
@@ -151,115 +171,111 @@ paths:
     get:
       tags: [Articles]
       summary: List articles
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
       responses: {"200": {$ref: "#/components/responses/ArticleList"}}
     post:
       tags: [Articles]
       summary: Create an article draft
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
       requestBody: {$ref: "#/components/requestBodies/CreateArticle"}
       responses: {"201": {description: Created article, content: {application/json: {schema: {$ref: "#/components/schemas/Article"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}}
   /api/v1/articles/{id}:
     get:
       tags: [Articles]
       summary: Get an article
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"200": {description: Article detail, content: {application/json: {schema: {$ref: "#/components/schemas/Article"}}}}, "404": {$ref: "#/components/responses/NotFound"}}
     put:
       tags: [Articles]
       summary: Update an article
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       requestBody: {$ref: "#/components/requestBodies/UpdateArticle"}
       responses: {"200": {description: Updated article, content: {application/json: {schema: {$ref: "#/components/schemas/Article"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}}
     delete:
       tags: [Articles]
       summary: Delete an article and its published WeChat copies when present
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"204": {description: Article deleted}, "400": {$ref: "#/components/responses/InvalidRequest"}, "404": {$ref: "#/components/responses/NotFound"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/materials/inline-images:
     post:
       tags: [Materials]
       summary: Upload an article body image
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
       requestBody: {$ref: "#/components/requestBodies/MaterialUpload"}
       responses: {"201": {description: Uploaded material, content: {application/json: {schema: {$ref: "#/components/schemas/MaterialAsset"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}}
   /api/v1/materials/covers:
     post:
       tags: [Materials]
       summary: Upload an article cover image
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
       requestBody: {$ref: "#/components/requestBodies/MaterialUpload"}
       responses: {"201": {description: Uploaded material, content: {application/json: {schema: {$ref: "#/components/schemas/MaterialAsset"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}}
   /api/v1/articles/{id}/publish:
     post:
       tags: [Publishing]
       summary: Create a WeChat draft and submit it for publishing
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"201": {description: Publish record, content: {application/json: {schema: {$ref: "#/components/schemas/PublishRecord"}}}}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/publish-records:
     get:
       tags: [Publishing]
-      summary: List tenant publish records
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
+      summary: List current user's publish records
       responses: {"200": {$ref: "#/components/responses/PublishRecordList"}}
     post:
       tags: [Publishing]
       summary: Create a local publish record
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
       requestBody: {$ref: "#/components/requestBodies/CreatePublishRecord"}
       responses: {"201": {description: Created publish record, content: {application/json: {schema: {$ref: "#/components/schemas/PublishRecord"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}}
   /api/v1/publish-records/{id}:
     get:
       tags: [Publishing]
       summary: Get a publish record
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"200": {description: Publish record, content: {application/json: {schema: {$ref: "#/components/schemas/PublishRecord"}}}}, "404": {$ref: "#/components/responses/NotFound"}}
   /api/v1/articles/{id}/publish-records:
     get:
       tags: [Publishing]
       summary: List publish records for an article
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"200": {$ref: "#/components/responses/PublishRecordList"}}
   /api/v1/publish-records/{id}/status:
     put:
       tags: [Publishing]
       summary: Update a local publish status
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       requestBody: {$ref: "#/components/requestBodies/UpdatePublishStatus"}
       responses: {"200": {description: Updated publish record, content: {application/json: {schema: {$ref: "#/components/schemas/PublishRecord"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}}
   /api/v1/publish-records/{id}/sync-status:
     post:
       tags: [Publishing]
       summary: Poll WeChat publish status and update local state
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"200": {description: Synced publish record, content: {application/json: {schema: {$ref: "#/components/schemas/PublishRecord"}}}}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/publish-records/{id}/delete-published:
     post:
       tags: [Publishing]
       summary: Delete the WeChat article referenced by a published record
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/ID"}]
+      parameters: [{$ref: "#/components/parameters/ID"}]
       responses: {"200": {description: Deleted published WeChat article, content: {application/json: {schema: {$ref: "#/components/schemas/PublishRecord"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/dashboard/stats:
     get:
       tags: [Dashboard]
-      summary: Get tenant dashboard statistics
-      parameters: [{$ref: "#/components/parameters/TenantID"}]
+      summary: Get current user's dashboard statistics
       responses: {"200": {description: Dashboard statistics, content: {application/json: {schema: {$ref: "#/components/schemas/DashboardStats"}}}}}
   /api/v1/task-queues/{queue}/archived-tasks:
     get:
       tags: [TaskQueues]
       summary: List archived asynq tasks with safe payload summaries
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/Queue"}, {name: limit, in: query, schema: {type: integer, minimum: 0, maximum: 100}}]
+      parameters: [{$ref: "#/components/parameters/Queue"}, {name: limit, in: query, schema: {type: integer, minimum: 0, maximum: 100}}]
       responses: {"200": {$ref: "#/components/responses/ArchivedTaskList"}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/task-queues/{queue}/archived-tasks/{task_id}/retry:
     post:
       tags: [TaskQueues]
       summary: Move one archived task back to pending
-      parameters: [{$ref: "#/components/parameters/TenantID"}, {$ref: "#/components/parameters/Queue"}, {name: task_id, in: path, required: true, schema: {type: string}}]
+      parameters: [{$ref: "#/components/parameters/Queue"}, {name: task_id, in: path, required: true, schema: {type: string}}]
       responses: {"200": {description: Task queued, content: {application/json: {schema: {type: object, required: [status], properties: {status: {type: string, example: queued}}}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "404": {$ref: "#/components/responses/NotFound"}, "501": {$ref: "#/components/responses/NotImplemented"}}
 components:
+  securitySchemes:
+    SessionCookie: {type: apiKey, in: cookie, name: oa_admin_session, description: Signed login session. Unsafe requests also require X-CSRF-Token from the session response.}
+    UserBearer: {type: http, scheme: bearer, bearerFormat: oat_, description: Per-user API and MCP token. The server hashes it and derives the user data space.}
+    AdminAPIKey: {type: apiKey, in: header, name: X-Admin-API-Key, description: Legacy administrator compatibility credential bound to security.admin_user_id.}
   parameters:
-    TenantID: {name: X-Tenant-ID, in: header, required: true, schema: {type: string}}
     ID: {name: id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
     Queue: {name: queue, in: path, required: true, schema: {type: string, enum: [publish, token]}}
     EncryptType: {name: encrypt_type, in: query, required: true, schema: {type: string, enum: [aes]}}
@@ -304,7 +320,9 @@ components:
     AdminLoginRequest: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string, format: password}}}
     AdminSession: {type: object, required: [authenticated, auth_enabled, login_enabled], properties: {authenticated: {type: boolean}, auth_enabled: {type: boolean}, login_enabled: {type: boolean}, username: {type: string}, user_id: {type: string}, role: {type: string, enum: [admin, user]}, csrf_token: {type: string, description: Required as X-CSRF-Token for unsafe management requests when using the admin session cookie.}}}
     CreateUserRequest: {type: object, required: [username, password], properties: {username: {type: string, minLength: 3, maxLength: 64}, password: {type: string, format: password, minLength: 12, maxLength: 72}}}
-    User: {type: object, required: [id, username, role, status, created_at, updated_at], properties: {id: {type: string}, username: {type: string}, role: {type: string, enum: [admin, user]}, status: {type: string, enum: [active, disabled]}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
+    User: {type: object, required: [id, username, role, status, api_token_configured, created_at, updated_at], properties: {id: {type: string}, username: {type: string}, role: {type: string, enum: [admin, user]}, status: {type: string, enum: [active, disabled]}, api_token_configured: {type: boolean}, api_token_hint: {type: string}, api_token_created_at: {type: string, format: date-time}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}}
+    GeneratedAPIToken: {type: object, required: [token, user], properties: {token: {type: string, description: Returned once; store it in the MCP client secret configuration.}, user: {$ref: "#/components/schemas/User"}}}
+    MCPConfig: {type: object, required: [transport, path, header_name, token, configured, revealable], properties: {transport: {type: string, enum: [streamable-http]}, path: {type: string}, header_name: {type: string, enum: [Authorization]}, token: {type: string, description: Empty for hashed per-user credentials.}, token_hint: {type: string}, configured: {type: boolean}, revealable: {type: boolean}}}
     AuthorizationURL: {type: object, required: [authorization_url, pre_auth_code_expires_in_sec], properties: {authorization_url: {type: string, format: uri}, pre_auth_code_expires_in_sec: {type: integer}}}
     Account:
       type: object

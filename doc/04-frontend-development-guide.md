@@ -128,23 +128,11 @@ frontend -> backend HTTP API -> application -> domain -> infra
 
 微信开放平台配置页只做“配置状态提示”和“回调地址展示”，不做密钥录入和保存，除非后续明确增加后端安全配置管理能力。
 
-### 3.4 第一阶段不做复杂权限系统
+### 3.4 当前用户隔离模型
 
-当前后端以 `X-Tenant-ID` 做租户隔离。前端第一阶段允许提供一个租户输入框 / 开发环境 tenant selector。
+前端不提供租户输入框，也不发送 `X-Tenant-ID`。用户登录后，后端从签名 session cookie 或用户 API token 解析 `user_id`；所有公众号、文章、素材和发布记录自动归入该用户的数据空间。
 
-默认：
-
-```text
-tenant-1
-```
-
-所有业务请求都带：
-
-```http
-X-Tenant-ID: tenant-1
-```
-
-后续接入登录态后再替换为真实租户上下文。
+管理员角色只增加“用户管理”权限，不允许跨用户读取业务数据。用户管理页可以创建用户、生成/轮换 token、撤销 token；token 明文只在生成成功后展示一次。
 
 ---
 
@@ -194,11 +182,7 @@ X-Tenant-ID: tenant-1
 GET /api/v1/dashboard/stats
 ```
 
-请求头：
-
-```http
-X-Tenant-ID: tenant-1
-```
+鉴权：使用登录 session cookie；写请求自动附带 `X-CSRF-Token`。
 
 展示：
 
@@ -219,7 +203,7 @@ X-Tenant-ID: tenant-1
 验收：
 
 - 能正确读取 dashboard stats
-- 请求带 `X-Tenant-ID`
+- 请求不包含可控租户参数
 - 不展示 token / secret / refresh 字段
 
 ---
@@ -260,7 +244,7 @@ GET /api/v1/accounts/:id/token-status?component_appid=...
 
 - 列表可正常展示
 - 不返回 / 不展示敏感字段
-- 不同 tenant 数据互相隔离，由后端保证，前端请求必须带 tenant header
+- 不同用户数据互相隔离，由后端根据登录身份保证，前端不能提交或切换用户数据空间
 
 ---
 
@@ -423,7 +407,7 @@ POST /api/v1/publish-records/:id/sync-status
 
 验收：
 
-- 能展示 tenant 下所有发布记录
+- 能展示当前用户的所有发布记录
 - 能手动同步发布状态
 - 发布状态同步不可用时友好提示 `not_implemented`
 - 错误信息不展示 token / secret / refresh
@@ -484,7 +468,7 @@ src/api/client.ts
 
 要求：
 
-- 所有业务请求自动带 `X-Tenant-ID`
+- 所有业务请求使用当前登录 session，不接受页面传入租户 ID
 - 统一解析 JSON
 - 统一处理错误码
 - 不把敏感响应写入 console
@@ -636,11 +620,12 @@ Go backend 直接托管 /admin 静态页面
 - 文章
 - 发布记录
 - 微信配置
+- 用户管理（仅管理员）
 
 验收：
 
 - 页面可切换
-- 租户 ID 可设置
+- 用户身份由登录态确定，页面不可切换租户 ID
 - Emotion 主题生效
 - 移动端不崩
 
@@ -657,7 +642,7 @@ Go backend 直接托管 /admin 静态页面
 
 - 能展示统计
 - 能展示账号空状态 / 列表
-- 请求带 tenant header
+- 请求不带 tenant header
 
 ### Phase 4：文章 CRUD
 
@@ -734,7 +719,7 @@ Go backend 直接托管 /admin 静态页面
 2. 只改本次任务需要的文件
 3. 不顺手扩大范围
 4. 每个页面接 API 时必须处理 loading / empty / error 三种状态
-5. 所有请求必须带 `X-Tenant-ID`
+5. 所有请求必须复用登录态，禁止恢复 `X-Tenant-ID` 或租户选择器
 6. 不展示任何敏感字段
 7. 完成后至少运行：
 

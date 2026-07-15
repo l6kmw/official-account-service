@@ -258,13 +258,16 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_get_authorization_entry",
 		Title:       "Get authorization entry",
-		Description: "Return the public authorization entry URL for adding an official account. Use authorization_entry_url as the link, or qr_code_payload_url as the QR code payload.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input authorizationEntryToolInput) (*mcp.CallToolResult, any, error) {
-		result, err := client.AuthorizationEntry(input.ComponentAppID)
+		Description: "Generate a direct WeChat authorization URL bound to the authenticated MCP user. Open authorization_entry_url directly, or render qr_code_payload_url as a QR code.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input authorizationEntryToolInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.GenerateAuthorizationURL(ctx, input.ComponentAppID, "", 0, "")
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, map[string]any{"authorization_entry": result}, nil
+		return nil, map[string]any{"authorization_entry": AuthorizationEntry{
+			AuthorizationEntryURL: result.AuthorizationURL,
+			QRCodePayloadURL:      result.AuthorizationURL,
+		}}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

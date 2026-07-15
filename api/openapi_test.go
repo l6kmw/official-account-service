@@ -24,7 +24,10 @@ func TestOpenAPIYAMLIsParseableAndCoversRoutes(t *testing.T) {
 	for _, path := range []string{
 		"/healthz",
 		"/api/v1/healthz",
+		"/api/v1/admin/session",
 		"/api/v1/admin/users",
+		"/api/v1/admin/users/{user_id}/api-token",
+		"/api/v1/admin/mcp-config",
 		"/wechat/component/callback",
 		"/wechat/authorizer/{app_id}/callback",
 		"/api/v1/wechat/authorization-url",
