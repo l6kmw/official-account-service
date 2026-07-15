@@ -275,13 +275,22 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_generate_authorization_url",
-		Title:       "Generate authorization URL",
-		Description: "Generate a direct WeChat third-party-platform authorization URL for adding an official account. If component_appid or redirect_uri is omitted, the MCP environment defaults are used.",
+		Title:       "Generate advanced authorization entry",
+		Description: "Generate a first-party authorization-entry URL with optional auth_type or biz_appid. Open authorization_url directly; it validates the user-bound WeChat target before redirecting to the QR page. Omit redirect_uri unless it exactly matches the configured service callback.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input authorizationURLToolInput) (*mcp.CallToolResult, any, error) {
-		result, err := client.GenerateAuthorizationURL(ctx, input.ComponentAppID, input.RedirectURI, input.AuthType, input.BizAppID)
+		redirectURI := strings.TrimSpace(input.RedirectURI)
+		if redirectURI != "" && redirectURI != client.authorizationCallbackURL() {
+			return nil, nil, fmt.Errorf("redirect_uri must match the configured service callback")
+		}
+		result, err := client.GenerateAuthorizationURL(ctx, input.ComponentAppID, redirectURI, input.AuthType, input.BizAppID)
 		if err != nil {
 			return nil, nil, err
 		}
+		entry, err := client.AuthorizationEntryForURL(input.ComponentAppID, result.AuthorizationURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		result.AuthorizationURL = entry.AuthorizationEntryURL
 		return nil, map[string]any{"authorization": result}, nil
 	})
 
@@ -545,7 +554,7 @@ type authorizationEntryToolInput struct {
 
 type authorizationURLToolInput struct {
 	ComponentAppID string `json:"component_appid,omitempty" jsonschema:"Optional WeChat third-party-platform component appid. Defaults to OFFICIAL_ACCOUNT_COMPONENT_APP_ID."`
-	RedirectURI    string `json:"redirect_uri,omitempty" jsonschema:"Optional public HTTPS redirect URI configured in WeChat open platform. Defaults to the service authorization callback URL."`
+	RedirectURI    string `json:"redirect_uri,omitempty" jsonschema:"Optional configured service authorization callback URL. Omit this unless it exactly matches the MCP service callback."`
 	AuthType       int    `json:"auth_type,omitempty" jsonschema:"Optional WeChat authorization type: 1 official account, 2 mini program, 3 all."`
 	BizAppID       string `json:"biz_appid,omitempty" jsonschema:"Optional authorizer appid to preselect."`
 }

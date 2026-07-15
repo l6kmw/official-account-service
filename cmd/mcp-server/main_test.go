@@ -162,6 +162,19 @@ func TestStreamableHTTPClientListsToolsAndCallsOfficialAccountTools(t *testing.T
 	require.NotNil(t, authEntry.StructuredContent)
 	require.Contains(t, fmt.Sprint(authEntry.StructuredContent), "https://mp.example.com/wechat-authorize.html")
 	require.Contains(t, fmt.Sprint(authEntry.StructuredContent), "state%3Duser-bound")
+	advancedAuthEntry, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "official_account_generate_authorization_url",
+		Arguments: map[string]any{"auth_type": 1},
+	})
+	require.NoError(t, err)
+	require.False(t, advancedAuthEntry.IsError)
+	require.Contains(t, fmt.Sprint(advancedAuthEntry.StructuredContent), "https://mp.example.com/wechat-authorize.html")
+	require.Contains(t, fmt.Sprint(advancedAuthEntry.StructuredContent), "state%3Duser-bound")
+	rejectedRedirect, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "official_account_generate_authorization_url",
+		Arguments: map[string]any{"redirect_uri": "https://evil.example/callback"},
+	})
+	require.True(t, err != nil || rejectedRedirect.IsError)
 
 	accounts, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "official_account_list_accounts",
@@ -219,6 +232,11 @@ func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) 
 	require.False(t, authorization.IsError)
 	require.Contains(t, fmt.Sprint(authorization.StructuredContent), "wechat-authorize.html")
 	require.Contains(t, fmt.Sprint(authorization.StructuredContent), "state%3Duser-2-bound")
+	advancedAuthorization, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_generate_authorization_url", Arguments: map[string]any{"auth_type": 1}})
+	require.NoError(t, err)
+	require.False(t, advancedAuthorization.IsError)
+	require.Contains(t, fmt.Sprint(advancedAuthorization.StructuredContent), "wechat-authorize.html")
+	require.Contains(t, fmt.Sprint(advancedAuthorization.StructuredContent), "state%3Duser-2-bound")
 }
 
 type bearerTokenHandler struct {
