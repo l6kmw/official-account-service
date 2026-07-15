@@ -109,8 +109,7 @@ func TestArticleServiceAttributesAndAuditsAgentMutations(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := memory.NewStore(func() time.Time { return now })
-	audits := &recordingAuditRepository{now: now}
-	service := NewArticleServiceWithRepositories(store, nil, audits)
+	service := NewArticleServiceWithRepositories(store, nil, store)
 	creator := Actor{UserID: "user-1", ActorType: ActorTypeAgentToken, AgentRecordID: "agent-a"}
 	editor := Actor{UserID: "user-1", ActorType: ActorTypeAgentToken, AgentRecordID: "agent-b"}
 
@@ -130,13 +129,16 @@ func TestArticleServiceAttributesAndAuditsAgentMutations(t *testing.T) {
 	require.Equal(t, "agent-b", updated.UpdatedByAgentID)
 
 	require.NoError(t, service.DeleteArticleWithActor(ctx, DeleteArticleInput{TenantID: "user-1", ID: created.ID, Actor: editor}))
+	audits, err := store.ListAuditEntries(ctx, "user-1", agentaudit.Filter{Limit: 10})
+	require.NoError(t, err)
 	require.Equal(t, []agentaudit.Action{
-		agentaudit.ActionCreateArticle, agentaudit.ActionUpdateArticle, agentaudit.ActionDeleteArticle,
-	}, auditActions(audits.entries))
-	require.Equal(t, "agent-a", audits.entries[0].AgentRecordID)
-	require.Equal(t, "agent-b", audits.entries[1].AgentRecordID)
-	require.Equal(t, fmt.Sprint(created.ID), audits.entries[2].ResourceID)
-	raw, err := json.Marshal(audits.entries)
+		agentaudit.ActionDeleteArticle, agentaudit.ActionUpdateArticle, agentaudit.ActionCreateArticle,
+	}, auditActions(audits))
+	require.Equal(t, "agent-b", audits[0].AgentRecordID)
+	require.Equal(t, "agent-b", audits[1].AgentRecordID)
+	require.Equal(t, "agent-a", audits[2].AgentRecordID)
+	require.Equal(t, fmt.Sprint(created.ID), audits[0].ResourceID)
+	raw, err := json.Marshal(audits)
 	require.NoError(t, err)
 	for _, forbidden := range []string{"sensitive-body", "new-sensitive-body", "api_token", "image_url", "access_token", "refresh_token"} {
 		require.NotContains(t, string(raw), forbidden)
@@ -146,7 +148,7 @@ func TestArticleServiceAttributesAndAuditsAgentMutations(t *testing.T) {
 func TestArticleServiceRejectsForgedActorAndMapsVersionConflict(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore(time.Now)
-	service := NewArticleServiceWithRepositories(store, nil, &recordingAuditRepository{now: time.Now()})
+	service := NewArticleServiceWithRepositories(store, nil, store)
 
 	_, err := service.CreateArticle(ctx, CreateArticleInput{
 		TenantID: "user-1", AuthorizerID: 1, Title: "wrong user",
@@ -166,6 +168,18 @@ func TestArticleServiceRejectsForgedActorAndMapsVersionConflict(t *testing.T) {
 		TenantID: "user-1", ID: created.ID, Title: "stale", Version: created.Version,
 	})
 	require.ErrorIs(t, err, ErrConflict)
+}
+
+func TestArticleServiceRejectsNonAtomicAuditRepositoryBeforeMutation(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	service := NewArticleServiceWithRepositories(store, nil, &recordingAuditRepository{now: time.Now()})
+
+	_, err := service.CreateArticle(ctx, CreateArticleInput{TenantID: "user-1", AuthorizerID: 1, Title: "must not persist"})
+	require.ErrorIs(t, err, ErrNotImplemented)
+	articles, err := store.List(ctx, "user-1")
+	require.NoError(t, err)
+	require.Empty(t, articles)
 }
 
 func TestAgentAuditServiceFiltersSafeMetadata(t *testing.T) {

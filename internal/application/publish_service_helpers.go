@@ -39,13 +39,13 @@ func (s *PublishService) pendingPublishRecord(ctx context.Context, tenantID stri
 	return publish.Record{}, false, nil
 }
 
-func (s *PublishService) createPublishIntent(ctx context.Context, tenantID string, draft article.Article) (publish.Record, bool, error) {
+func (s *PublishService) createPublishIntent(ctx context.Context, tenantID string, draft article.Article, actor Actor) (publish.Record, bool, error) {
 	now := s.now()
-	record, err := s.records.CreatePublishRecord(ctx, tenantID, publish.Record{
+	record, err := s.createPublishRecordWithAudit(ctx, tenantID, publish.Record{
 		TenantID: tenantID, AuthorizerID: draft.AuthorizerID, ArticleID: draft.ID,
 		Status: publish.StatusPublishing, SubmittedAt: now,
 		ArticleCreatedByAgentID: draft.CreatedByAgentID,
-	})
+	}, actor)
 	if errors.Is(err, publish.ErrPublishInProgress) {
 		pending, ok, pendingErr := s.pendingPublishRecord(ctx, tenantID, draft.ID)
 		if pendingErr != nil {

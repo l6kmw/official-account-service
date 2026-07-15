@@ -23,6 +23,7 @@ type PublishService struct {
 	componentAppID string
 	statusSync     publish.StatusSyncScheduler
 	audits         agentaudit.Repository
+	auditedRecords publish.AuditedCreateRepository
 	now            func() time.Time
 }
 
@@ -59,6 +60,10 @@ func NewPublishServiceWithPublisherAndStatusSync(records publish.Repository, art
 // WithAuditRepository enables safe actor metadata recording for publish mutations.
 func (s *PublishService) WithAuditRepository(audits agentaudit.Repository) *PublishService {
 	s.audits = audits
+	s.auditedRecords = nil
+	if audited, ok := audits.(publish.AuditedCreateRepository); ok {
+		s.auditedRecords = audited
+	}
 	return s
 }
 
@@ -155,7 +160,7 @@ func (s *PublishService) PublishArticle(ctx context.Context, input PublishArticl
 	if err != nil {
 		return publish.Record{}, err
 	}
-	record, created, err := s.createPublishIntent(ctx, input.TenantID, draft)
+	record, created, err := s.createPublishIntent(ctx, input.TenantID, draft, actor)
 	if err != nil {
 		return publish.Record{}, err
 	}
@@ -192,9 +197,6 @@ func (s *PublishService) PublishArticle(ctx context.Context, input PublishArticl
 	record, err = s.records.UpdatePublishRecordSubmission(ctx, input.TenantID, record)
 	if err != nil {
 		return publish.Record{}, fmt.Errorf("store wechat publish submission: %w", err)
-	}
-	if err := s.recordPublishAudit(ctx, actor, draft.ID); err != nil {
-		return record, err
 	}
 	if err := s.enqueueStatusSync(ctx, record); err != nil {
 		return record, s.recordPublishingError(ctx, input.TenantID, record, "status_sync_enqueue_failed", err)
@@ -329,18 +331,15 @@ func (s *PublishService) CreatePublishRecord(ctx context.Context, input CreatePu
 		return publish.Record{}, wrapPublishArticleError("get article for publish record", err)
 	}
 	now := s.now()
-	record, err := s.records.CreatePublishRecord(ctx, input.TenantID, publish.Record{
+	record, err := s.createPublishRecordWithAudit(ctx, input.TenantID, publish.Record{
 		TenantID: input.TenantID, AuthorizerID: draft.AuthorizerID, ArticleID: draft.ID,
 		WeChatPublishID: input.WeChatPublishID, Status: publish.StatusPublishing, SubmittedAt: now,
 		ArticleCreatedByAgentID: draft.CreatedByAgentID,
-	})
+	}, actor)
 	if err != nil {
 		return publish.Record{}, fmt.Errorf("create publish record: %w", err)
 	}
 	if err := s.syncArticleStatus(ctx, input.TenantID, draft, article.StatusPublishing); err != nil {
-		return publish.Record{}, err
-	}
-	if err := s.recordPublishAudit(ctx, actor, draft.ID); err != nil {
 		return publish.Record{}, err
 	}
 	return record, nil
@@ -459,18 +458,18 @@ func (s *PublishService) validateReady() error {
 	return nil
 }
 
-func (s *PublishService) recordPublishAudit(ctx context.Context, actor Actor, articleID int64) error {
-	if s.audits == nil {
-		return nil
-	}
-	_, err := s.audits.Append(ctx, agentaudit.Entry{
+func (s *PublishService) createPublishRecordWithAudit(ctx context.Context, tenantID string, record publish.Record, actor Actor) (publish.Record, error) {
+	entry := agentaudit.Entry{
 		UserID: actor.UserID, AgentRecordID: actor.AgentRecordID, Action: agentaudit.ActionPublishArticle,
-		ResourceType: agentaudit.ResourceArticle, ResourceID: strconv.FormatInt(articleID, 10),
-	})
-	if err != nil {
-		return fmt.Errorf("append publish audit: %w", err)
+		ResourceType: agentaudit.ResourceArticle, ResourceID: strconv.FormatInt(record.ArticleID, 10),
 	}
-	return nil
+	if s.audits == nil {
+		return s.records.CreatePublishRecord(ctx, tenantID, record)
+	}
+	if s.auditedRecords == nil {
+		return publish.Record{}, fmt.Errorf("create publish audit repository: %w", ErrNotImplemented)
+	}
+	return s.auditedRecords.CreatePublishRecordWithAudit(ctx, tenantID, record, entry)
 }
 
 func (s *PublishService) validatePublisherReady() error {

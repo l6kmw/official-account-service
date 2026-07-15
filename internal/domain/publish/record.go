@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"official-account-service/internal/domain/agentaudit"
 )
 
 // ErrNotFound indicates a tenant-scoped publish record was not found.
@@ -121,4 +123,9 @@ type Repository interface {
 // AgentFilteredRepository lists publish records through the creating Agent of their article.
 type AgentFilteredRepository interface {
 	ListPublishRecordsByAgent(ctx context.Context, tenantID string, agentRecordID string) ([]Record, error)
+}
+
+// AuditedCreateRepository persists one publish intent and its audit entry atomically.
+type AuditedCreateRepository interface {
+	CreatePublishRecordWithAudit(ctx context.Context, tenantID string, record Record, audit agentaudit.Entry) (Record, error)
 }

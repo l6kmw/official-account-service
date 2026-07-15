@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"official-account-service/internal/domain/agentaudit"
 )
@@ -12,6 +14,13 @@ var _ agentaudit.Repository = (*Store)(nil)
 func (s *Store) Append(_ context.Context, entry agentaudit.Entry) (agentaudit.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.appendAuditLocked(entry)
+}
+
+func (s *Store) appendAuditLocked(entry agentaudit.Entry) (agentaudit.Entry, error) {
+	if strings.TrimSpace(entry.UserID) == "" || entry.Action == "" || entry.ResourceType == "" || strings.TrimSpace(entry.ResourceID) == "" {
+		return agentaudit.Entry{}, fmt.Errorf("validate agent audit entry")
+	}
 	s.nextAuditID++
 	entry.ID = s.nextAuditID
 	entry.CreatedAt = s.now()

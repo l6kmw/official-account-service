@@ -14,9 +14,10 @@ import (
 
 // ArticleService manages platform article drafts.
 type ArticleService struct {
-	articles    article.Repository
-	authorizers authorization.Repository
-	audits      agentaudit.Repository
+	articles        article.Repository
+	authorizers     authorization.Repository
+	audits          agentaudit.Repository
+	auditedArticles article.AuditedMutationRepository
 }
 
 // NewArticleService constructs an ArticleService.
@@ -31,7 +32,11 @@ func NewArticleServiceWithAuthorizerRepository(articles article.Repository, auth
 
 // NewArticleServiceWithRepositories constructs an ArticleService with ownership validation and mutation auditing.
 func NewArticleServiceWithRepositories(articles article.Repository, authorizers authorization.Repository, audits agentaudit.Repository) *ArticleService {
-	return &ArticleService{articles: articles, authorizers: authorizers, audits: audits}
+	service := &ArticleService{articles: articles, authorizers: authorizers, audits: audits}
+	if audited, ok := audits.(article.AuditedMutationRepository); ok {
+		service.auditedArticles = audited
+	}
+	return service
 }
 
 // CreateArticleInput contains fields for creating a platform article draft.
@@ -97,12 +102,20 @@ func (s *ArticleService) CreateArticle(ctx context.Context, input CreateArticleI
 		CreatedByAgentID: actor.AgentRecordID,
 		UpdatedByAgentID: actor.AgentRecordID,
 	}
-	created, err := s.articles.Create(ctx, input.TenantID, draft)
-	if err != nil {
-		return article.Article{}, fmt.Errorf("create article: %w", err)
-	}
-	if err := s.recordArticleAudit(ctx, actor, agentaudit.ActionCreateArticle, created.ID); err != nil {
-		return article.Article{}, err
+	var created article.Article
+	if s.audits != nil {
+		if s.auditedArticles == nil {
+			return article.Article{}, fmt.Errorf("create article audit repository: %w", ErrNotImplemented)
+		}
+		created, err = s.auditedArticles.CreateWithAudit(ctx, input.TenantID, draft, articleAuditEntry(actor, agentaudit.ActionCreateArticle, 0))
+		if err != nil {
+			return article.Article{}, fmt.Errorf("create article with audit: %w", err)
+		}
+	} else {
+		created, err = s.articles.Create(ctx, input.TenantID, draft)
+		if err != nil {
+			return article.Article{}, fmt.Errorf("create article: %w", err)
+		}
 	}
 	return created, nil
 }
@@ -180,12 +193,17 @@ func (s *ArticleService) UpdateArticle(ctx context.Context, input UpdateArticleI
 	current.ContentHTML = input.ContentHTML
 	current.CoverMediaAssetID = input.CoverMediaAssetID
 	current.UpdatedByAgentID = actor.AgentRecordID
-	updated, err := s.articles.Update(ctx, input.TenantID, current)
+	var updated article.Article
+	if s.audits != nil {
+		if s.auditedArticles == nil {
+			return article.Article{}, fmt.Errorf("update article audit repository: %w", ErrNotImplemented)
+		}
+		updated, err = s.auditedArticles.UpdateWithAudit(ctx, input.TenantID, current, articleAuditEntry(actor, agentaudit.ActionUpdateArticle, current.ID))
+	} else {
+		updated, err = s.articles.Update(ctx, input.TenantID, current)
+	}
 	if err != nil {
 		return article.Article{}, s.wrapArticleReadError("update article", err)
-	}
-	if err := s.recordArticleAudit(ctx, actor, agentaudit.ActionUpdateArticle, updated.ID); err != nil {
-		return article.Article{}, err
 	}
 	return updated, nil
 }
@@ -204,11 +222,16 @@ func (s *ArticleService) DeleteArticleWithActor(ctx context.Context, input Delet
 	if err != nil {
 		return err
 	}
-	if err := s.articles.Delete(ctx, input.TenantID, input.ID); err != nil {
-		return s.wrapArticleReadError("delete article", err)
+	if s.audits != nil {
+		if s.auditedArticles == nil {
+			return fmt.Errorf("delete article audit repository: %w", ErrNotImplemented)
+		}
+		err = s.auditedArticles.DeleteWithAudit(ctx, input.TenantID, input.ID, articleAuditEntry(actor, agentaudit.ActionDeleteArticle, input.ID))
+	} else {
+		err = s.articles.Delete(ctx, input.TenantID, input.ID)
 	}
-	if err := s.recordArticleAudit(ctx, actor, agentaudit.ActionDeleteArticle, input.ID); err != nil {
-		return err
+	if err != nil {
+		return s.wrapArticleReadError("delete article", err)
 	}
 	return nil
 }
@@ -243,18 +266,15 @@ func (s *ArticleService) wrapArticleReadError(action string, err error) error {
 	return fmt.Errorf("%s: %w", action, err)
 }
 
-func (s *ArticleService) recordArticleAudit(ctx context.Context, actor Actor, action agentaudit.Action, articleID int64) error {
-	if s.audits == nil {
-		return nil
+func articleAuditEntry(actor Actor, action agentaudit.Action, articleID int64) agentaudit.Entry {
+	resourceID := ""
+	if articleID > 0 {
+		resourceID = strconv.FormatInt(articleID, 10)
 	}
-	_, err := s.audits.Append(ctx, agentaudit.Entry{
+	return agentaudit.Entry{
 		UserID: actor.UserID, AgentRecordID: actor.AgentRecordID, Action: action,
-		ResourceType: agentaudit.ResourceArticle, ResourceID: strconv.FormatInt(articleID, 10),
-	})
-	if err != nil {
-		return fmt.Errorf("append article audit: %w", err)
+		ResourceType: agentaudit.ResourceArticle, ResourceID: resourceID,
 	}
-	return nil
 }
 
 func (s *ArticleService) validateAuthorizer(ctx context.Context, tenantID string, authorizerID int64) error {

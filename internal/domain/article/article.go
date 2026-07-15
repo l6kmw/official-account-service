@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"official-account-service/internal/domain/agentaudit"
 )
 
 // ErrNotFound indicates a tenant-scoped article was not found.
@@ -56,4 +58,11 @@ type Repository interface {
 // CreatedByAgentRepository supports article ownership filtering without expanding the core repository contract.
 type CreatedByAgentRepository interface {
 	ListByCreatedByAgent(ctx context.Context, tenantID string, agentRecordID string) ([]Article, error)
+}
+
+// AuditedMutationRepository persists one article mutation and its audit entry atomically.
+type AuditedMutationRepository interface {
+	CreateWithAudit(ctx context.Context, tenantID string, article Article, audit agentaudit.Entry) (Article, error)
+	UpdateWithAudit(ctx context.Context, tenantID string, article Article, audit agentaudit.Entry) (Article, error)
+	DeleteWithAudit(ctx context.Context, tenantID string, id int64, audit agentaudit.Entry) error
 }

@@ -111,6 +111,50 @@ func TestStoreArticleOptimisticLockAllowsOneVersionWinner(t *testing.T) {
 	require.Equal(t, int64(2), latest.Version)
 }
 
+func TestAuditedMutationsRollbackWhenAuditFails(t *testing.T) {
+	ctx := context.Background()
+	store := NewStore(func() time.Time { return time.Date(2026, 7, 15, 14, 0, 0, 0, time.UTC) })
+	invalidAudit := agentaudit.Entry{UserID: "user-1", ResourceType: agentaudit.ResourceArticle}
+
+	_, err := store.CreateWithAudit(ctx, "user-1", articleFixture(), invalidAudit)
+	require.Error(t, err)
+	articles, err := store.List(ctx, "user-1")
+	require.NoError(t, err)
+	require.Empty(t, articles)
+
+	created, err := store.CreateWithAudit(ctx, "user-1", articleFixture(), agentaudit.Entry{
+		UserID: "user-1", Action: agentaudit.ActionCreateArticle, ResourceType: agentaudit.ResourceArticle,
+	})
+	require.NoError(t, err)
+
+	changed := created
+	changed.Title = "must roll back"
+	_, err = store.UpdateWithAudit(ctx, "user-1", changed, invalidAudit)
+	require.Error(t, err)
+	current, err := store.Get(ctx, "user-1", created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "title", current.Title)
+	require.Equal(t, int64(1), current.Version)
+
+	_, err = store.CreatePublishRecordWithAudit(ctx, "user-1", publish.Record{
+		ArticleID: created.ID, Status: publish.StatusPublishing,
+	}, invalidAudit)
+	require.Error(t, err)
+	records, err := store.ListPublishRecordsByArticle(ctx, "user-1", created.ID)
+	require.NoError(t, err)
+	require.Empty(t, records)
+
+	err = store.DeleteWithAudit(ctx, "user-1", created.ID, invalidAudit)
+	require.Error(t, err)
+	_, err = store.Get(ctx, "user-1", created.ID)
+	require.NoError(t, err)
+
+	audits, err := store.ListAuditEntries(ctx, "user-1", agentaudit.Filter{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, audits, 1)
+	require.Equal(t, agentaudit.ActionCreateArticle, audits[0].Action)
+}
+
 func TestStoreFiltersArticlesPublishesAndAuditByAgent(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(func() time.Time { return time.Date(2026, 7, 15, 13, 0, 0, 0, time.UTC) })

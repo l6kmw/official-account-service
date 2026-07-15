@@ -134,8 +134,7 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	publisher := &fakePublishPublisher{draftMediaID: "draft-media", publishID: "publish-1"}
 	tokens := &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}
 	statusSync := &fakeStatusSyncScheduler{}
-	audits := &recordingAuditRepository{now: now}
-	service := NewPublishServiceWithPublisherAndStatusSync(store, store, store, publisher, tokens, "wx-component", statusSync, func() time.Time { return now }).WithAuditRepository(audits)
+	service := NewPublishServiceWithPublisherAndStatusSync(store, store, store, publisher, tokens, "wx-component", statusSync, func() time.Time { return now }).WithAuditRepository(store)
 
 	record, err := service.PublishArticle(ctx, PublishArticleInput{
 		TenantID: "tenant-1", ArticleID: draft.ID,
@@ -151,10 +150,12 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	require.Equal(t, "wx-component", tokens.lastInput.ComponentAppID)
 	require.Equal(t, "tenant-1", statusSync.lastTask.TenantID)
 	require.Equal(t, record.ID, statusSync.lastTask.PublishRecordID)
-	require.Len(t, audits.entries, 1)
-	require.Equal(t, agentaudit.ActionPublishArticle, audits.entries[0].Action)
-	require.Equal(t, "agent-publisher", audits.entries[0].AgentRecordID)
-	require.Equal(t, fmt.Sprint(draft.ID), audits.entries[0].ResourceID)
+	audits, err := store.ListAuditEntries(ctx, "tenant-1", agentaudit.Filter{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, audits, 1)
+	require.Equal(t, agentaudit.ActionPublishArticle, audits[0].Action)
+	require.Equal(t, "agent-publisher", audits[0].AgentRecordID)
+	require.Equal(t, fmt.Sprint(draft.ID), audits[0].ResourceID)
 	current, err := articles.GetArticle(ctx, "tenant-1", draft.ID)
 	require.NoError(t, err)
 	require.Equal(t, article.StatusPublishing, current.Status)
@@ -238,7 +239,7 @@ func TestPublishServiceMarksIntentFailedWhenWeChatRejectsDraft(t *testing.T) {
 	articles := NewArticleService(store)
 	draft, err := createPublishableArticle(t, ctx, store, articles)
 	require.NoError(t, err)
-	service := NewPublishServiceWithPublisher(store, store, store, &fakePublishPublisher{addDraftErr: publish.ErrPublishFailed}, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "token"}}, "wx-component", time.Now)
+	service := NewPublishServiceWithPublisher(store, store, store, &fakePublishPublisher{addDraftErr: publish.ErrPublishFailed}, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "token"}}, "wx-component", time.Now).WithAuditRepository(store)
 
 	_, err = service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
 	require.Error(t, err)
@@ -247,9 +248,33 @@ func TestPublishServiceMarksIntentFailedWhenWeChatRejectsDraft(t *testing.T) {
 	require.Len(t, records, 1)
 	require.Equal(t, publish.StatusFailed, records[0].Status)
 	require.Equal(t, "wechat_draft_failed", records[0].ErrorCode)
+	audits, err := store.ListAuditEntries(ctx, "tenant-1", agentaudit.Filter{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, audits, 1)
+	require.Equal(t, agentaudit.ActionPublishArticle, audits[0].Action)
 	updated, err := articles.GetArticle(ctx, "tenant-1", draft.ID)
 	require.NoError(t, err)
 	require.Equal(t, article.StatusFailed, updated.Status)
+}
+
+func TestPublishServiceRejectsNonAtomicAuditRepositoryBeforeWeChatCall(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewStore(time.Now)
+	articles := NewArticleService(store)
+	draft, err := createPublishableArticle(t, ctx, store, articles)
+	require.NoError(t, err)
+	publisher := &fakePublishPublisher{draftMediaID: "draft-media", publishID: "publish-1"}
+	service := NewPublishServiceWithPublisher(
+		store, store, store, publisher, &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "token"}},
+		"wx-component", time.Now,
+	).WithAuditRepository(&recordingAuditRepository{now: time.Now()})
+
+	_, err = service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	require.ErrorIs(t, err, ErrNotImplemented)
+	require.Equal(t, int32(0), publisher.addDraftCalls.Load())
+	records, err := store.ListPublishRecordsByArticle(ctx, "tenant-1", draft.ID)
+	require.NoError(t, err)
+	require.Empty(t, records)
 }
 
 func TestPublishServiceRejectsCoverOwnedByAnotherArticle(t *testing.T) {

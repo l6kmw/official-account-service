@@ -283,6 +283,67 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	require.Equal(t, agentA.ID, agentRecords[0].ArticleCreatedByAgentID)
 }
 
+func TestStoreAuditedMutationsRollbackOnAuditFailure(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set POSTGRES_TEST_DSN to run postgres integration test")
+	}
+	ctx := context.Background()
+	store, err := Open(ctx, dsn)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	runMigrations(t, store)
+
+	tenantID := fmt.Sprintf("audit-tenant-%d", time.Now().UnixNano())
+	_, err = store.SaveUser(ctx, identity.User{
+		ID: tenantID, Username: tenantID, PasswordHash: "hash", Role: identity.RoleUser, Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	invalidAudit := agentaudit.Entry{UserID: tenantID, ResourceType: agentaudit.ResourceArticle}
+
+	_, err = store.CreateWithAudit(ctx, tenantID, article.Article{
+		AuthorizerID: 1, Title: "must roll back", Status: article.StatusDraft,
+	}, invalidAudit)
+	require.Error(t, err)
+	articles, err := store.List(ctx, tenantID)
+	require.NoError(t, err)
+	require.Empty(t, articles)
+
+	created, err := store.CreateWithAudit(ctx, tenantID, article.Article{
+		AuthorizerID: 1, Title: "original", Status: article.StatusDraft,
+	}, agentaudit.Entry{
+		UserID: tenantID, Action: agentaudit.ActionCreateArticle, ResourceType: agentaudit.ResourceArticle,
+	})
+	require.NoError(t, err)
+
+	changed := created
+	changed.Title = "must roll back"
+	_, err = store.UpdateWithAudit(ctx, tenantID, changed, invalidAudit)
+	require.Error(t, err)
+	current, err := store.Get(ctx, tenantID, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "original", current.Title)
+	require.Equal(t, int64(1), current.Version)
+
+	_, err = store.CreatePublishRecordWithAudit(ctx, tenantID, publish.Record{
+		AuthorizerID: 1, ArticleID: created.ID, Status: publish.StatusPublishing,
+	}, invalidAudit)
+	require.Error(t, err)
+	records, err := store.ListPublishRecordsByArticle(ctx, tenantID, created.ID)
+	require.NoError(t, err)
+	require.Empty(t, records)
+
+	err = store.DeleteWithAudit(ctx, tenantID, created.ID, invalidAudit)
+	require.Error(t, err)
+	_, err = store.Get(ctx, tenantID, created.ID)
+	require.NoError(t, err)
+
+	audits, err := store.ListAuditEntries(ctx, tenantID, agentaudit.Filter{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, audits, 1)
+	require.Equal(t, agentaudit.ActionCreateArticle, audits[0].Action)
+}
+
 func runMigrations(t *testing.T, store *Store) {
 	t.Helper()
 	for _, path := range []string{
