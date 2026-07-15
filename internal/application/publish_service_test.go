@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"official-account-service/internal/domain/agentaudit"
 	"official-account-service/internal/domain/article"
 	"official-account-service/internal/domain/material"
 	"official-account-service/internal/domain/publish"
@@ -132,9 +134,13 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	publisher := &fakePublishPublisher{draftMediaID: "draft-media", publishID: "publish-1"}
 	tokens := &fakePublishTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}
 	statusSync := &fakeStatusSyncScheduler{}
-	service := NewPublishServiceWithPublisherAndStatusSync(store, store, store, publisher, tokens, "wx-component", statusSync, func() time.Time { return now })
+	audits := &recordingAuditRepository{now: now}
+	service := NewPublishServiceWithPublisherAndStatusSync(store, store, store, publisher, tokens, "wx-component", statusSync, func() time.Time { return now }).WithAuditRepository(audits)
 
-	record, err := service.PublishArticle(ctx, PublishArticleInput{TenantID: "tenant-1", ArticleID: draft.ID})
+	record, err := service.PublishArticle(ctx, PublishArticleInput{
+		TenantID: "tenant-1", ArticleID: draft.ID,
+		Actor: Actor{UserID: "tenant-1", ActorType: ActorTypeAgentToken, AgentRecordID: "agent-publisher"},
+	})
 	require.NoError(t, err)
 
 	require.Equal(t, publish.StatusPublishing, record.Status)
@@ -145,6 +151,10 @@ func TestPublishServicePublishesArticleThroughWeChat(t *testing.T) {
 	require.Equal(t, "wx-component", tokens.lastInput.ComponentAppID)
 	require.Equal(t, "tenant-1", statusSync.lastTask.TenantID)
 	require.Equal(t, record.ID, statusSync.lastTask.PublishRecordID)
+	require.Len(t, audits.entries, 1)
+	require.Equal(t, agentaudit.ActionPublishArticle, audits.entries[0].Action)
+	require.Equal(t, "agent-publisher", audits.entries[0].AgentRecordID)
+	require.Equal(t, fmt.Sprint(draft.ID), audits.entries[0].ResourceID)
 	current, err := articles.GetArticle(ctx, "tenant-1", draft.ID)
 	require.NoError(t, err)
 	require.Equal(t, article.StatusPublishing, current.Status)

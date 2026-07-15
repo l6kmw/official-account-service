@@ -9,6 +9,9 @@ import (
 // ErrNotFound indicates a tenant-scoped article was not found.
 var ErrNotFound = errors.New("article not found")
 
+// ErrVersionConflict indicates that an article changed after the caller read it.
+var ErrVersionConflict = errors.New("article version conflict")
+
 // Status describes a platform article lifecycle state.
 type Status string
 
@@ -34,6 +37,9 @@ type Article struct {
 	ContentHTML       string
 	CoverMediaAssetID int64
 	Status            Status
+	CreatedByAgentID  string
+	UpdatedByAgentID  string
+	Version           int64
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -45,4 +51,9 @@ type Repository interface {
 	List(ctx context.Context, tenantID string) ([]Article, error)
 	Update(ctx context.Context, tenantID string, article Article) (Article, error)
 	Delete(ctx context.Context, tenantID string, id int64) error
+}
+
+// CreatedByAgentRepository supports article ownership filtering without expanding the core repository contract.
+type CreatedByAgentRepository interface {
+	ListByCreatedByAgent(ctx context.Context, tenantID string, agentRecordID string) ([]Article, error)
 }

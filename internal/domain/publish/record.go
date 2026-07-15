@@ -40,19 +40,20 @@ const (
 
 // Record stores one publish attempt and its final result.
 type Record struct {
-	ID              int64
-	TenantID        string
-	AuthorizerID    int64
-	ArticleID       int64
-	WeChatPublishID string
-	WeChatArticleID string
-	Status          Status
-	ErrorCode       string
-	ErrorMessage    string
-	SubmittedAt     time.Time
-	FinishedAt      time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                      int64
+	TenantID                string
+	AuthorizerID            int64
+	ArticleID               int64
+	WeChatPublishID         string
+	WeChatArticleID         string
+	Status                  Status
+	ErrorCode               string
+	ErrorMessage            string
+	SubmittedAt             time.Time
+	FinishedAt              time.Time
+	ArticleCreatedByAgentID string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // ArticleDraft is the article payload submitted to WeChat draft.add.
@@ -115,4 +116,9 @@ type Repository interface {
 	ListPublishRecordsByArticle(ctx context.Context, tenantID string, articleID int64) ([]Record, error)
 	UpdatePublishRecordSubmission(ctx context.Context, tenantID string, record Record) (Record, error)
 	UpdatePublishRecordStatus(ctx context.Context, tenantID string, record Record) (Record, error)
+}
+
+// AgentFilteredRepository lists publish records through the creating Agent of their article.
+type AgentFilteredRepository interface {
+	ListPublishRecordsByAgent(ctx context.Context, tenantID string, agentRecordID string) ([]Record, error)
 }
