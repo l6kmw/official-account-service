@@ -45,6 +45,14 @@ var officialAccountToolGuides = buildOfficialAccountToolGuides()
 
 func buildOfficialAccountToolGuides() map[string]toolGuide {
 	return map[string]toolGuide{
+		"official_account_get_identity": {
+			Before:  "我将确认当前 MCP Token 对应的用户和 Agent 身份，不会返回 Token、Token 提示或 Token 摘要。",
+			Inputs:  "无。身份完全由当前 MCP Token 决定，不能通过参数指定或伪造 Agent。",
+			Returns: "identity；包含 username、user_id、role、actor_type、agent_record_id、agent_id、agent_name 和 agent_purpose。",
+			Next:    "确认 Agent 身份和内容职责后，再调用 list_accounts 选择该用户已授权的公众号。",
+			Check:   "确认 MCP Token 有效、所属用户和 Agent 均为 active，且 Token 未被轮换或撤销。",
+			Fields:  noToolFields(),
+		},
 		"official_account_list_accounts": {
 			Before:  "我将读取你已授权的公众号列表，不会返回 AppSecret、access token 或 refresh token。",
 			Inputs:  "无。账号范围由当前 MCP Token 自动确定。",

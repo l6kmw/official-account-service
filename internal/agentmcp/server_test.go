@@ -44,6 +44,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 		toolsByName[tool.Name] = tool
 	}
 	require.Contains(t, toolsByName, "official_account_list_accounts")
+	require.Contains(t, toolsByName, "official_account_get_identity")
 	require.Contains(t, toolsByName, "official_account_publish_article")
 	require.Contains(t, toolsByName, "official_account_delete_article")
 	require.Contains(t, toolsByName, "official_account_list_published_articles")
@@ -58,6 +59,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.Contains(t, toolsByName, "official_account_update_draft")
 	require.Contains(t, toolsByName, "official_account_delete_draft")
 	require.Contains(t, toolsByName, "official_account_publish_draft")
+	require.Empty(t, requiredToolFields(t, toolsByName["official_account_get_identity"]))
 	require.ElementsMatch(t, []string{"draft_id"}, requiredToolFields(t, toolsByName["official_account_get_draft"]))
 	require.ElementsMatch(t, []string{"authorizer_id", "title"}, requiredToolFields(t, toolsByName["official_account_create_draft"]))
 	require.ElementsMatch(t, []string{"draft_id", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_draft"]))
@@ -80,6 +82,53 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	require.NotNil(t, result.StructuredContent)
+}
+
+func TestMCPServerReturnsSafeAuthenticatedIdentity(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/api/v1/admin/session", r.URL.Path)
+		require.Equal(t, "admin-key", r.Header.Get("X-Admin-API-Key"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"authenticated":true,
+			"username":"writer",
+			"user_id":"user-1",
+			"role":"user",
+			"actor_type":"agent_token",
+			"agent_record_id":"agent-record-a",
+			"agent_id":"writer-a",
+			"agent_name":"Writer A",
+			"agent_purpose":"industry analysis",
+			"api_token":"must-not-leak",
+			"api_token_hint":"must-not-leak",
+			"api_token_hash":"must-not-leak"
+		}`))
+	}))
+	defer apiServer.Close()
+
+	httpClient, err := NewClient(Config{BaseURL: apiServer.URL, TenantID: "tenant-test", AdminAPIKey: "admin-key"})
+	require.NoError(t, err)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = NewServer(httpClient, ServerConfig{}).Run(ctx, serverTransport) }()
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "identity-test", Version: "0.1.0"}, nil).Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_get_identity", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	raw, err := json.Marshal(result.StructuredContent)
+	require.NoError(t, err)
+	text := string(raw)
+	for _, expected := range []string{"writer", "user-1", "agent_token", "agent-record-a", "writer-a", "Writer A", "industry analysis"} {
+		require.Contains(t, text, expected)
+	}
+	for _, forbidden := range []string{"api_token", "api_token_hint", "api_token_hash", "must-not-leak"} {
+		require.NotContains(t, text, forbidden)
+	}
 }
 
 func TestMCPServerManagesLocalDraftLifecycle(t *testing.T) {

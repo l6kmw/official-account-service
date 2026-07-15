@@ -182,6 +182,12 @@ func userAwareTokenVerifier(client *agentmcp.Client, staticToken string) auth.To
 			UserID:     user.UserID,
 			Extra: map[string]any{
 				agentmcp.CredentialKindExtraKey: agentmcp.UserAPICredentialKind,
+				agentmcp.UserIDExtraKey:         user.UserID,
+				agentmcp.ActorTypeExtraKey:      user.ActorType,
+				agentmcp.AgentRecordIDExtraKey:  user.AgentRecordID,
+				agentmcp.AgentIDExtraKey:        user.AgentID,
+				agentmcp.AgentNameExtraKey:      user.AgentName,
+				agentmcp.AgentPurposeExtraKey:   user.AgentPurpose,
 			},
 		}, nil
 	}

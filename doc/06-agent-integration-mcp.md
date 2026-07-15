@@ -98,7 +98,7 @@ OFFICIAL_ACCOUNT_MCP_PATH="/mcp"
 
 stdio 模式通过本机进程通信，不需要给 agent 暴露 MCP API key。
 
-streamable-http 模式会暴露公网 HTTPS endpoint。管理员在“用户管理”中为每个用户单独生成 token，agent 连接时用：
+streamable-http 模式会暴露公网 HTTPS endpoint。管理员为用户下的每个 Agent 单独生成 token，Agent 连接时用：
 
 ```text
 Authorization: Bearer <USER_MCP_TOKEN>
@@ -106,7 +106,7 @@ Authorization: Bearer <USER_MCP_TOKEN>
 
 部分 MCP 客户端把 API key 作为 `X-API-Key` 发送；服务端也兼容这种格式。不要选择 OAuth 登录流，除非后续单独实现 OAuth 授权服务器。
 
-MCP 会先向后端验证用户 token，再用同一个 token 调用后台 API。后端从 token 解析 `user_id`，忽略客户端提供的 `X-Tenant-ID`。token 被轮换、撤销或用户被停用后，后续 MCP 请求立即返回 `401`。
+MCP 会先向后端验证 Agent token，再用同一个 token 调用后台 API。后端从 token 再次解析 `user_id + agent_id`，忽略客户端提供的 `X-Tenant-ID`、`user_id` 或 `agent_id`。某个 Agent 的 token 被轮换、撤销或停用后，只有该 Agent 的后续 MCP 请求返回 `401`，同一用户下的其他 Agent 不受影响。
 
 `security.admin_api_key` 与 `OFFICIAL_ACCOUNT_ADMIN_API_KEY` 只为旧静态 token / stdio 兼容保留，不要交给远程 Agent。
 
@@ -125,6 +125,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码，或�
 
 | Tool | 功能 | 关键输入 | 返回与下一步 |
 |---|---|---|---|
+| `official_account_get_identity` | 确认当前 MCP 用户与 Agent 身份 | 无；身份只来自当前 Token | 返回用户名、用户 ID、角色、Agent ID、名称和用途；不返回 Token、提示或摘要 |
 | `official_account_list_accounts` | 列出当前用户已授权公众号 | 无 | 使用 `items[].id` 作为后续 `authorizer_id`；为空时生成授权入口 |
 | `official_account_get_authorization_entry` | 生成绑定当前用户的一次性授权入口 | 可选 `component_appid` | 把完整 `authorization_entry_url` 或二维码交给公众号管理员扫码 |
 | `official_account_generate_authorization_url` | 生成可限定授权类型/预选 AppID 的高级授权入口 | 可选 `auth_type`、`biz_appid`；通常不要传 `redirect_uri` | 原样打开首方 `authorization_url`，不得提取内部微信直链 |

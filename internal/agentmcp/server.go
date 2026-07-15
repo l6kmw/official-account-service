@@ -30,6 +30,18 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	remoteImageHTTPClient := newRemoteImageHTTPClient()
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_get_identity",
+		Title:       "Get current MCP identity",
+		Description: "Return the current user and Agent identity resolved from the MCP credential. Does not expose token, token hint, token hash, or other credentials.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ getIdentityInput) (*mcp.CallToolResult, any, error) {
+		identity, err := client.GetIdentity(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"identity": identity}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_accounts",
 		Title:       "List official accounts",
 		Description: "List authorized WeChat official accounts for the configured tenant. Does not expose token, secret, or refresh-token fields.",
@@ -441,6 +453,8 @@ func bearerTokenFromHeader(header string) string {
 }
 
 type listAccountsInput struct{}
+
+type getIdentityInput struct{}
 
 type listArticlesInput struct{}
 

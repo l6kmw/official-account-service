@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,9 +14,14 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
 	"official-account-service/internal/agentmcp"
+	"official-account-service/internal/application"
+	"official-account-service/internal/domain/identity"
+	"official-account-service/internal/infra/persistence/memory"
+	httpadapter "official-account-service/internal/interfaces/http"
 )
 
 func TestMCPStreamableHTTPConfigFallsBackToYAMLConfig(t *testing.T) {
@@ -237,6 +243,137 @@ func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) 
 	require.False(t, advancedAuthorization.IsError)
 	require.Contains(t, fmt.Sprint(advancedAuthorization.StructuredContent), "wechat-authorize.html")
 	require.Contains(t, fmt.Sprint(advancedAuthorization.StructuredContent), "state%3Duser-2-bound")
+}
+
+func TestStreamableHTTPAgentIdentityAndRotationIsolation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	store := memory.NewStore(time.Now)
+	_, err := store.SaveUser(ctx, identity.User{
+		ID: "user-1", Username: "writer", PasswordHash: "unused", Role: identity.RoleUser, Status: identity.StatusActive,
+	})
+	require.NoError(t, err)
+	identities := application.NewIdentityService(store)
+	agentA, err := identities.CreateAgent(ctx, application.CreateAgentInput{
+		UserID: "user-1", AgentID: "writer-a", Name: "Writer A", Purpose: "industry analysis",
+	})
+	require.NoError(t, err)
+	agentB, err := identities.CreateAgent(ctx, application.CreateAgentInput{
+		UserID: "user-1", AgentID: "writer-b", Name: "Writer B", Purpose: "product updates",
+	})
+	require.NoError(t, err)
+
+	apiServer := httptest.NewServer(httpadapter.NewRouter(httpadapter.Dependencies{
+		Logger: zap.NewNop(), Identity: identities, AdminAPIKey: "admin-key", AdminUserID: "user-1",
+	}))
+	defer apiServer.Close()
+	client, err := agentmcp.NewClient(agentmcp.Config{
+		BaseURL: apiServer.URL, TenantID: "tenant-1", AdminAPIKey: "admin-key",
+	})
+	require.NoError(t, err)
+	verifier := userAwareTokenVerifier(client, "legacy-mcp-token")
+
+	for _, expected := range []struct {
+		token   string
+		agent   application.GeneratedAgentAPIToken
+		name    string
+		purpose string
+	}{
+		{token: agentA.Token, agent: agentA, name: "Writer A", purpose: "industry analysis"},
+		{token: agentB.Token, agent: agentB, name: "Writer B", purpose: "product updates"},
+	} {
+		info, verifyErr := verifier(ctx, expected.token, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+		require.NoError(t, verifyErr)
+		require.Equal(t, "user-1", info.UserID)
+		require.Equal(t, "user-1", info.Extra["user_id"])
+		require.Equal(t, "agent_token", info.Extra["actor_type"])
+		require.Equal(t, expected.agent.Agent.ID, info.Extra["agent_record_id"])
+		require.Equal(t, expected.agent.Agent.AgentID, info.Extra["agent_id"])
+		require.Equal(t, expected.name, info.Extra["agent_name"])
+		require.Equal(t, expected.purpose, info.Extra["agent_purpose"])
+		extraJSON, marshalErr := json.Marshal(info.Extra)
+		require.NoError(t, marshalErr)
+		require.NotContains(t, string(extraJSON), expected.token)
+		require.NotContains(t, string(extraJSON), "token_hint")
+		require.NotContains(t, string(extraJSON), "token_hash")
+	}
+
+	mcpHTTPServer := httptest.NewServer(newStreamableHTTPMux(agentmcp.NewServer(client, agentmcp.ServerConfig{}), streamableHTTPConfig{
+		Path: "/mcp", Token: "legacy-mcp-token", Verifier: verifier,
+	}))
+	defer mcpHTTPServer.Close()
+
+	connect := func(token string) *mcp.ClientSession {
+		session, connectErr := mcp.NewClient(&mcp.Implementation{Name: "agent-identity-test", Version: "0.1.0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+			Endpoint: mcpHTTPServer.URL + "/mcp", DisableStandaloneSSE: true,
+			OAuthHandler: bearerTokenHandler{token: token}, MaxRetries: -1,
+		}, nil)
+		require.NoError(t, connectErr)
+		return session
+	}
+	callIdentity := func(session *mcp.ClientSession) mcpIdentityResponse {
+		result, callErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_get_identity", Arguments: map[string]any{}})
+		require.NoError(t, callErr)
+		require.False(t, result.IsError)
+		raw, marshalErr := json.Marshal(result.StructuredContent)
+		require.NoError(t, marshalErr)
+		for _, forbidden := range []string{"api_token", "token_hint", "token_hash", agentA.Token, agentB.Token} {
+			require.NotContains(t, string(raw), forbidden)
+		}
+		var response mcpIdentityResponse
+		require.NoError(t, json.Unmarshal(raw, &response))
+		return response
+	}
+
+	sessionA := connect(agentA.Token)
+	defer sessionA.Close()
+	sessionB := connect(agentB.Token)
+	defer sessionB.Close()
+	identityA := callIdentity(sessionA)
+	identityB := callIdentity(sessionB)
+	require.Equal(t, "user-1", identityA.Identity.UserID)
+	require.Equal(t, "user-1", identityB.Identity.UserID)
+	require.Equal(t, "writer", identityA.Identity.Username)
+	require.Equal(t, "writer", identityB.Identity.Username)
+	require.Equal(t, "user", identityA.Identity.Role)
+	require.Equal(t, "user", identityB.Identity.Role)
+	require.Equal(t, "writer-a", identityA.Identity.AgentID)
+	require.Equal(t, "writer-b", identityB.Identity.AgentID)
+	require.Equal(t, agentA.Agent.ID, identityA.Identity.AgentRecordID)
+	require.Equal(t, agentB.Agent.ID, identityB.Identity.AgentRecordID)
+	require.Equal(t, "agent_token", identityA.Identity.ActorType)
+	require.Equal(t, "agent_token", identityB.Identity.ActorType)
+	require.Equal(t, "Writer A", identityA.Identity.AgentName)
+	require.Equal(t, "Writer B", identityB.Identity.AgentName)
+	require.Equal(t, "industry analysis", identityA.Identity.AgentPurpose)
+	require.Equal(t, "product updates", identityB.Identity.AgentPurpose)
+
+	rotatedB, err := identities.RotateAgentAPIToken(ctx, "user-1", agentB.Agent.ID)
+	require.NoError(t, err)
+	oldBResult, oldBErr := sessionB.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_get_identity", Arguments: map[string]any{}})
+	require.True(t, oldBErr != nil || oldBResult == nil || oldBResult.IsError)
+
+	require.Equal(t, "writer-a", callIdentity(sessionA).Identity.AgentID)
+	newSessionA := connect(agentA.Token)
+	defer newSessionA.Close()
+	require.Equal(t, "writer-a", callIdentity(newSessionA).Identity.AgentID)
+	newSessionB := connect(rotatedB.Token)
+	defer newSessionB.Close()
+	require.Equal(t, "writer-b", callIdentity(newSessionB).Identity.AgentID)
+}
+
+type mcpIdentityResponse struct {
+	Identity struct {
+		Username      string `json:"username"`
+		UserID        string `json:"user_id"`
+		Role          string `json:"role"`
+		ActorType     string `json:"actor_type"`
+		AgentRecordID string `json:"agent_record_id"`
+		AgentID       string `json:"agent_id"`
+		AgentName     string `json:"agent_name"`
+		AgentPurpose  string `json:"agent_purpose"`
+	} `json:"identity"`
 }
 
 type bearerTokenHandler struct {

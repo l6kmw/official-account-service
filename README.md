@@ -400,6 +400,7 @@ Header value: <USER_MCP_TOKEN>
 
 常用工具：
 
+- `official_account_get_identity`
 - `official_account_list_accounts`
 - `official_account_get_authorization_entry`
 - `official_account_list_published_articles`
@@ -418,7 +419,7 @@ Header value: <USER_MCP_TOKEN>
 
 `official_account_get_authorization_entry` 返回的是已经绑定当前 MCP 用户的一次性同域授权发起页 URL，可直接打开或作为二维码内容，不需要先登录管理后台。授权发起页会校验微信目标地址、组件 AppID、回调域名和一次性 state，再跳转到微信扫码页面；不要绕过它直接分发 `mp.weixin.qq.com` 链接。需要传 `auth_type` 或 `biz_appid` 时可调用 `official_account_generate_authorization_url`，它的 `authorization_url` 同样是安全的同域授权发起页。
 
-全部 23 个工具的功能、输入来源、成功返回、下一步和错误恢复方式见 [Agent 接入与 MCP 工具目录](doc/06-agent-integration-mcp.md#暴露的-mcp-tools)。线上 `tools/list` 也会返回同样的调用指南。缺参、错参或未知字段会以 `structuredContent.error.issues` 一次列出 `field`、`received`、`expected`、`fix`；Agent 应逐项告诉用户，不得只回复“参数错误”或猜测 ID。业务错误会返回 `resource_not_found`、`invalid_request`、`unauthorized`、`forbidden`、`conflict`、`configuration_required`、`timeout` 或 `service_error` 以及恢复步骤。
+全部 24 个工具的功能、输入来源、成功返回、下一步和错误恢复方式见 [Agent 接入与 MCP 工具目录](doc/06-agent-integration-mcp.md#暴露的-mcp-tools)。线上 `tools/list` 也会返回同样的调用指南。缺参、错参或未知字段会以 `structuredContent.error.issues` 一次列出 `field`、`received`、`expected`、`fix`；Agent 应逐项告诉用户，不得只回复“参数错误”或猜测 ID。业务错误会返回 `resource_not_found`、`invalid_request`、`unauthorized`、`forbidden`、`conflict`、`configuration_required`、`timeout` 或 `service_error` 以及恢复步骤。
 
 删除时注意区分：
 
@@ -439,14 +440,15 @@ Header value: <USER_MCP_TOKEN>
 
 典型流程：
 
-1. `official_account_list_accounts` 看有没有公众号。
-2. 没有就用 `official_account_get_authorization_entry` 生成授权链接。
-3. 创建文章草稿。
-4. 上传封面和正文图片；线上附件通过 `image_url` 传入。
-5. 更新文章内容。
-6. 发布前让用户确认。
-7. 调 `official_account_publish_article` 发布，必须传 `confirm_publish=true`。
-8. 同步发布状态。
+1. `official_account_get_identity` 确认当前用户、Agent 和内容职责。
+2. `official_account_list_accounts` 看有没有公众号。
+3. 没有就用 `official_account_get_authorization_entry` 生成授权链接。
+4. 创建文章草稿。
+5. 上传封面和正文图片；线上附件通过 `image_url` 传入。
+6. 更新文章内容。
+7. 发布前让用户确认。
+8. 调 `official_account_publish_article` 发布，必须传 `confirm_publish=true`。
+9. 同步发布状态。
 
 ## 10. 上线后怎么检查
 

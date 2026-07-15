@@ -95,6 +95,12 @@ type apiTokenContextKey struct{}
 // Credential metadata keys are shared with the Streamable HTTP token verifier.
 const (
 	CredentialKindExtraKey = "credential_kind"
+	UserIDExtraKey         = "user_id"
+	ActorTypeExtraKey      = "actor_type"
+	AgentRecordIDExtraKey  = "agent_record_id"
+	AgentIDExtraKey        = "agent_id"
+	AgentNameExtraKey      = "agent_name"
+	AgentPurposeExtraKey   = "agent_purpose"
 	UserAPICredentialKind  = "user_api_token"
 )
 
@@ -104,6 +110,11 @@ type AuthenticatedUser struct {
 	Username      string `json:"username"`
 	UserID        string `json:"user_id"`
 	Role          string `json:"role"`
+	ActorType     string `json:"actor_type"`
+	AgentRecordID string `json:"agent_record_id"`
+	AgentID       string `json:"agent_id"`
+	AgentName     string `json:"agent_name"`
+	AgentPurpose  string `json:"agent_purpose"`
 }
 
 type Account struct {
@@ -313,6 +324,18 @@ func (c *Client) ListAccounts(ctx context.Context) ([]Account, error) {
 		return nil, err
 	}
 	return out.Items, nil
+}
+
+// GetIdentity returns the authenticated API principal without credential data.
+func (c *Client) GetIdentity(ctx context.Context) (AuthenticatedUser, error) {
+	var identity AuthenticatedUser
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/admin/session", nil, &identity, http.StatusOK); err != nil {
+		return AuthenticatedUser{}, err
+	}
+	if !identity.Authenticated || strings.TrimSpace(identity.UserID) == "" {
+		return AuthenticatedUser{}, fmt.Errorf("api identity is not authenticated")
+	}
+	return identity, nil
 }
 
 // ListArticles returns tenant-scoped articles.
