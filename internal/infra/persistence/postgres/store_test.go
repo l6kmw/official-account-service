@@ -199,6 +199,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/010_app_user.sql",
 		"../../../../migrations/011_account_global_owner.sql",
 		"../../../../migrations/012_user_api_token.sql",
+		"../../../../migrations/013_multi_agent_token.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)

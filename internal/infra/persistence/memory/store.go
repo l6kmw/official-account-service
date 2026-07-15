@@ -24,6 +24,7 @@ type Store struct {
 	nextRecordID        int64
 	accounts            map[int64]authorization.Account
 	users               map[string]identity.User
+	agents              map[string]identity.Agent
 	articles            map[int64]article.Article
 	materialAssets      map[int64]material.Asset
 	publishRecords      map[int64]publish.Record
@@ -44,6 +45,7 @@ func NewStore(now func() time.Time) *Store {
 	return &Store{
 		accounts:            make(map[int64]authorization.Account),
 		users:               make(map[string]identity.User),
+		agents:              make(map[string]identity.Agent),
 		articles:            make(map[int64]article.Article),
 		materialAssets:      make(map[int64]material.Asset),
 		publishRecords:      make(map[int64]publish.Record),
