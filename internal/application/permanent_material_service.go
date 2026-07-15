@@ -42,13 +42,11 @@ func (s *PermanentMaterialService) ListPermanentMaterials(ctx context.Context, i
 	if err := s.validateListInput(input); err != nil {
 		return PermanentMaterialPage{}, err
 	}
-	token, err := s.tokens.GetAuthorizerAccessToken(ctx, RefreshAuthorizerAccessTokenInput{
-		TenantID: input.TenantID, AccountID: input.AuthorizerID, ComponentAppID: s.componentAppID,
-	})
+	accessToken, err := s.accessToken(ctx, input.TenantID, input.AuthorizerID)
 	if err != nil {
-		return PermanentMaterialPage{}, fmt.Errorf("get authorizer access token for permanent materials: %w", err)
+		return PermanentMaterialPage{}, err
 	}
-	batch, err := s.manager.ListPermanentImages(ctx, token.AccessToken, input.Offset, input.Count)
+	batch, err := s.manager.ListPermanentImages(ctx, accessToken, input.Offset, input.Count)
 	if err != nil {
 		return PermanentMaterialPage{}, fmt.Errorf("list permanent materials: %w", err)
 	}
@@ -62,12 +60,54 @@ func (s *PermanentMaterialService) ListPermanentMaterials(ctx context.Context, i
 	}, nil
 }
 
+// DeletePermanentMaterialInput identifies one permanent WeChat material.
+type DeletePermanentMaterialInput struct {
+	TenantID     string
+	AuthorizerID int64
+	MediaID      string
+}
+
+// DeletePermanentMaterial permanently removes one material from WeChat.
+func (s *PermanentMaterialService) DeletePermanentMaterial(ctx context.Context, input DeletePermanentMaterialInput) error {
+	if err := s.validateReady(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 || strings.TrimSpace(input.MediaID) == "" {
+		return fmt.Errorf("validate permanent material delete input: %w", ErrInvalidInput)
+	}
+	accessToken, err := s.accessToken(ctx, input.TenantID, input.AuthorizerID)
+	if err != nil {
+		return err
+	}
+	if err := s.manager.DeletePermanentMaterial(ctx, accessToken, input.MediaID); err != nil {
+		return fmt.Errorf("delete permanent material: %w", err)
+	}
+	return nil
+}
+
 func (s *PermanentMaterialService) validateListInput(input ListPermanentMaterialsInput) error {
-	if s == nil || s.manager == nil || s.tokens == nil || strings.TrimSpace(s.componentAppID) == "" {
-		return fmt.Errorf("validate permanent material service: %w", ErrNotImplemented)
+	if err := s.validateReady(); err != nil {
+		return err
 	}
 	if strings.TrimSpace(input.TenantID) == "" || input.AuthorizerID <= 0 || input.Offset < 0 || input.Count < 1 || input.Count > 20 {
 		return fmt.Errorf("validate permanent material list input: %w", ErrInvalidInput)
 	}
 	return nil
+}
+
+func (s *PermanentMaterialService) validateReady() error {
+	if s == nil || s.manager == nil || s.tokens == nil || strings.TrimSpace(s.componentAppID) == "" {
+		return fmt.Errorf("validate permanent material service: %w", ErrNotImplemented)
+	}
+	return nil
+}
+
+func (s *PermanentMaterialService) accessToken(ctx context.Context, tenantID string, authorizerID int64) (string, error) {
+	token, err := s.tokens.GetAuthorizerAccessToken(ctx, RefreshAuthorizerAccessTokenInput{
+		TenantID: tenantID, AccountID: authorizerID, ComponentAppID: s.componentAppID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("get authorizer access token for permanent materials: %w", err)
+	}
+	return token.AccessToken, nil
 }

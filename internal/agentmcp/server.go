@@ -85,6 +85,20 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_delete_permanent_material",
+		Title:       "Delete WeChat permanent material",
+		Description: "Permanently delete one material from an authorized WeChat account. Required: authorizer_id, media_id, and confirm_delete=\"DELETE\". This is irreversible and may break drafts or articles that still reference the media_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deletePermanentMaterialToolInput) (*mcp.CallToolResult, any, error) {
+		if input.ConfirmDelete != "DELETE" {
+			return nil, nil, fmt.Errorf("confirm_delete must be DELETE before permanently deleting WeChat material")
+		}
+		if err := client.DeletePermanentMaterial(ctx, input.AuthorizerID, input.MediaID); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"deleted": true, "media_id": input.MediaID}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_get_article_metrics",
 		Title:       "Get WeChat article metrics",
 		Description: "Get live cumulative metrics for all articles published on one date, including reads, shares, likes, comments, collections, rewards, conversions, completion rate, sources, and drop-off positions. Required: authorizer_id and date (YYYY-MM-DD). WeChat supports one publish date per call, from 2025-11-01 through yesterday, and metrics are limited to the first 30 days after publication.",
@@ -288,6 +302,12 @@ type listPermanentMaterialsToolInput struct {
 	AuthorizerID int64 `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
 	Offset       int   `json:"offset,omitempty" jsonschema:"Permanent image offset. Defaults to 0."`
 	Count        int   `json:"count,omitempty" jsonschema:"Number of permanent images to fetch, 1-20. Defaults to 20."`
+}
+
+type deletePermanentMaterialToolInput struct {
+	AuthorizerID  int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
+	MediaID       string `json:"media_id" jsonschema:"Required. WeChat permanent material media_id returned by official_account_list_permanent_materials or official_account_upload_image."`
+	ConfirmDelete string `json:"confirm_delete" jsonschema:"Required. Must be exactly DELETE because permanent material deletion is irreversible."`
 }
 
 type listArticleCommentsToolInput struct {

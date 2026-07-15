@@ -45,11 +45,34 @@ func TestPermanentMaterialServiceValidatesPagination(t *testing.T) {
 	require.True(t, errors.Is(err, ErrInvalidInput))
 }
 
+func TestPermanentMaterialServiceDeletesWithAuthorizerToken(t *testing.T) {
+	manager := &fakePermanentMaterialManager{}
+	tokens := &fakeMaterialTokenProvider{token: AuthorizerAccessToken{AccessToken: "authorizer-token"}}
+	service := NewPermanentMaterialService(manager, tokens, "wx-component")
+
+	err := service.DeletePermanentMaterial(context.Background(), DeletePermanentMaterialInput{
+		TenantID: "tenant-1", AuthorizerID: 7, MediaID: "media-1",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "authorizer-token", manager.deleteAccessToken)
+	require.Equal(t, "media-1", manager.deletedMediaID)
+	require.Equal(t, int64(7), tokens.lastInput.AccountID)
+}
+
 type fakePermanentMaterialManager struct {
-	batch       material.PermanentImageBatch
-	accessToken string
-	offset      int
-	count       int
+	batch             material.PermanentImageBatch
+	accessToken       string
+	offset            int
+	count             int
+	deleteAccessToken string
+	deletedMediaID    string
+}
+
+func (f *fakePermanentMaterialManager) DeletePermanentMaterial(_ context.Context, accessToken string, mediaID string) error {
+	f.deleteAccessToken = accessToken
+	f.deletedMediaID = mediaID
+	return nil
 }
 
 func (f *fakePermanentMaterialManager) ListPermanentImages(_ context.Context, accessToken string, offset int, count int) (material.PermanentImageBatch, error) {

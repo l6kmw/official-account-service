@@ -34,4 +34,22 @@ func registerPermanentMaterialRoutes(r gin.IRouter, service *application.Permane
 		}
 		c.JSON(http.StatusOK, result)
 	})
+	r.DELETE("/accounts/:id/permanent-materials/:media_id", func(c *gin.Context) {
+		if service == nil {
+			writeServiceError(c, application.ErrNotImplemented)
+			return
+		}
+		tenant, id, ok := bindTenantAndID(c)
+		if !ok {
+			return
+		}
+		mediaID := c.Param("media_id")
+		err := service.DeletePermanentMaterial(c.Request.Context(), application.DeletePermanentMaterialInput{
+			TenantID: tenant, AuthorizerID: id, MediaID: mediaID,
+		})
+		if !writeServiceError(c, err) {
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": true, "media_id": mediaID})
+	})
 }

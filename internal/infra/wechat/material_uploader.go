@@ -106,6 +106,17 @@ func (u *MaterialUploader) ListPermanentImages(ctx context.Context, authorizerAc
 	return material.PermanentImageBatch{TotalCount: response.TotalCount, ItemCount: response.ItemCount, Items: response.Items}, nil
 }
 
+// DeletePermanentMaterial permanently removes one material from the authorized account.
+func (u *MaterialUploader) DeletePermanentMaterial(ctx context.Context, authorizerAccessToken string, mediaID string) error {
+	if u == nil || u.httpClient == nil || strings.TrimSpace(authorizerAccessToken) == "" || strings.TrimSpace(mediaID) == "" {
+		return fmt.Errorf("validate permanent material delete input: %w", material.ErrManagerUnavailable)
+	}
+	var response permanentMaterialDeleteResponse
+	return u.postMaterialJSON(ctx, "delete_permanent_material", "/material/del_material", authorizerAccessToken, permanentMaterialDeleteRequest{
+		MediaID: mediaID,
+	}, &response)
+}
+
 // UploadInlineImage returns an unavailable error for inline image uploads.
 func (DisabledMaterialUploader) UploadInlineImage(_ context.Context, _ string, _ string, _ io.Reader) (material.InlineImageUpload, error) {
 	return material.InlineImageUpload{}, fmt.Errorf("wechat inline image uploader: %w", material.ErrUploaderUnavailable)
@@ -287,6 +298,22 @@ type permanentMaterialListResponse struct {
 	Items      []material.PermanentImage `json:"item"`
 	ErrCode    int                       `json:"errcode"`
 	ErrMsg     string                    `json:"errmsg"`
+}
+
+type permanentMaterialDeleteRequest struct {
+	MediaID string `json:"media_id"`
+}
+
+type permanentMaterialDeleteResponse struct {
+	ErrCode int    `json:"errcode"`
+	ErrMsg  string `json:"errmsg"`
+}
+
+func (r permanentMaterialDeleteResponse) wechatError(operation string) error {
+	if r.ErrCode == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s errcode %d errmsg %q: %w", operation, r.ErrCode, r.ErrMsg, material.ErrManagementFailed)
 }
 
 func (r permanentMaterialListResponse) wechatError(operation string) error {

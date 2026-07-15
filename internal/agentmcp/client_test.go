@@ -76,6 +76,21 @@ func TestClientListsPermanentMaterials(t *testing.T) {
 	require.Equal(t, 3, result.NextOffset)
 }
 
+func TestClientDeletesPermanentMaterial(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodDelete, r.Method)
+		require.Equal(t, "/api/v1/accounts/7/permanent-materials/media-1", r.URL.Path)
+		_, _ = w.Write([]byte(`{"deleted":true,"media_id":"media-1"}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	err = client.DeletePermanentMaterial(context.Background(), 7, "media-1")
+
+	require.NoError(t, err)
+}
+
 func TestClientGetsArticleMetrics(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/accounts/7/article-metrics", r.URL.Path)

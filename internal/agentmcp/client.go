@@ -338,6 +338,12 @@ func (c *Client) ListPermanentMaterials(ctx context.Context, authorizerID int64,
 	return out, nil
 }
 
+// DeletePermanentMaterial permanently removes one material from WeChat.
+func (c *Client) DeletePermanentMaterial(ctx context.Context, authorizerID int64, mediaID string) error {
+	path := fmt.Sprintf("/api/v1/accounts/%d/permanent-materials/%s", authorizerID, url.PathEscape(mediaID))
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, http.StatusOK)
+}
+
 // GetArticleMetrics returns live WeChat metrics for articles published on one date.
 func (c *Client) GetArticleMetrics(ctx context.Context, authorizerID int64, date string) (ArticleMetricsResult, error) {
 	query := url.Values{}

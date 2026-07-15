@@ -13,7 +13,7 @@ import (
 )
 
 func TestPermanentMaterialRouteReturnsLiveWechatPage(t *testing.T) {
-	manager := routeFakePermanentMaterialManager{batch: material.PermanentImageBatch{
+	manager := &routeFakePermanentMaterialManager{batch: material.PermanentImageBatch{
 		TotalCount: 3, ItemCount: 1,
 		Items: []material.PermanentImage{{MediaID: "media-1", Name: "cover.png", UpdateTime: 1784000000, URL: "https://img/cover.png"}},
 	}}
@@ -29,12 +29,30 @@ func TestPermanentMaterialRouteReturnsLiveWechatPage(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, bad.Code)
 }
 
-type routeFakePermanentMaterialManager struct {
-	batch material.PermanentImageBatch
+func TestPermanentMaterialRouteDeletesWechatMaterial(t *testing.T) {
+	manager := &routeFakePermanentMaterialManager{}
+	service := application.NewPermanentMaterialService(manager, routeFakePermanentMaterialTokenProvider{}, "wx-component")
+	router := NewRouter(Dependencies{Logger: zap.NewNop(), PermanentMaterials: service})
+
+	recorder := doJSON(t, router, http.MethodDelete, "/api/v1/accounts/7/permanent-materials/media-1", ``, "tenant-1")
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"deleted":true,"media_id":"media-1"}`, recorder.Body.String())
+	require.Equal(t, "media-1", manager.deletedMediaID)
 }
 
-func (f routeFakePermanentMaterialManager) ListPermanentImages(context.Context, string, int, int) (material.PermanentImageBatch, error) {
+type routeFakePermanentMaterialManager struct {
+	batch          material.PermanentImageBatch
+	deletedMediaID string
+}
+
+func (f *routeFakePermanentMaterialManager) ListPermanentImages(context.Context, string, int, int) (material.PermanentImageBatch, error) {
 	return f.batch, nil
+}
+
+func (f *routeFakePermanentMaterialManager) DeletePermanentMaterial(_ context.Context, _ string, mediaID string) error {
+	f.deletedMediaID = mediaID
+	return nil
 }
 
 type routeFakePermanentMaterialTokenProvider struct{}

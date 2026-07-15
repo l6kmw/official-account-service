@@ -93,6 +93,25 @@ func TestMaterialUploaderListsPermanentImages(t *testing.T) {
 	require.Equal(t, "media-1", result.Items[0].MediaID)
 }
 
+func TestMaterialUploaderDeletesPermanentMaterial(t *testing.T) {
+	var body permanentMaterialDeleteRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/material/del_material", r.URL.Path)
+		require.Equal(t, "authorizer-token", r.URL.Query().Get("access_token"))
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, err := w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	uploader, err := NewMaterialUploader(MaterialUploaderConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	err = uploader.DeletePermanentMaterial(context.Background(), "authorizer-token", "media-1")
+
+	require.NoError(t, err)
+	require.Equal(t, permanentMaterialDeleteRequest{MediaID: "media-1"}, body)
+}
+
 func TestMaterialUploaderHandlesWeChatErrCodeWithoutLeakingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := w.Write([]byte(`{"errcode":40001,"errmsg":"invalid credential"}`))

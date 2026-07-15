@@ -108,6 +108,15 @@ paths:
         - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
         - {name: count, in: query, schema: {type: integer, minimum: 1, maximum: 20, default: 20}}
       responses: {"200": {description: Live WeChat permanent image page, content: {application/json: {schema: {$ref: "#/components/schemas/PermanentMaterialList"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+  /api/v1/accounts/{id}/permanent-materials/{media_id}:
+    delete:
+      tags: [Materials]
+      summary: Delete one WeChat permanent material
+      parameters:
+        - {$ref: "#/components/parameters/TenantID"}
+        - {$ref: "#/components/parameters/ID"}
+        - {name: media_id, in: path, required: true, schema: {type: string}}
+      responses: {"200": {description: Permanent material deleted, content: {application/json: {schema: {type: object, required: [deleted, media_id], properties: {deleted: {type: boolean}, media_id: {type: string}}}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/accounts/{id}/article-metrics:
     get:
       tags: [Accounts]

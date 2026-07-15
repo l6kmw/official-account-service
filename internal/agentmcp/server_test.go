@@ -48,6 +48,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.Contains(t, toolsByName, "official_account_delete_article")
 	require.Contains(t, toolsByName, "official_account_list_published_articles")
 	require.Contains(t, toolsByName, "official_account_list_permanent_materials")
+	require.Contains(t, toolsByName, "official_account_delete_permanent_material")
 	require.Contains(t, toolsByName, "official_account_get_article_metrics")
 	require.Contains(t, toolsByName, "official_account_list_article_comments")
 	require.Contains(t, toolsByName, "official_account_get_authorization_entry")
@@ -55,6 +56,7 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.ElementsMatch(t, []string{"article_id", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_article"]))
 	require.ElementsMatch(t, []string{"authorizer_id", "article_id", "usage"}, requiredToolFields(t, toolsByName["official_account_upload_image"]))
 	require.ElementsMatch(t, []string{"authorizer_id"}, requiredToolFields(t, toolsByName["official_account_list_permanent_materials"]))
+	require.ElementsMatch(t, []string{"authorizer_id", "media_id", "confirm_delete"}, requiredToolFields(t, toolsByName["official_account_delete_permanent_material"]))
 	require.ElementsMatch(t, []string{"article_id", "confirm_publish"}, requiredToolFields(t, toolsByName["official_account_publish_article"]))
 	require.Contains(t, toolsByName["official_account_upload_image"].Description, "asset.id")
 	require.Contains(t, toolsByName["official_account_upload_image"].Description, "image_url")
@@ -126,4 +128,49 @@ func TestMCPServerDeletesPublishedArticleCompletely(t *testing.T) {
 	require.False(t, result.IsError)
 	require.True(t, deleted)
 	require.NotNil(t, result.StructuredContent)
+}
+
+func TestMCPServerRequiresConfirmationBeforeDeletingPermanentMaterial(t *testing.T) {
+	var deleteRequests int
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodDelete, r.Method)
+		require.Equal(t, "/api/v1/accounts/7/permanent-materials/media-1", r.URL.Path)
+		deleteRequests++
+		_, _ = w.Write([]byte(`{"deleted":true,"media_id":"media-1"}`))
+	}))
+	defer apiServer.Close()
+
+	httpClient, err := NewClient(Config{BaseURL: apiServer.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+	server := NewServer(httpClient, ServerConfig{})
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = server.Run(ctx, serverTransport) }()
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "official-account-test", Version: "0.1.0"}, nil)
+	session, err := mcpClient.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "official_account_delete_permanent_material",
+		Arguments: map[string]any{
+			"authorizer_id": 7,
+			"media_id":      "media-1",
+		},
+	})
+	require.True(t, err != nil || result.IsError)
+	require.Zero(t, deleteRequests)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "official_account_delete_permanent_material",
+		Arguments: map[string]any{
+			"authorizer_id":  7,
+			"media_id":       "media-1",
+			"confirm_delete": "DELETE",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	require.Equal(t, 1, deleteRequests)
 }

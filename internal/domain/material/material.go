@@ -79,6 +79,7 @@ type Uploader interface {
 // PermanentManager reads permanent images from WeChat.
 type PermanentManager interface {
 	ListPermanentImages(ctx context.Context, authorizerAccessToken string, offset int, count int) (PermanentImageBatch, error)
+	DeletePermanentMaterial(ctx context.Context, authorizerAccessToken string, mediaID string) error
 }
 
 // Repository persists tenant-scoped material assets.

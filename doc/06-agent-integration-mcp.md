@@ -124,6 +124,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_list_articles`
 - `official_account_list_published_articles`
 - `official_account_list_permanent_materials`
+- `official_account_delete_permanent_material`
 - `official_account_get_article_metrics`
 - `official_account_list_article_comments`
 - `official_account_create_article`
@@ -142,6 +143,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_publish_article` 必须传 `confirm_publish=true`。
 - `official_account_delete_article` 只删除本地 `draft` / `failed` 文章，必须传 `confirm_delete="DELETE"`；`publishing` / `published` 文章会拒绝删除。
 - `official_account_delete_published_record` 必须传 `confirm_delete="DELETE"`。
+- `official_account_delete_permanent_material` 必须传 `confirm_delete="DELETE"`，并且只删除用户明确选择的 `media_id`。
 - 所有工具都复用现有后台 API，不返回 token、secret、refresh token。
 
 `official_account_list_articles` 读取本地草稿和文章；`official_account_list_published_articles` 每次直接读取微信侧已发布列表，也会包含不经过本服务发布的历史文章。后者按微信消息使用 `offset` / `count` 分页，单条多图文消息可能展开成多个文章条目。
@@ -151,6 +153,8 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 `official_account_list_article_comments` 使用实时文章列表或统计结果中的 `msgid` 查询具体评论，支持当天文章、分页和普通/精选筛选。返回评论内容、精选状态和公众号回复，但不会向 Agent 暴露评论者 OpenID。
 
 `official_account_list_permanent_materials` 按 `authorizer_id` 实时读取该公众号的永久图片素材库，使用 `offset` / `count` 分页，单次最多 20 条。结果包含微信 `media_id`、素材名、更新时间和 URL；它与本地文章素材记录是两套数据，不会返回任何 access token。
+
+`official_account_delete_permanent_material` 直接删除微信侧永久素材且不可恢复。调用前应先用列表工具确认素材名称和 `media_id`，再传 `confirm_delete="DELETE"`；删除仍被草稿或文章引用的素材可能导致图片失效。
 
 ## 线上 Agent 图片上传
 
