@@ -156,7 +156,7 @@ func (s *AuthorizationService) HandleAuthorizationCallback(ctx context.Context, 
 		LastSyncedAt: receivedAt,
 	})
 	if err != nil {
-		return authorization.Account{}, fmt.Errorf("save authorized account: %w", err)
+		return authorization.Account{}, wrapAccountWriteError("save authorized account", err)
 	}
 	if s.bindings != nil {
 		_, err = s.bindings.SaveAuthorizerTenantBinding(ctx, authorization.AuthorizerTenantBinding{
@@ -369,6 +369,9 @@ func wrapAuthorizerTenantBindingError(action string, err error) error {
 func wrapAccountWriteError(action string, err error) error {
 	if errors.Is(err, authorization.ErrNotFound) {
 		return fmt.Errorf("%s: %w", action, ErrNotFound)
+	}
+	if errors.Is(err, authorization.ErrConflict) {
+		return fmt.Errorf("%s: %w", action, ErrConflict)
 	}
 	return fmt.Errorf("%s: %w", action, err)
 }
