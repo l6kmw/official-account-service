@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"official-account-service/internal/application"
+	"official-account-service/internal/domain/article"
 )
 
 const (
@@ -44,6 +45,7 @@ type Dependencies struct {
 	OfficialContent    *application.OfficialContentService
 	PermanentMaterials *application.PermanentMaterialService
 	Identity           *application.IdentityService
+	AgentAudit         *application.AgentAuditService
 	AdminAPIKey        string
 	AdminUserID        string
 	AdminSessionSecret string
@@ -79,6 +81,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerAuthorizationURLRoutes(adminV1, deps.Authorization)
 	registerUserRoutes(adminV1, deps.Identity)
 	registerAgentRoutes(adminV1, deps.Identity)
+	registerAgentAuditRoutes(adminV1, deps.AgentAudit)
 	registerAccountRoutes(adminV1, deps.Accounts)
 	registerArticleRoutes(adminV1, deps.Articles, deps.Publishes)
 	registerMaterialRoutes(adminV1, deps.Materials)
@@ -227,6 +230,7 @@ type updateArticleRequest struct {
 	Digest            string `json:"digest"`
 	ContentHTML       string `json:"content_html"`
 	CoverMediaAssetID int64  `json:"cover_media_asset_id" binding:"gte=0"`
+	Version           int64  `json:"version" binding:"required,gt=0"`
 }
 
 type articleResponse struct {
@@ -239,6 +243,9 @@ type articleResponse struct {
 	ContentHTML       string    `json:"content_html"`
 	CoverMediaAssetID int64     `json:"cover_media_asset_id"`
 	Status            string    `json:"status"`
+	CreatedByAgentID  string    `json:"created_by_agent_id"`
+	UpdatedByAgentID  string    `json:"updated_by_agent_id"`
+	Version           int64     `json:"version"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -255,35 +262,31 @@ func registerArticleRoutes(r gin.IRouter, service *application.ArticleService, p
 		}
 		created, err := service.CreateArticle(c.Request.Context(), application.CreateArticleInput{
 			TenantID: tenant, AuthorizerID: body.AuthorizerID, Title: body.Title,
-			Author: body.Author, Digest: body.Digest, ContentHTML: body.ContentHTML,
+			Author: body.Author, Digest: body.Digest, ContentHTML: body.ContentHTML, Actor: currentActor(c),
 		})
 		if !writeServiceError(c, err) {
 			return
 		}
-		c.JSON(http.StatusCreated, articleResponse{
-			ID: created.ID, TenantID: created.TenantID, AuthorizerID: created.AuthorizerID,
-			Title: created.Title, Author: created.Author, Digest: created.Digest, ContentHTML: created.ContentHTML,
-			CoverMediaAssetID: created.CoverMediaAssetID, Status: string(created.Status),
-			CreatedAt: created.CreatedAt, UpdatedAt: created.UpdatedAt,
-		})
+		c.JSON(http.StatusCreated, toArticleResponse(created))
 	})
 	r.GET("/articles", func(c *gin.Context) {
 		tenant, ok := bindTenant(c)
 		if !ok {
 			return
 		}
-		items, err := service.ListArticles(c.Request.Context(), tenant)
+		var items []article.Article
+		var err error
+		if agentRecordID := strings.TrimSpace(c.Query("agent_record_id")); agentRecordID != "" {
+			items, err = service.ListArticlesByAgent(c.Request.Context(), tenant, agentRecordID)
+		} else {
+			items, err = service.ListArticles(c.Request.Context(), tenant)
+		}
 		if !writeServiceError(c, err) {
 			return
 		}
 		out := make([]articleResponse, 0, len(items))
 		for _, item := range items {
-			out = append(out, articleResponse{
-				ID: item.ID, TenantID: item.TenantID, AuthorizerID: item.AuthorizerID,
-				Title: item.Title, Author: item.Author, Digest: item.Digest, ContentHTML: item.ContentHTML,
-				CoverMediaAssetID: item.CoverMediaAssetID, Status: string(item.Status),
-				CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
-			})
+			out = append(out, toArticleResponse(item))
 		}
 		c.JSON(http.StatusOK, gin.H{"items": out})
 	})
@@ -296,12 +299,7 @@ func registerArticleRoutes(r gin.IRouter, service *application.ArticleService, p
 		if !writeServiceError(c, err) {
 			return
 		}
-		c.JSON(http.StatusOK, articleResponse{
-			ID: item.ID, TenantID: item.TenantID, AuthorizerID: item.AuthorizerID,
-			Title: item.Title, Author: item.Author, Digest: item.Digest, ContentHTML: item.ContentHTML,
-			CoverMediaAssetID: item.CoverMediaAssetID, Status: string(item.Status),
-			CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
-		})
+		c.JSON(http.StatusOK, toArticleResponse(item))
 	})
 	r.PUT("/articles/:id", func(c *gin.Context) {
 		tenant, id, ok := bindTenantAndID(c)
@@ -315,16 +313,19 @@ func registerArticleRoutes(r gin.IRouter, service *application.ArticleService, p
 		updated, err := service.UpdateArticle(c.Request.Context(), application.UpdateArticleInput{
 			TenantID: tenant, ID: id, Title: body.Title, Author: body.Author, Digest: body.Digest,
 			ContentHTML: body.ContentHTML, CoverMediaAssetID: body.CoverMediaAssetID,
+			Version: body.Version, Actor: currentActor(c),
 		})
+		if errors.Is(err, application.ErrConflict) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "article_version_conflict",
+				"message": "article changed after it was loaded; fetch the latest version, merge changes, and retry",
+			})
+			return
+		}
 		if !writeServiceError(c, err) {
 			return
 		}
-		c.JSON(http.StatusOK, articleResponse{
-			ID: updated.ID, TenantID: updated.TenantID, AuthorizerID: updated.AuthorizerID,
-			Title: updated.Title, Author: updated.Author, Digest: updated.Digest, ContentHTML: updated.ContentHTML,
-			CoverMediaAssetID: updated.CoverMediaAssetID, Status: string(updated.Status),
-			CreatedAt: updated.CreatedAt, UpdatedAt: updated.UpdatedAt,
-		})
+		c.JSON(http.StatusOK, toArticleResponse(updated))
 	})
 	r.DELETE("/articles/:id", func(c *gin.Context) {
 		tenant, id, ok := bindTenantAndID(c)
@@ -338,11 +339,23 @@ func registerArticleRoutes(r gin.IRouter, service *application.ArticleService, p
 				return
 			}
 		}
-		if !writeServiceError(c, service.DeleteArticle(c.Request.Context(), tenant, id)) {
+		if !writeServiceError(c, service.DeleteArticleWithActor(c.Request.Context(), application.DeleteArticleInput{
+			TenantID: tenant, ID: id, Actor: currentActor(c),
+		})) {
 			return
 		}
 		c.Status(http.StatusNoContent)
 	})
+}
+
+func toArticleResponse(item article.Article) articleResponse {
+	return articleResponse{
+		ID: item.ID, TenantID: item.TenantID, AuthorizerID: item.AuthorizerID,
+		Title: item.Title, Author: item.Author, Digest: item.Digest, ContentHTML: item.ContentHTML,
+		CoverMediaAssetID: item.CoverMediaAssetID, Status: string(item.Status),
+		CreatedByAgentID: item.CreatedByAgentID, UpdatedByAgentID: item.UpdatedByAgentID, Version: item.Version,
+		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+	}
 }
 
 func bindTenant(c *gin.Context) (string, bool) {
@@ -406,6 +419,12 @@ func currentAgentID(c *gin.Context) string {
 	}
 	id, _ := value.(string)
 	return strings.TrimSpace(id)
+}
+
+func currentActor(c *gin.Context) application.Actor {
+	return application.Actor{
+		UserID: currentUserID(c), ActorType: application.ActorType(currentActorType(c)), AgentRecordID: currentAgentRecordID(c),
+	}
 }
 
 func bindTenantAndID(c *gin.Context) (string, int64, bool) {

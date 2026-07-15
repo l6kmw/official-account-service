@@ -58,9 +58,9 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_articles",
 		Title:       "List articles",
-		Description: "List local article drafts and published articles for the configured tenant.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listArticlesInput) (*mcp.CallToolResult, any, error) {
-		items, err := client.ListArticles(ctx)
+		Description: "List local article drafts and published articles for the configured user. Optionally filter by the creating agent_record_id returned by official_account_get_identity or an article response.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listArticlesInput) (*mcp.CallToolResult, any, error) {
+		items, err := listArticlesForAgent(ctx, client, input.AgentRecordID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -162,7 +162,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_update_article",
 		Title:       "Update article",
-		Description: "Replace the editable fields of a local article draft or revision. Required in every update: article_id, title, author, digest, content_html, and cover_media_asset_id. author and digest may be empty strings, and cover_media_asset_id may be 0 while drafting. Publishing later requires non-empty content_html and a cover asset id returned by official_account_upload_image.",
+		Description: "Replace the editable fields of a local article draft or revision. Required in every update: article_id, version, title, author, digest, content_html, and cover_media_asset_id. version must be the latest value returned by get/list/create/update; a stale value returns HTTP 409 instead of overwriting another Agent. author and digest may be empty strings, and cover_media_asset_id may be 0 while drafting.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateArticleToolInput) (*mcp.CallToolResult, any, error) {
 		article, err := client.UpdateArticle(ctx, input.ArticleID, UpdateArticleInput{
 			Title:             input.Title,
@@ -170,6 +170,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 			Digest:            input.Digest,
 			ContentHTML:       input.ContentHTML,
 			CoverMediaAssetID: input.CoverMediaAssetID,
+			Version:           input.Version,
 		})
 		if err != nil {
 			return nil, nil, err
@@ -233,9 +234,15 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_list_publish_records",
 		Title:       "List publish records",
-		Description: "List WeChat publish records for the configured tenant.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listPublishRecordsInput) (*mcp.CallToolResult, any, error) {
-		items, err := client.ListPublishRecords(ctx)
+		Description: "List WeChat publish records for the configured user. Optionally filter by the article creating agent_record_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listPublishRecordsInput) (*mcp.CallToolResult, any, error) {
+		var items []PublishRecord
+		var err error
+		if strings.TrimSpace(input.AgentRecordID) != "" {
+			items, err = client.ListPublishRecordsByAgent(ctx, input.AgentRecordID)
+		} else {
+			items, err = client.ListPublishRecords(ctx)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -314,8 +321,8 @@ func registerLocalDraftTools(server *mcp.Server, client *Client) {
 		Name:        "official_account_list_drafts",
 		Title:       "List local drafts",
 		Description: "List unpublished drafts stored in this service for the authenticated MCP user. Includes drafts whose previous publish attempt failed; excludes publishing and published articles.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listArticlesInput) (*mcp.CallToolResult, any, error) {
-		articles, err := client.ListArticles(ctx)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listArticlesInput) (*mcp.CallToolResult, any, error) {
+		articles, err := listArticlesForAgent(ctx, client, input.AgentRecordID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -361,7 +368,7 @@ func registerLocalDraftTools(server *mcp.Server, client *Client) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_update_draft",
 		Title:       "Update local draft",
-		Description: "Replace an editable local draft. Required in every update: draft_id, title, author, digest, content_html, and cover_media_asset_id. author and digest may be empty, and cover_media_asset_id may be 0 while drafting.",
+		Description: "Replace an editable local draft. Required in every update: draft_id, version, title, author, digest, content_html, and cover_media_asset_id. version must match the latest draft response; stale updates return HTTP 409 instead of overwriting another Agent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateDraftToolInput) (*mcp.CallToolResult, any, error) {
 		if _, err := getEditableLocalDraft(ctx, client, input.DraftID); err != nil {
 			return nil, nil, err
@@ -372,6 +379,7 @@ func registerLocalDraftTools(server *mcp.Server, client *Client) {
 			Digest:            input.Digest,
 			ContentHTML:       input.ContentHTML,
 			CoverMediaAssetID: input.CoverMediaAssetID,
+			Version:           input.Version,
 		})
 		if err != nil {
 			return nil, nil, err
@@ -431,6 +439,13 @@ func isEditableLocalDraft(item Article) bool {
 	return item.Status == "draft" || item.Status == "failed"
 }
 
+func listArticlesForAgent(ctx context.Context, client *Client, agentRecordID string) ([]Article, error) {
+	if strings.TrimSpace(agentRecordID) != "" {
+		return client.ListArticlesByAgent(ctx, agentRecordID)
+	}
+	return client.ListArticles(ctx)
+}
+
 func apiTokenContextMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		extra := req.GetExtra()
@@ -456,7 +471,9 @@ type listAccountsInput struct{}
 
 type getIdentityInput struct{}
 
-type listArticlesInput struct{}
+type listArticlesInput struct {
+	AgentRecordID string `json:"agent_record_id,omitempty" jsonschema:"Optional. Filter by the creating Agent internal id returned as agent_record_id by official_account_get_identity or created_by_agent_id in article responses."`
+}
 
 type getDraftToolInput struct {
 	DraftID int64 `json:"draft_id" jsonschema:"Required. Local draft id returned by official_account_list_drafts or official_account_create_draft."`
@@ -495,7 +512,9 @@ type listArticleCommentsToolInput struct {
 	Type         int    `json:"type,omitempty" jsonschema:"Comment filter: 0 all, 1 ordinary, 2 selected. Defaults to 0."`
 }
 
-type listPublishRecordsInput struct{}
+type listPublishRecordsInput struct {
+	AgentRecordID string `json:"agent_record_id,omitempty" jsonschema:"Optional. Filter records by their article creating Agent internal id."`
+}
 
 type createArticleToolInput struct {
 	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
@@ -512,6 +531,7 @@ type updateArticleToolInput struct {
 	Digest            string `json:"digest" jsonschema:"Required in the update request to avoid overwriting an existing value by omission. May be an empty string."`
 	ContentHTML       string `json:"content_html" jsonschema:"Required in the update request. May be empty while drafting, but must be non-empty before publishing. WeChat-compatible article HTML body."`
 	CoverMediaAssetID int64  `json:"cover_media_asset_id" jsonschema:"Required in the update request. Use the asset.id returned by official_account_upload_image with usage=cover; use 0 to keep no cover while drafting."`
+	Version           int64  `json:"version" jsonschema:"Required. Latest article version returned by get/list/create/update. Stale versions are rejected with HTTP 409."`
 }
 
 type updateDraftToolInput struct {
@@ -521,6 +541,7 @@ type updateDraftToolInput struct {
 	Digest            string `json:"digest" jsonschema:"Required in the update request. May be an empty string."`
 	ContentHTML       string `json:"content_html" jsonschema:"Required in the update request. May be empty while drafting, but publishing requires non-empty HTML."`
 	CoverMediaAssetID int64  `json:"cover_media_asset_id" jsonschema:"Required in the update request. Use the asset.id returned by official_account_upload_image with usage=cover; use 0 to keep no cover while drafting."`
+	Version           int64  `json:"version" jsonschema:"Required. Latest draft version returned by get/list/create/update. Stale versions are rejected with HTTP 409."`
 }
 
 type uploadImageToolInput struct {

@@ -62,11 +62,11 @@ func TestMCPServerListsToolsAndCallsOfficialAccountAPI(t *testing.T) {
 	require.Empty(t, requiredToolFields(t, toolsByName["official_account_get_identity"]))
 	require.ElementsMatch(t, []string{"draft_id"}, requiredToolFields(t, toolsByName["official_account_get_draft"]))
 	require.ElementsMatch(t, []string{"authorizer_id", "title"}, requiredToolFields(t, toolsByName["official_account_create_draft"]))
-	require.ElementsMatch(t, []string{"draft_id", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_draft"]))
+	require.ElementsMatch(t, []string{"draft_id", "version", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_draft"]))
 	require.ElementsMatch(t, []string{"draft_id", "confirm_delete"}, requiredToolFields(t, toolsByName["official_account_delete_draft"]))
 	require.ElementsMatch(t, []string{"draft_id", "confirm_publish"}, requiredToolFields(t, toolsByName["official_account_publish_draft"]))
 	require.ElementsMatch(t, []string{"authorizer_id", "title"}, requiredToolFields(t, toolsByName["official_account_create_article"]))
-	require.ElementsMatch(t, []string{"article_id", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_article"]))
+	require.ElementsMatch(t, []string{"article_id", "version", "title", "author", "digest", "content_html", "cover_media_asset_id"}, requiredToolFields(t, toolsByName["official_account_update_article"]))
 	require.ElementsMatch(t, []string{"authorizer_id", "article_id", "usage"}, requiredToolFields(t, toolsByName["official_account_upload_image"]))
 	require.ElementsMatch(t, []string{"authorizer_id"}, requiredToolFields(t, toolsByName["official_account_list_permanent_materials"]))
 	require.ElementsMatch(t, []string{"authorizer_id", "media_id", "confirm_delete"}, requiredToolFields(t, toolsByName["official_account_delete_permanent_material"]))
@@ -140,7 +140,7 @@ func TestMCPServerManagesLocalDraftLifecycle(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles":
 			_, _ = w.Write([]byte(`{"items":[{"id":12,"title":"draft","status":"draft"},{"id":14,"title":"retry","status":"failed"},{"id":15,"title":"live","status":"published"}]}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles/12":
-			_, _ = w.Write([]byte(`{"id":12,"authorizer_id":7,"title":"draft","content_html":"<p>body</p>","cover_media_asset_id":8,"status":"draft"}`))
+			_, _ = w.Write([]byte(`{"id":12,"authorizer_id":7,"title":"draft","content_html":"<p>body</p>","cover_media_asset_id":8,"status":"draft","version":3}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles/14":
 			_, _ = w.Write([]byte(`{"id":14,"authorizer_id":7,"title":"retry","status":"failed"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles/15":
@@ -158,8 +158,9 @@ func TestMCPServerManagesLocalDraftLifecycle(t *testing.T) {
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 			require.Equal(t, "updated draft", body.Title)
 			require.Equal(t, int64(8), body.CoverMediaAssetID)
+			require.Equal(t, int64(3), body.Version)
 			updated = true
-			_, _ = w.Write([]byte(`{"id":12,"authorizer_id":7,"title":"updated draft","content_html":"<p>updated</p>","cover_media_asset_id":8,"status":"draft"}`))
+			_, _ = w.Write([]byte(`{"id":12,"authorizer_id":7,"title":"updated draft","content_html":"<p>updated</p>","cover_media_asset_id":8,"status":"draft","version":4}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/articles/12/publish":
 			published = true
 			w.WriteHeader(http.StatusCreated)
@@ -205,7 +206,7 @@ func TestMCPServerManagesLocalDraftLifecycle(t *testing.T) {
 	require.False(t, createdResult.IsError)
 
 	updatedResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_update_draft", Arguments: map[string]any{
-		"draft_id": 12, "title": "updated draft", "author": "", "digest": "", "content_html": "<p>updated</p>", "cover_media_asset_id": 8,
+		"draft_id": 12, "version": 3, "title": "updated draft", "author": "", "digest": "", "content_html": "<p>updated</p>", "cover_media_asset_id": 8,
 	}})
 	require.NoError(t, err)
 	require.False(t, updatedResult.IsError)

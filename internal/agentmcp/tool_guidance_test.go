@@ -125,6 +125,49 @@ func TestMCPToolGuidanceRequiresExplicitPublishConfirmation(t *testing.T) {
 	require.Contains(t, text, "不要替用户自动确认")
 }
 
+func TestMCPToolGuidanceRequiresLatestArticleVersion(t *testing.T) {
+	client, err := NewClient(Config{BaseURL: "https://unused.example", TenantID: "tenant-test"})
+	require.NoError(t, err)
+	ctx, session := newToolGuidanceSession(t, client)
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "official_account_update_draft",
+		Arguments: map[string]any{
+			"draft_id": 12, "title": "draft", "author": "", "digest": "", "content_html": "", "cover_media_asset_id": 0,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	text := toolGuidanceResultText(t, result)
+	require.Contains(t, text, "`version`")
+	require.Contains(t, text, "最新文章或草稿")
+	requireToolGuidanceErrorCode(t, result, "invalid_tool_arguments")
+}
+
+func TestMCPToolGuidanceExplainsArticleVersionConflict(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/articles/12", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"article_version_conflict","message":"fetch latest"}`))
+	}))
+	defer apiServer.Close()
+
+	client, err := NewClient(Config{BaseURL: apiServer.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+	ctx, session := newToolGuidanceSession(t, client)
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "official_account_update_article",
+		Arguments: map[string]any{
+			"article_id": 12, "version": 1, "title": "stale", "author": "", "digest": "", "content_html": "", "cover_media_asset_id": 0,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.Contains(t, toolGuidanceResultText(t, result), "文章版本已过期")
+	requireToolGuidanceErrorCode(t, result, "article_version_conflict")
+}
+
 func TestMCPToolGuidanceEnhancesBackendErrors(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/articles/99", r.URL.Path)

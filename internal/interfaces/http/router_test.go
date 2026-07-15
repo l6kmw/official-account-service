@@ -305,16 +305,20 @@ func TestArticleCRUDRoutes(t *testing.T) {
 
 	created := doJSON(t, router, http.MethodPost, "/api/v1/articles", `{"authorizer_id":1,"title":"hello","content_html":"<p>body</p>"}`, "tenant-1")
 	require.Equal(t, http.StatusCreated, created.Code)
-	require.JSONEq(t, `{"id":1,"tenant_id":"tenant-1","authorizer_id":1,"title":"hello","author":"","digest":"","content_html":"<p>body</p>","cover_media_asset_id":0,"status":"draft","created_at":"2026-07-06T08:00:00Z","updated_at":"2026-07-06T08:00:00Z"}`, created.Body.String())
+	require.JSONEq(t, `{"id":1,"tenant_id":"tenant-1","authorizer_id":1,"title":"hello","author":"","digest":"","content_html":"<p>body</p>","cover_media_asset_id":0,"status":"draft","created_by_agent_id":"","updated_by_agent_id":"","version":1,"created_at":"2026-07-06T08:00:00Z","updated_at":"2026-07-06T08:00:00Z"}`, created.Body.String())
 
 	got := doJSON(t, router, http.MethodGet, "/api/v1/articles/1", ``, "tenant-1")
 	require.Equal(t, http.StatusOK, got.Code)
 	require.Contains(t, got.Body.String(), `"title":"hello"`)
 
-	updated := doJSON(t, router, http.MethodPut, "/api/v1/articles/1", `{"title":"updated","author":"me","digest":"sum","content_html":"<p>new</p>","cover_media_asset_id":2}`, "tenant-1")
+	missingVersion := doJSON(t, router, http.MethodPut, "/api/v1/articles/1", `{"title":"updated","author":"me","digest":"sum","content_html":"<p>new</p>","cover_media_asset_id":2}`, "tenant-1")
+	require.Equal(t, http.StatusBadRequest, missingVersion.Code)
+
+	updated := doJSON(t, router, http.MethodPut, "/api/v1/articles/1", `{"title":"updated","author":"me","digest":"sum","content_html":"<p>new</p>","cover_media_asset_id":2,"version":1}`, "tenant-1")
 	require.Equal(t, http.StatusOK, updated.Code)
 	require.Contains(t, updated.Body.String(), `"title":"updated"`)
 	require.Contains(t, updated.Body.String(), `"cover_media_asset_id":2`)
+	require.Contains(t, updated.Body.String(), `"version":2`)
 
 	list := doJSON(t, router, http.MethodGet, "/api/v1/articles", ``, "tenant-1")
 	require.Equal(t, http.StatusOK, list.Code)

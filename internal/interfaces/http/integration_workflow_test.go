@@ -39,7 +39,7 @@ func TestHTTPIntegrationTenantPublishingWorkflow(t *testing.T) {
 	cover := uploadIntegrationCover(t, router, account.ID, article.ID)
 	require.Equal(t, "authorizer-token", uploader.coverToken)
 
-	updateIntegrationArticleCover(t, router, article.ID, cover.ID)
+	updateIntegrationArticleCover(t, router, article.ID, cover.ID, article.Version)
 	assertIntegrationTokenStatus(t, router, account.ID, true)
 
 	record := publishIntegrationArticle(t, router, article.ID)
@@ -181,9 +181,9 @@ func uploadIntegrationCover(t *testing.T, router stdhttp.Handler, authorizerID i
 	return cover
 }
 
-func updateIntegrationArticleCover(t *testing.T, router stdhttp.Handler, articleID int64, coverID int64) {
+func updateIntegrationArticleCover(t *testing.T, router stdhttp.Handler, articleID int64, coverID int64, version int64) {
 	t.Helper()
-	body := fmt.Sprintf(`{"title":"Integration Article","author":"AI","digest":"summary","content_html":"<p>body</p>","cover_media_asset_id":%d}`, coverID)
+	body := fmt.Sprintf(`{"title":"Integration Article","author":"AI","digest":"summary","content_html":"<p>body</p>","cover_media_asset_id":%d,"version":%d}`, coverID, version)
 	path := fmt.Sprintf("/api/v1/articles/%d", articleID)
 	recorder := doJSON(t, router, stdhttp.MethodPut, path, body, "tenant-1")
 	require.Equal(t, stdhttp.StatusOK, recorder.Code)

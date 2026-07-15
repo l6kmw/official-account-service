@@ -137,6 +137,9 @@ type Article struct {
 	ContentHTML       string    `json:"content_html"`
 	CoverMediaAssetID int64     `json:"cover_media_asset_id"`
 	Status            string    `json:"status"`
+	CreatedByAgentID  string    `json:"created_by_agent_id"`
+	UpdatedByAgentID  string    `json:"updated_by_agent_id"`
+	Version           int64     `json:"version"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -156,19 +159,20 @@ type MaterialAsset struct {
 
 // PublishRecord is a publish record DTO for agent callers.
 type PublishRecord struct {
-	ID              int64     `json:"id"`
-	TenantID        string    `json:"tenant_id"`
-	AuthorizerID    int64     `json:"authorizer_id"`
-	ArticleID       int64     `json:"article_id"`
-	WeChatPublishID string    `json:"wechat_publish_id"`
-	WeChatArticleID string    `json:"wechat_article_id"`
-	Status          string    `json:"status"`
-	ErrorCode       string    `json:"error_code"`
-	ErrorMessage    string    `json:"error_message"`
-	SubmittedAt     time.Time `json:"submitted_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                      int64     `json:"id"`
+	TenantID                string    `json:"tenant_id"`
+	AuthorizerID            int64     `json:"authorizer_id"`
+	ArticleID               int64     `json:"article_id"`
+	WeChatPublishID         string    `json:"wechat_publish_id"`
+	WeChatArticleID         string    `json:"wechat_article_id"`
+	Status                  string    `json:"status"`
+	ErrorCode               string    `json:"error_code"`
+	ErrorMessage            string    `json:"error_message"`
+	ArticleCreatedByAgentID string    `json:"article_created_by_agent_id"`
+	SubmittedAt             time.Time `json:"submitted_at"`
+	FinishedAt              time.Time `json:"finished_at"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 // Authorize implements wechat.authorize().
@@ -283,6 +287,7 @@ func toArticle(item article.Article) Article {
 		ID: item.ID, TenantID: item.TenantID, AuthorizerID: item.AuthorizerID,
 		Title: item.Title, Author: item.Author, Digest: item.Digest, ContentHTML: item.ContentHTML,
 		CoverMediaAssetID: item.CoverMediaAssetID, Status: string(item.Status),
+		CreatedByAgentID: item.CreatedByAgentID, UpdatedByAgentID: item.UpdatedByAgentID, Version: item.Version,
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}
 }
@@ -300,6 +305,7 @@ func toPublishRecord(record publish.Record) PublishRecord {
 		ID: record.ID, TenantID: record.TenantID, AuthorizerID: record.AuthorizerID, ArticleID: record.ArticleID,
 		WeChatPublishID: record.WeChatPublishID, WeChatArticleID: record.WeChatArticleID, Status: string(record.Status),
 		ErrorCode: record.ErrorCode, ErrorMessage: record.ErrorMessage, SubmittedAt: record.SubmittedAt,
-		FinishedAt: record.FinishedAt, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
+		ArticleCreatedByAgentID: record.ArticleCreatedByAgentID, FinishedAt: record.FinishedAt,
+		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 }

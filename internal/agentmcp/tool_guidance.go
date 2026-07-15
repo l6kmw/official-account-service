@@ -63,11 +63,13 @@ func buildOfficialAccountToolGuides() map[string]toolGuide {
 		},
 		"official_account_list_drafts": {
 			Before:  "我将读取当前用户的本地未发布草稿和可重试的失败草稿，不读取微信草稿箱。",
-			Inputs:  "无。",
+			Inputs:  "可选 agent_record_id；省略时返回当前用户全部本地草稿。",
 			Returns: "items，包含 draft/failed 草稿及其本地 draft id。",
 			Next:    "使用 draft id 调用 get_draft、update_draft、publish_draft 或 delete_draft。",
 			Check:   "若结果为空，先创建草稿或确认使用了正确的用户 Token。",
-			Fields:  noToolFields(),
+			Fields: map[string]toolFieldRule{
+				"agent_record_id": optionalNonEmptyString("使用 get_identity 返回的 agent_record_id，或文章返回的 created_by_agent_id。", false),
+			},
 		},
 		"official_account_get_draft": {
 			Before:  "我将读取指定本地草稿的完整正文、封面关联和状态。",
@@ -89,10 +91,10 @@ func buildOfficialAccountToolGuides() map[string]toolGuide {
 		},
 		"official_account_update_draft": {
 			Before:  "我将完整替换这个本地草稿的可编辑字段；未传内容不会自动保留旧值。",
-			Inputs:  "必填 draft_id、title、author、digest、content_html、cover_media_asset_id；author/digest 可为空，草稿阶段封面可为 0。",
+			Inputs:  "必填 draft_id、version、title、author、digest、content_html、cover_media_asset_id；author/digest 可为空，草稿阶段封面可为 0。",
 			Returns: "draft；返回保存后的完整草稿。",
 			Next:    "继续编辑，或确认公众号、标题、正文和封面后调用 publish_draft。",
-			Check:   "确认草稿仍为 draft/failed；封面字段使用 upload_image 返回的 asset.id，不是 media_id。",
+			Check:   "先读取最新草稿并原样携带 version；409 表示其他 Agent 已修改，必须重新读取、合并后再提交。封面使用 asset.id。",
 			Fields:  updateContentFields("draft_id", "先调用 official_account_list_drafts，并使用返回的 id。"),
 		},
 		"official_account_delete_draft": {
@@ -119,11 +121,13 @@ func buildOfficialAccountToolGuides() map[string]toolGuide {
 		},
 		"official_account_list_articles": {
 			Before:  "我将读取当前用户全部本地文章，包含草稿、发布中、已发布和失败状态。",
-			Inputs:  "无。",
+			Inputs:  "可选 agent_record_id；省略时返回当前用户全部文章。",
 			Returns: "items；每条包含本地 article id、authorizer_id 和 status。",
 			Next:    "使用 article id 调用兼容的 update_article、publish_article 或 delete_article。",
 			Check:   "若需要微信实时文章而不是本地记录，请改用 list_published_articles。",
-			Fields:  noToolFields(),
+			Fields: map[string]toolFieldRule{
+				"agent_record_id": optionalNonEmptyString("使用 get_identity 返回的 agent_record_id，或文章返回的 created_by_agent_id。", false),
+			},
 		},
 		"official_account_list_published_articles": {
 			Before:  "我将直接读取指定公众号当前的微信已发布文章列表，包括不经本系统发布的历史文章。",
@@ -198,10 +202,10 @@ func buildOfficialAccountToolGuides() map[string]toolGuide {
 		},
 		"official_account_update_article": {
 			Before:  "我将通过兼容接口完整替换本地文章的可编辑字段；未传内容不会自动保留旧值。",
-			Inputs:  "必填 article_id、title、author、digest、content_html、cover_media_asset_id。",
+			Inputs:  "必填 article_id、version、title、author、digest、content_html、cover_media_asset_id。",
 			Returns: "article；返回保存后的完整本地文章。",
 			Next:    "确认公众号、标题、正文和封面后调用 publish_article。",
-			Check:   "封面字段必须使用 upload_image 返回的 asset.id，不是微信 media_id。",
+			Check:   "先读取最新文章并携带 version；409 表示其他 Agent 已修改，必须重新读取、合并后重试。封面使用 asset.id。",
 			Fields:  updateContentFields("article_id", "先调用 official_account_list_articles，并使用返回的 id。"),
 		},
 		"official_account_upload_image": {
@@ -245,11 +249,13 @@ func buildOfficialAccountToolGuides() map[string]toolGuide {
 		},
 		"official_account_list_publish_records": {
 			Before:  "我将读取当前用户的本地发布记录，包括 publishing、published、failed 和 deleted。",
-			Inputs:  "无。",
+			Inputs:  "可选 agent_record_id；省略时返回当前用户全部发布记录。",
 			Returns: "items；每条包含 record id、article_id、status 和安全错误摘要。",
 			Next:    "publishing 用 sync_publish_status；published 可用 delete_published_record 删除微信副本。",
 			Check:   "发布记录是审计数据，不等同于微信实时文章列表。",
-			Fields:  noToolFields(),
+			Fields: map[string]toolFieldRule{
+				"agent_record_id": optionalNonEmptyString("使用 get_identity 返回的 agent_record_id，或文章返回的 created_by_agent_id。", false),
+			},
 		},
 		"official_account_sync_publish_status": {
 			Before:  "我将向微信查询指定发布任务的最新状态，并更新本地文章和发布记录。",
@@ -469,6 +475,8 @@ func classifyToolExecutionError(raw string) (string, string) {
 	switch {
 	case strings.Contains(lower, "internal_error"):
 		return "service_error", "服务端执行异常（internal_error），敏感内部信息已隐藏。"
+	case strings.Contains(lower, "article_version_conflict"):
+		return "article_version_conflict", "文章版本已过期；其他 Agent 已修改该文章，请重新读取最新版本、合并内容后重试。"
 	case strings.Contains(lower, "invalid_request") || strings.Contains(lower, "invalid input"):
 		return "invalid_request", "请求内容或资源当前状态不符合要求（invalid_request）。"
 	case strings.Contains(lower, "not_found") || strings.Contains(lower, "not found"):
@@ -534,6 +542,7 @@ func createContentFields() map[string]toolFieldRule {
 func updateContentFields(idName, idFix string) map[string]toolFieldRule {
 	return map[string]toolFieldRule{
 		idName:                 requiredPositiveID(idFix),
+		"version":              requiredPositiveID("先读取最新文章或草稿，原样使用返回的 version；冲突后重新读取并合并。"),
 		"title":                requiredNonEmptyString("向用户确认完整标题后填写。", false),
 		"author":               requiredString("必须显式提供；没有作者时填写空字符串。", false),
 		"digest":               requiredString("必须显式提供；没有摘要时填写空字符串。", true),

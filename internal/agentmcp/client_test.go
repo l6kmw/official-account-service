@@ -39,6 +39,56 @@ func TestClientCreatesArticleWithTenantAndAdminHeaders(t *testing.T) {
 	require.Equal(t, "draft", article.Status)
 }
 
+func TestClientUsesArticleVersionAndAgentFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/articles/12":
+			var body UpdateArticleInput
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			require.Equal(t, int64(4), body.Version)
+			_, _ = w.Write([]byte(`{"id":12,"title":"updated","version":5}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/articles":
+			require.Equal(t, "agent-record-a", r.URL.Query().Get("agent_record_id"))
+			_, _ = w.Write([]byte(`{"items":[{"id":12,"created_by_agent_id":"agent-record-a","version":5}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/publish-records":
+			require.Equal(t, "agent-record-a", r.URL.Query().Get("agent_record_id"))
+			_, _ = w.Write([]byte(`{"items":[{"id":21,"article_created_by_agent_id":"agent-record-a"}]}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	updated, err := client.UpdateArticle(context.Background(), 12, UpdateArticleInput{Title: "updated", Version: 4})
+	require.NoError(t, err)
+	require.Equal(t, int64(5), updated.Version)
+	articles, err := client.ListArticlesByAgent(context.Background(), "agent-record-a")
+	require.NoError(t, err)
+	require.Equal(t, "agent-record-a", articles[0].CreatedByAgentID)
+	records, err := client.ListPublishRecordsByAgent(context.Background(), "agent-record-a")
+	require.NoError(t, err)
+	require.Equal(t, "agent-record-a", records[0].ArticleCreatedByAgentID)
+}
+
+func TestClientPreservesArticleVersionConflictGuidance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"article_version_conflict","message":"fetch the latest version and retry"}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	_, err = client.UpdateArticle(context.Background(), 12, UpdateArticleInput{Title: "stale", Version: 1})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "article_version_conflict")
+	require.Contains(t, err.Error(), "fetch the latest version and retry")
+}
+
 func TestClientListsLivePublishedArticles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/accounts/7/published-articles", r.URL.Path)

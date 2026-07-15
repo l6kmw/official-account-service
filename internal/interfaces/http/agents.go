@@ -42,7 +42,33 @@ type generatedAgentAPITokenResponse struct {
 	Agent agentResponse `json:"agent"`
 }
 
+type agentSummaryResponse struct {
+	ID      string `json:"id"`
+	AgentID string `json:"agent_id"`
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"`
+	Status  string `json:"status"`
+}
+
 func registerAgentRoutes(r gin.IRouter, service *application.IdentityService) {
+	r.GET("/agents", func(c *gin.Context) {
+		userID, ok := bindTenant(c)
+		if !ok {
+			return
+		}
+		agents, err := service.ListAgents(c.Request.Context(), userID)
+		if !writeServiceError(c, err) {
+			return
+		}
+		items := make([]agentSummaryResponse, 0, len(agents))
+		for _, agent := range agents {
+			items = append(items, agentSummaryResponse{
+				ID: agent.ID, AgentID: agent.AgentID, Name: agent.Name, Purpose: agent.Purpose, Status: string(agent.Status),
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
+
 	r.GET("/admin/users/:user_id/agents", func(c *gin.Context) {
 		if !requireAdminRole(c, service) {
 			return

@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,19 +24,20 @@ type updatePublishStatusRequest struct {
 }
 
 type publishRecordResponse struct {
-	ID              int64     `json:"id"`
-	TenantID        string    `json:"tenant_id"`
-	AuthorizerID    int64     `json:"authorizer_id"`
-	ArticleID       int64     `json:"article_id"`
-	WeChatPublishID string    `json:"wechat_publish_id"`
-	WeChatArticleID string    `json:"wechat_article_id"`
-	Status          string    `json:"status"`
-	ErrorCode       string    `json:"error_code"`
-	ErrorMessage    string    `json:"error_message"`
-	SubmittedAt     time.Time `json:"submitted_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                      int64     `json:"id"`
+	TenantID                string    `json:"tenant_id"`
+	AuthorizerID            int64     `json:"authorizer_id"`
+	ArticleID               int64     `json:"article_id"`
+	WeChatPublishID         string    `json:"wechat_publish_id"`
+	WeChatArticleID         string    `json:"wechat_article_id"`
+	Status                  string    `json:"status"`
+	ErrorCode               string    `json:"error_code"`
+	ErrorMessage            string    `json:"error_message"`
+	ArticleCreatedByAgentID string    `json:"article_created_by_agent_id"`
+	SubmittedAt             time.Time `json:"submitted_at"`
+	FinishedAt              time.Time `json:"finished_at"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
@@ -45,7 +47,7 @@ func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
 			return
 		}
 		record, err := service.PublishArticle(c.Request.Context(), application.PublishArticleInput{
-			TenantID: tenant, ArticleID: articleID,
+			TenantID: tenant, ArticleID: articleID, Actor: currentActor(c),
 		})
 		if !writeServiceError(c, err) {
 			return
@@ -63,7 +65,7 @@ func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
 			return
 		}
 		record, err := service.CreatePublishRecord(c.Request.Context(), application.CreatePublishRecordInput{
-			TenantID: tenant, ArticleID: body.ArticleID, WeChatPublishID: body.WeChatPublishID,
+			TenantID: tenant, ArticleID: body.ArticleID, WeChatPublishID: body.WeChatPublishID, Actor: currentActor(c),
 		})
 		if !writeServiceError(c, err) {
 			return
@@ -75,7 +77,13 @@ func registerPublishRoutes(r gin.IRouter, service *application.PublishService) {
 		if !ok {
 			return
 		}
-		records, err := service.ListPublishRecords(c.Request.Context(), tenant)
+		var records []publish.Record
+		var err error
+		if agentRecordID := strings.TrimSpace(c.Query("agent_record_id")); agentRecordID != "" {
+			records, err = service.ListPublishRecordsByAgent(c.Request.Context(), tenant, agentRecordID)
+		} else {
+			records, err = service.ListPublishRecords(c.Request.Context(), tenant)
+		}
 		if !writeServiceError(c, err) {
 			return
 		}
@@ -162,7 +170,8 @@ func toPublishRecordResponse(record publish.Record) publishRecordResponse {
 	return publishRecordResponse{
 		ID: record.ID, TenantID: record.TenantID, AuthorizerID: record.AuthorizerID, ArticleID: record.ArticleID,
 		WeChatPublishID: record.WeChatPublishID, WeChatArticleID: record.WeChatArticleID, Status: string(record.Status),
-		ErrorCode: record.ErrorCode, ErrorMessage: record.ErrorMessage, SubmittedAt: record.SubmittedAt, FinishedAt: record.FinishedAt,
+		ErrorCode: record.ErrorCode, ErrorMessage: record.ErrorMessage, ArticleCreatedByAgentID: record.ArticleCreatedByAgentID,
+		SubmittedAt: record.SubmittedAt, FinishedAt: record.FinishedAt,
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 }

@@ -49,7 +49,7 @@ func main() {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	authorizationService, identityService, accountService, articleService, materialService, publishService, tokenService, callbackService, closeStore, err := buildServices(ctx, cfg)
+	authorizationService, identityService, accountService, articleService, materialService, publishService, tokenService, callbackService, agentAuditService, closeStore, err := buildServices(ctx, cfg)
 	if err != nil {
 		logger.Fatal("init persistence", logging.Error(err))
 	}
@@ -80,6 +80,7 @@ func main() {
 	deps.AdminUserID = cfg.AdminUserID
 	deps.AdminSessionSecret = cfg.AdminSessionSecret
 	deps.Identity = identityService
+	deps.AgentAudit = agentAuditService
 	deps.MCPToken = cfg.MCPToken
 	deps.MCPPath = cfg.MCPPath
 	officialContentService, err := buildOfficialContentService(cfg, tokenService)
@@ -110,58 +111,61 @@ func main() {
 	}
 }
 
-func buildServices(ctx context.Context, cfg config.Config) (*application.AuthorizationService, *application.IdentityService, *application.AccountService, *application.ArticleService, *application.MaterialService, *application.PublishService, *application.TokenService, *application.CallbackService, func(), error) {
+func buildServices(ctx context.Context, cfg config.Config) (*application.AuthorizationService, *application.IdentityService, *application.AccountService, *application.ArticleService, *application.MaterialService, *application.PublishService, *application.TokenService, *application.CallbackService, *application.AgentAuditService, func(), error) {
 	if strings.TrimSpace(cfg.DBDSN) == "" {
 		store := memory.NewStore(time.Now)
 		identityService, err := buildIdentityService(ctx, cfg, store)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		componentClient, err := buildWeChatComponentClient(store, cfg)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		callbackDecryptor, err := buildComponentCallbackDecryptor(cfg)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		refreshTokens, err := buildRefreshTokenEncryptor(cfg)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		preAuthCodes, authorizers := componentClientDependencies(componentClient)
 		tokenRefreshLocker, accessTokenCache, closeTokenRefreshInfra, err := buildTokenRefreshInfrastructure(ctx, cfg)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		tokenRefreshScheduler, closeTokenRefreshScheduler, err := buildTokenRefreshTaskQueue(cfg)
 		if err != nil {
 			closeTokenRefreshInfra()
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		tokenService := application.NewTokenServiceWithLockerCacheAndScheduler(store, authorizers, refreshTokens, tokenRefreshLocker, accessTokenCache, tokenRefreshScheduler, time.Now)
 		statusSync, closeStatusSync, err := buildPublishStatusSyncQueue(cfg)
 		if err != nil {
 			closeTokenRefreshScheduler()
 			closeTokenRefreshInfra()
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		materialService, err := buildMaterialService(cfg, store, tokenService)
 		if err != nil {
 			closeStatusSync()
 			closeTokenRefreshScheduler()
 			closeTokenRefreshInfra()
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		publishService, err := buildPublishService(cfg, store, tokenService, statusSync)
 		if err != nil {
 			closeStatusSync()
 			closeTokenRefreshScheduler()
 			closeTokenRefreshInfra()
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
+		publishService.WithAuditRepository(store)
 		callbackService := buildCallbackService(cfg, store, publishService, callbackDecryptor)
-		return application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), identityService, application.NewAccountService(store), application.NewArticleServiceWithAuthorizerRepository(store, store), materialService, publishService, tokenService, callbackService, func() {
+		articleService := application.NewArticleServiceWithRepositories(store, store, store)
+		agentAuditService := application.NewAgentAuditService(store)
+		return application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), identityService, application.NewAccountService(store), articleService, materialService, publishService, tokenService, callbackService, agentAuditService, func() {
 			closeStatusSync()
 			closeTokenRefreshScheduler()
 			closeTokenRefreshInfra()
@@ -169,39 +173,39 @@ func buildServices(ctx context.Context, cfg config.Config) (*application.Authori
 	}
 	store, err := postgres.Open(ctx, cfg.DBDSN)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("open postgres store: %w", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("open postgres store: %w", err)
 	}
 	identityService, err := buildIdentityService(ctx, cfg, store)
 	if err != nil {
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	componentClient, err := buildWeChatComponentClient(store, cfg)
 	if err != nil {
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	callbackDecryptor, err := buildComponentCallbackDecryptor(cfg)
 	if err != nil {
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	refreshTokens, err := buildRefreshTokenEncryptor(cfg)
 	if err != nil {
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	preAuthCodes, authorizers := componentClientDependencies(componentClient)
 	tokenRefreshLocker, accessTokenCache, closeTokenRefreshInfra, err := buildTokenRefreshInfrastructure(ctx, cfg)
 	if err != nil {
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	tokenRefreshScheduler, closeTokenRefreshScheduler, err := buildTokenRefreshTaskQueue(cfg)
 	if err != nil {
 		closeTokenRefreshInfra()
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	tokenService := application.NewTokenServiceWithLockerCacheAndScheduler(store, authorizers, refreshTokens, tokenRefreshLocker, accessTokenCache, tokenRefreshScheduler, time.Now)
 	statusSync, closeStatusSync, err := buildPublishStatusSyncQueue(cfg)
@@ -209,7 +213,7 @@ func buildServices(ctx context.Context, cfg config.Config) (*application.Authori
 		closeTokenRefreshScheduler()
 		closeTokenRefreshInfra()
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	materialService, err := buildMaterialService(cfg, store, tokenService)
 	if err != nil {
@@ -217,7 +221,7 @@ func buildServices(ctx context.Context, cfg config.Config) (*application.Authori
 		closeTokenRefreshScheduler()
 		closeTokenRefreshInfra()
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	publishService, err := buildPublishService(cfg, store, tokenService, statusSync)
 	if err != nil {
@@ -225,10 +229,13 @@ func buildServices(ctx context.Context, cfg config.Config) (*application.Authori
 		closeTokenRefreshScheduler()
 		closeTokenRefreshInfra()
 		_ = store.Close()
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
+	publishService.WithAuditRepository(store)
 	callbackService := buildCallbackService(cfg, store, publishService, callbackDecryptor)
-	return application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), identityService, application.NewAccountService(store), application.NewArticleServiceWithAuthorizerRepository(store, store), materialService, publishService, tokenService, callbackService, func() {
+	articleService := application.NewArticleServiceWithRepositories(store, store, store)
+	agentAuditService := application.NewAgentAuditService(store)
+	return application.NewAuthorizationServiceWithSecureAuthorizationFlow(store, store, store, preAuthCodes, callbackDecryptor, authorizers, refreshTokens, time.Now), identityService, application.NewAccountService(store), articleService, materialService, publishService, tokenService, callbackService, agentAuditService, func() {
 		closeStatusSync()
 		closeTokenRefreshScheduler()
 		closeTokenRefreshInfra()

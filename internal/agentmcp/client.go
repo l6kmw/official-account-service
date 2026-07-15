@@ -139,6 +139,9 @@ type Article struct {
 	ContentHTML       string    `json:"content_html"`
 	CoverMediaAssetID int64     `json:"cover_media_asset_id"`
 	Status            string    `json:"status"`
+	CreatedByAgentID  string    `json:"created_by_agent_id"`
+	UpdatedByAgentID  string    `json:"updated_by_agent_id"`
+	Version           int64     `json:"version"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -264,19 +267,20 @@ type MaterialAsset struct {
 }
 
 type PublishRecord struct {
-	ID              int64     `json:"id"`
-	TenantID        string    `json:"tenant_id"`
-	AuthorizerID    int64     `json:"authorizer_id"`
-	ArticleID       int64     `json:"article_id"`
-	WeChatPublishID string    `json:"wechat_publish_id"`
-	WeChatArticleID string    `json:"wechat_article_id"`
-	Status          string    `json:"status"`
-	ErrorCode       string    `json:"error_code"`
-	ErrorMessage    string    `json:"error_message"`
-	SubmittedAt     time.Time `json:"submitted_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                      int64     `json:"id"`
+	TenantID                string    `json:"tenant_id"`
+	AuthorizerID            int64     `json:"authorizer_id"`
+	ArticleID               int64     `json:"article_id"`
+	WeChatPublishID         string    `json:"wechat_publish_id"`
+	WeChatArticleID         string    `json:"wechat_article_id"`
+	Status                  string    `json:"status"`
+	ErrorCode               string    `json:"error_code"`
+	ErrorMessage            string    `json:"error_message"`
+	ArticleCreatedByAgentID string    `json:"article_created_by_agent_id"`
+	SubmittedAt             time.Time `json:"submitted_at"`
+	FinishedAt              time.Time `json:"finished_at"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 type AuthorizationURL struct {
@@ -305,6 +309,7 @@ type UpdateArticleInput struct {
 	Digest            string `json:"digest"`
 	ContentHTML       string `json:"content_html"`
 	CoverMediaAssetID int64  `json:"cover_media_asset_id"`
+	Version           int64  `json:"version"`
 }
 
 type UploadImageInput struct {
@@ -340,10 +345,25 @@ func (c *Client) GetIdentity(ctx context.Context) (AuthenticatedUser, error) {
 
 // ListArticles returns tenant-scoped articles.
 func (c *Client) ListArticles(ctx context.Context) ([]Article, error) {
+	return c.listArticles(ctx, "")
+}
+
+// ListArticlesByAgent returns articles attributed to one creating Agent.
+func (c *Client) ListArticlesByAgent(ctx context.Context, agentRecordID string) ([]Article, error) {
+	return c.listArticles(ctx, agentRecordID)
+}
+
+func (c *Client) listArticles(ctx context.Context, agentRecordID string) ([]Article, error) {
 	var out struct {
 		Items []Article `json:"items"`
 	}
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/articles", nil, &out, http.StatusOK); err != nil {
+	path := "/api/v1/articles"
+	if agentRecordID = strings.TrimSpace(agentRecordID); agentRecordID != "" {
+		query := url.Values{}
+		query.Set("agent_record_id", agentRecordID)
+		path += "?" + query.Encode()
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return out.Items, nil
@@ -505,10 +525,25 @@ func (c *Client) PublishArticle(ctx context.Context, articleID int64) (PublishRe
 
 // ListPublishRecords returns tenant publish records.
 func (c *Client) ListPublishRecords(ctx context.Context) ([]PublishRecord, error) {
+	return c.listPublishRecords(ctx, "")
+}
+
+// ListPublishRecordsByAgent returns records for articles attributed to one creating Agent.
+func (c *Client) ListPublishRecordsByAgent(ctx context.Context, agentRecordID string) ([]PublishRecord, error) {
+	return c.listPublishRecords(ctx, agentRecordID)
+}
+
+func (c *Client) listPublishRecords(ctx context.Context, agentRecordID string) ([]PublishRecord, error) {
 	var out struct {
 		Items []PublishRecord `json:"items"`
 	}
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/publish-records", nil, &out, http.StatusOK); err != nil {
+	path := "/api/v1/publish-records"
+	if agentRecordID = strings.TrimSpace(agentRecordID); agentRecordID != "" {
+		query := url.Values{}
+		query.Set("agent_record_id", agentRecordID)
+		path += "?" + query.Encode()
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return out.Items, nil
@@ -693,9 +728,13 @@ func (c *Client) url(path string) string {
 func (c *Client) responseError(resp *http.Response) error {
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
 	var apiErr struct {
-		Error string `json:"error"`
+		Error   string `json:"error"`
+		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &apiErr); err == nil && apiErr.Error != "" {
+		if strings.TrimSpace(apiErr.Message) != "" {
+			return fmt.Errorf("official account api %s %s returned %d: %s (%s)", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, apiErr.Error, apiErr.Message)
+		}
 		return fmt.Errorf("official account api %s %s returned %d: %s", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, apiErr.Error)
 	}
 	body := strings.TrimSpace(string(raw))
