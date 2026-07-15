@@ -3,7 +3,7 @@ import styled from '@emotion/styled'
 import { listAccounts, type Account } from '../api/accounts'
 import { createArticle, getArticle, updateArticle, type Article, type ArticleFormInput } from '../api/articles'
 import { listMaterials, uploadCover, uploadInlineImage, type MaterialAsset } from '../api/materials'
-import { getErrorMessage } from '../api/client'
+import { APIError, getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
@@ -15,6 +15,17 @@ const emptyForm: ArticleFormInput = {
   digest: '',
   content_html: '',
   cover_media_asset_id: 0
+}
+
+function articleForm(article: Article): ArticleFormInput {
+  return {
+    authorizer_id: article.authorizer_id,
+    title: article.title,
+    author: article.author,
+    digest: article.digest,
+    content_html: article.content_html,
+    cover_media_asset_id: article.cover_media_asset_id
+  }
 }
 
 type FieldErrors = Partial<Record<keyof ArticleFormInput, string>>
@@ -96,6 +107,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
   const [materialsLoading, setMaterialsLoading] = useState(existingArticle)
   const [materialsError, setMaterialsError] = useState('')
   const [error, setError] = useState('')
+  const [versionConflict, setVersionConflict] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
   const [dirty, setDirty] = useState(false)
   const activeAccounts = useMemo(() => accounts.filter((account) => account.status === 'active'), [accounts])
@@ -150,14 +162,8 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
       .then((article) => {
         if (!active) return
         setLoaded(article)
-        setForm({
-          authorizer_id: article.authorizer_id,
-          title: article.title,
-          author: article.author,
-          digest: article.digest,
-          content_html: article.content_html,
-          cover_media_asset_id: article.cover_media_asset_id
-        })
+        setForm(articleForm(article))
+        setVersionConflict(false)
         setDirty(false)
       })
       .catch((err: unknown) => {
@@ -215,6 +221,31 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setSavedMessage('')
   }
 
+  function showOperationError(err: unknown, prefix = '') {
+    setVersionConflict(err instanceof APIError && err.code === 'article_version_conflict')
+    setError(`${prefix}${getErrorMessage(err)}`)
+  }
+
+  async function reloadLatestArticle() {
+    if (workingArticleID === undefined) return
+    if (dirty && !window.confirm('重新加载会覆盖当前未保存的输入。确认已经保留需要合并的内容吗？')) return
+
+    setLoading(true)
+    setError('')
+    try {
+      const latest = await getArticle(workingArticleID)
+      setLoaded(latest)
+      setForm(articleForm(latest))
+      setDirty(false)
+      setVersionConflict(false)
+      setSavedMessage('已读取文章最新版本。')
+    } catch (err: unknown) {
+      showOperationError(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   function applyContentHTML(contentHTML: string, message?: string) {
     const extracted = extractArticleContentHTML(contentHTML)
     update('content_html', extracted)
@@ -266,6 +297,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setSavedMessage('')
 
     let targetArticleID = workingArticleID
+    let targetVersion = loaded?.version
     let createdDraft = false
     let uploaded = false
 
@@ -276,6 +308,8 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         createdDraft = true
         setWorkingArticleID(created.id)
         setLoaded(created)
+        setVersionConflict(false)
+        targetVersion = created.version
         setDirty(false)
         replaceArticleEditHash(created.id)
       }
@@ -287,8 +321,9 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         const nextForm = { ...form, content_html: `${form.content_html}\n<p><img src="${asset.wechat_url}" alt="" /></p>` }
         setForm(nextForm)
         setDirty(true)
-        const updated = await updateArticle(targetArticleID, nextForm)
+        const updated = await updateArticle(targetArticleID, nextForm, targetVersion ?? 0)
         setLoaded(updated)
+        setVersionConflict(false)
         setDirty(false)
         setSavedMessage(createdDraft ? '草稿已创建，正文图片已上传并保存。' : '正文图片已上传并保存。')
       } else {
@@ -298,18 +333,19 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         const nextForm = { ...form, cover_media_asset_id: asset.id }
         setForm(nextForm)
         setDirty(true)
-        const updated = await updateArticle(targetArticleID, nextForm)
+        const updated = await updateArticle(targetArticleID, nextForm, targetVersion ?? 0)
         setLoaded(updated)
+        setVersionConflict(false)
         setDirty(false)
         setSavedMessage(createdDraft ? '草稿已创建，封面已上传并保存。' : '封面已上传并保存。')
       }
     } catch (err: unknown) {
       if (uploaded) {
-        setError(`图片已上传，但文章未能自动保存。${getErrorMessage(err)} 请点击保存重试。`)
+        showOperationError(err, '图片已上传，但文章未能自动保存。')
       } else if (createdDraft) {
-        setError(`草稿已创建，但图片上传失败。${getErrorMessage(err)} 可以直接重新选择图片。`)
+        showOperationError(err, '草稿已创建，但图片上传失败。')
       } else {
-        setError(`图片上传失败。${getErrorMessage(err)}`)
+        showOperationError(err, '图片上传失败。')
       }
     } finally {
       setUploading('')
@@ -320,13 +356,18 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     const nextErrors = validate(form, editing)
     if (Object.keys(nextErrors).length > 0) return
 
+    if (workingArticleID !== undefined && !loaded) {
+      setError('没有可用的文章版本，请重新加载后再保存。')
+      return
+    }
+
     setSaving(true)
     setError('')
     setSavedMessage('')
 
     try {
       if (workingArticleID !== undefined) {
-        const updated = await updateArticle(workingArticleID, form)
+        const updated = await updateArticle(workingArticleID, form, loaded?.version ?? 0)
         setLoaded(updated)
       } else {
         const created = await createArticle(form)
@@ -335,9 +376,10 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         replaceArticleEditHash(created.id)
       }
       setDirty(false)
+      setVersionConflict(false)
       setSavedMessage(editing ? '文章已保存。' : '文章已创建。')
     } catch (err: unknown) {
-      setError(getErrorMessage(err))
+      showOperationError(err)
     } finally {
       setSaving(false)
     }
@@ -354,7 +396,12 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
         <Button disabled={!canSave} onClick={save}>{saving ? '保存中…' : '保存'}</Button>
       </TopBar>
 
-      {error ? <Notice $danger role="alert"><NoticeIconWrap $danger><AlertIcon /></NoticeIconWrap><div><PanelTitle>操作未完成</PanelTitle><PanelDesc>{error}</PanelDesc></div></Notice> : null}
+      {error ? (
+        <Notice $danger role="alert">
+          <NoticeContent><NoticeIconWrap $danger><AlertIcon /></NoticeIconWrap><div><PanelTitle>操作未完成</PanelTitle><PanelDesc>{error}</PanelDesc></div></NoticeContent>
+          {versionConflict ? <Button variant="secondary" onClick={reloadLatestArticle}>读取最新版本</Button> : null}
+        </Notice>
+      ) : null}
       {savedMessage ? <Notice><NoticeIconWrap><CheckIcon /></NoticeIconWrap><div><PanelTitle>{savedMessage}</PanelTitle><PanelDesc>可以返回列表查看最新更新时间。</PanelDesc></div></Notice> : null}
 
       <EditorGrid>
@@ -1090,9 +1137,19 @@ const HiddenFileInput = styled.input`
 const Notice = styled(Card)<{ $danger?: boolean }>`
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: ${({ theme }) => theme.space.lg};
   padding: ${({ theme }) => theme.space.lg} ${({ theme }) => theme.space.xl};
   border-left: 3px solid ${({ theme, $danger }) => ($danger ? theme.colors.danger : theme.colors.success)};
+`
+
+const NoticeContent = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.lg};
+  min-width: min(100%, 320px);
+  flex: 1;
 `
 
 const NoticeIconWrap = styled.span<{ $danger?: boolean }>`

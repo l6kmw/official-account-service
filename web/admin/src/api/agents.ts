@@ -24,12 +24,27 @@ export type CreateAgentInput = {
 type AgentListResponse = { items: ManagedAgent[] }
 export type GeneratedAgentToken = { token: string; agent: ManagedAgent }
 
+export type AgentSummary = {
+  id: string
+  agent_id: string
+  name: string
+  purpose: string
+  status: 'active' | 'disabled'
+}
+
+type AgentSummaryListResponse = { items: AgentSummary[] }
+
 function agentPath(userID: string, suffix = '') {
   return `/api/v1/admin/users/${encodeURIComponent(userID)}/agents${suffix}`
 }
 
 export async function listAgents(userID: string): Promise<ManagedAgent[]> {
   const response = await getJSON<AgentListResponse>(agentPath(userID))
+  return response.items
+}
+
+export async function listCurrentAgents(): Promise<AgentSummary[]> {
+  const response = await getJSON<AgentSummaryListResponse>('/api/v1/agents')
   return response.items
 }
 

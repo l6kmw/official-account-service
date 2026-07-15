@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import styled from '@emotion/styled'
 import { deletePublishedRecord, getPublishRecord, listPublishRecords, syncPublishRecordStatus, type PublishRecord, type PublishStatus } from '../api/publishRecords'
+import { listCurrentAgents, type AgentSummary } from '../api/agents'
 import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
@@ -19,9 +20,12 @@ function AlertIcon() { return <svg {...svgAttrs} width="20" height="20"><path d=
 function CopyIcon() { return <svg {...svgAttrs} width="15" height="15"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg> }
 function TrashIcon() { return <svg {...svgAttrs} width="15" height="15"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg> }
 function InboxLargeIcon() { return <svg {...svgAttrs} width="64" height="64"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg> }
+function AgentIcon() { return <svg {...svgAttrs} width="14" height="14"><rect x="4" y="6" width="16" height="12" rx="2" /><path d="M9 10h.01M15 10h.01" /><path d="M9 14h6M12 2v4" /></svg> }
 
 export function PublishRecordsPage() {
-  const { records, selected, loading, syncingID, deletingID, error, select, reload, sync, deletePublished } = usePublishRecords()
+  const [agentFilter, setAgentFilter] = useState('all')
+  const { records, agents, selected, loading, syncingID, deletingID, error, select, reload, sync, deletePublished } = usePublishRecords(agentFilter === 'all' ? '' : agentFilter)
+  const agentsByID = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents])
 
   return (
     <Page>
@@ -36,27 +40,36 @@ export function PublishRecordsPage() {
 
       {error ? <ErrorPanel message={error} onRetry={reload} /> : null}
 
+      <AgentFilterBar>
+        <AgentFilterLabel htmlFor="publish-agent-filter">创建 Agent</AgentFilterLabel>
+        <AgentSelect id="publish-agent-filter" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>
+          <option value="all">全部 Agent</option>
+          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {agent.agent_id}</option>)}
+        </AgentSelect>
+      </AgentFilterBar>
+
       <Grid>
         <ListPanel>
           <Toolbar>
             <Summary>{loading ? '正在加载发布记录…' : `共 ${records.length} 条发布记录`}</Summary>
           </Toolbar>
           {!loading && records.length === 0 ? <EmptyState /> : null}
-          {loading ? <LoadingRows /> : <Timeline records={records} selectedID={selected?.id} onSelect={select} onSync={sync} onDeletePublished={deletePublished} syncingID={syncingID} deletingID={deletingID} />}
+          {loading ? <LoadingRows /> : <Timeline agentsByID={agentsByID} records={records} selectedID={selected?.id} onSelect={select} onSync={sync} onDeletePublished={deletePublished} syncingID={syncingID} deletingID={deletingID} />}
         </ListPanel>
 
         <DetailPanel>
           <DetailHeader><DetailHeaderTitle>记录详情</DetailHeaderTitle></DetailHeader>
           <DetailDesc>失败信息可复制，但不要粘贴包含 token / secret 的内部日志。</DetailDesc>
-          {selected ? <RecordDetail record={selected} /> : <DetailEmpty>选择一条发布记录查看详情。</DetailEmpty>}
+          {selected ? <RecordDetail agent={agentsByID.get(selected.article_created_by_agent_id)} record={selected} /> : <DetailEmpty>选择一条发布记录查看详情。</DetailEmpty>}
         </DetailPanel>
       </Grid>
     </Page>
   )
 }
 
-function usePublishRecords() {
+function usePublishRecords(agentRecordID: string) {
   const [records, setRecords] = useState<PublishRecord[]>([])
+  const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selected, setSelected] = useState<PublishRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncingID, setSyncingID] = useState<number | null>(null)
@@ -67,12 +80,15 @@ function usePublishRecords() {
   useEffect(() => {
     let active = true
     setLoading(true)
+    setRecords([])
+    setSelected(null)
     setError('')
 
-    listPublishRecords()
-      .then((items) => {
+    Promise.all([listPublishRecords(agentRecordID), listCurrentAgents()])
+      .then(([items, agentItems]) => {
         if (!active) return
         setRecords(items)
+        setAgents(agentItems)
         setSelected((current) => {
           if (!current) return items[0] ?? null
           return items.find((item) => item.id === current.id) ?? items[0] ?? null
@@ -89,7 +105,7 @@ function usePublishRecords() {
     return () => {
       active = false
     }
-  }, [version])
+  }, [agentRecordID, version])
 
   async function select(id: number) {
     try {
@@ -135,7 +151,7 @@ function usePublishRecords() {
     }
   }
 
-  return { records, selected, loading, syncingID, deletingID, error, select, reload: () => setVersion((value) => value + 1), sync, deletePublished }
+  return { records, agents, selected, loading, syncingID, deletingID, error, select, reload: () => setVersion((value) => value + 1), sync, deletePublished }
 }
 
 function statusTone(status: PublishStatus): Tone {
@@ -145,7 +161,7 @@ function statusTone(status: PublishStatus): Tone {
   return 'danger'
 }
 
-function Timeline({ records, selectedID, onSelect, onSync, onDeletePublished, syncingID, deletingID }: { records: PublishRecord[]; selectedID?: number; onSelect: (id: number) => void; onSync: (record: PublishRecord) => void; onDeletePublished: (record: PublishRecord) => void; syncingID: number | null; deletingID: number | null }) {
+function Timeline({ agentsByID, records, selectedID, onSelect, onSync, onDeletePublished, syncingID, deletingID }: { agentsByID: Map<string, AgentSummary>; records: PublishRecord[]; selectedID?: number; onSelect: (id: number) => void; onSync: (record: PublishRecord) => void; onDeletePublished: (record: PublishRecord) => void; syncingID: number | null; deletingID: number | null }) {
   if (records.length === 0) return null
 
   return (
@@ -153,6 +169,7 @@ function Timeline({ records, selectedID, onSelect, onSync, onDeletePublished, sy
       {records.map((record, index) => {
         const tone = statusTone(record.status)
         const isLast = index === records.length - 1
+        const agent = agentsByID.get(record.article_created_by_agent_id)
         return (
           <TimelineItem key={record.id} data-selected={record.id === selectedID} onClick={() => onSelect(record.id)}>
             <TimelineRail>
@@ -166,6 +183,7 @@ function Timeline({ records, selectedID, onSelect, onSync, onDeletePublished, sy
               </TimelineHead>
               <TimelineMeta>
                 <FootMeta><ClockIcon />{formatTime(record.submitted_at)}</FootMeta>
+                <FootMeta title={record.article_created_by_agent_id || undefined}><AgentIcon />{agentDisplayName(agent, record.article_created_by_agent_id)}</FootMeta>
                 <FootMeta><SendIcon />{record.wechat_publish_id || '无 Publish ID'}</FootMeta>
               </TimelineMeta>
               <TimelineActions onClick={(event) => event.stopPropagation()}>
@@ -189,7 +207,7 @@ function Timeline({ records, selectedID, onSelect, onSync, onDeletePublished, sy
   )
 }
 
-function RecordDetail({ record }: { record: PublishRecord }) {
+function RecordDetail({ agent, record }: { agent?: AgentSummary; record: PublishRecord }) {
   const errorText = [record.error_code, record.error_message].filter(Boolean).join('：')
 
   return (
@@ -199,6 +217,7 @@ function RecordDetail({ record }: { record: PublishRecord }) {
         <DetailRow label="发布记录 ID" value={`${record.id}`} />
         <DetailRow label="文章 ID" value={`${record.article_id}`} />
         <DetailRow label="Authorizer ID" value={`${record.authorizer_id}`} />
+        <DetailRow label="创建 Agent" value={agentDisplayName(agent, record.article_created_by_agent_id)} />
         <DetailRow label="状态" value={statusText(record.status)} />
       </DetailSection>
       <DetailSection>
@@ -221,6 +240,12 @@ function RecordDetail({ record }: { record: PublishRecord }) {
       ) : null}
     </DetailBody>
   )
+}
+
+function agentDisplayName(agent: AgentSummary | undefined, agentRecordID: string) {
+  if (agent) return `${agent.name} · ${agent.agent_id}`
+  if (agentRecordID) return agentRecordID
+  return '网页用户 / 旧文章'
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -329,6 +354,35 @@ const Description = styled.p`
   margin: ${({ theme }) => theme.space.md} 0 0;
   color: ${({ theme }) => theme.colors.textMuted};
   font-size: ${({ theme }) => theme.typeScale.lead};
+`
+
+const AgentFilterBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.md};
+  flex-wrap: wrap;
+`
+
+const AgentFilterLabel = styled.label`
+  color: ${({ theme }) => theme.colors.text};
+  font-size: ${({ theme }) => theme.typeScale.small};
+  font-weight: 750;
+`
+
+const AgentSelect = styled.select`
+  min-width: min(360px, 100%);
+  min-height: 40px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radii.md};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.text};
+  font: inherit;
+  padding: 0 ${({ theme }) => theme.space.md};
+
+  &:focus {
+    outline: 3px solid ${({ theme }) => theme.colors.primarySoft};
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
 `
 
 const Grid = styled.div`

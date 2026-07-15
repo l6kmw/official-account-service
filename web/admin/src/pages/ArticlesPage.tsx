@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import styled from '@emotion/styled'
 import { listAccounts, type Account } from '../api/accounts'
 import { deleteArticle, listArticles, publishArticle, type Article, type ArticleStatus } from '../api/articles'
+import { listCurrentAgents, type AgentSummary } from '../api/agents'
 import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
@@ -26,6 +27,7 @@ function UserIcon() { return <svg {...svgAttrs} width="15" height="15"><path d="
 function FileLargeIcon() { return <svg {...svgAttrs} width="64" height="64"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="14" y2="17" /></svg> }
 function AlertIcon() { return <svg {...svgAttrs} width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg> }
 function InfoIcon() { return <svg {...svgAttrs} width="20" height="20"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg> }
+function AgentIcon() { return <svg {...svgAttrs} width="15" height="15"><rect x="4" y="6" width="16" height="12" rx="2" /><path d="M9 10h.01M15 10h.01" /><path d="M9 14h6M12 2v4" /></svg> }
 
 const FILTER_TABS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: '全部' },
@@ -36,10 +38,12 @@ const FILTER_TABS: { key: FilterKey; label: string }[] = [
 ]
 
 export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdit: (id: number) => void }) {
-  const { articles, accounts, loading, error, notice, publishingID, reload, remove, publish } = useArticles()
+  const [agentFilter, setAgentFilter] = useState('all')
+  const { articles, accounts, agents, loading, error, notice, publishingID, reload, remove, publish } = useArticles(agentFilter === 'all' ? '' : agentFilter)
   const [filter, setFilter] = useState<FilterKey>('all')
   const [accountFilter, setAccountFilter] = useState('all')
   const accountsByID = accountByID(accounts)
+  const agentsByID = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents])
   const accountScopedArticles = accountFilter === 'all' ? articles : articles.filter((article) => article.authorizer_id === Number(accountFilter))
   const counts = countByStatus(accountScopedArticles)
   const visible = filter === 'all' ? accountScopedArticles : accountScopedArticles.filter((article) => article.status === filter)
@@ -65,13 +69,24 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
       </FilterTabs>
 
       <AccountFilterBar>
-        <AccountFilterLabel htmlFor="article-account-filter">公众号</AccountFilterLabel>
-        <AccountSelect id="article-account-filter" value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}>
-          <option value="all">全部公众号</option>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>
-          ))}
-        </AccountSelect>
+        <FilterControl>
+          <AccountFilterLabel htmlFor="article-account-filter">公众号</AccountFilterLabel>
+          <AccountSelect id="article-account-filter" value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}>
+            <option value="all">全部公众号</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>
+            ))}
+          </AccountSelect>
+        </FilterControl>
+        <FilterControl>
+          <AccountFilterLabel htmlFor="article-agent-filter">创建 Agent</AccountFilterLabel>
+          <AccountSelect id="article-agent-filter" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>
+            <option value="all">全部 Agent</option>
+            {agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>{agent.name} · {agent.agent_id}</option>
+            ))}
+          </AccountSelect>
+        </FilterControl>
       </AccountFilterBar>
 
       {error ? <ErrorPanel error={error} onRetry={error.retry ? reload : undefined} /> : null}
@@ -85,16 +100,17 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
             <Summary>{loading ? '正在加载文章…' : `共 ${visible.length} 篇文章`}</Summary>
             <Button variant="secondary" onClick={reload}><RefreshIcon />刷新</Button>
           </Toolbar>
-          {loading ? <LoadingRows /> : <ArticleList accountsByID={accountsByID} articles={visible} onDelete={remove} onEdit={onEdit} onPublish={publish} publishingID={publishingID} />}
+          {loading ? <LoadingRows /> : <ArticleList accountsByID={accountsByID} agentsByID={agentsByID} articles={visible} onDelete={remove} onEdit={onEdit} onPublish={publish} publishingID={publishingID} />}
         </Panel>
       )}
     </Page>
   )
 }
 
-function useArticles() {
+function useArticles(agentRecordID: string) {
   const [articles, setArticles] = useState<Article[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [agents, setAgents] = useState<AgentSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<PageError | null>(null)
   const [notice, setNotice] = useState('')
@@ -104,14 +120,16 @@ function useArticles() {
   useEffect(() => {
     let active = true
     setLoading(true)
+    setArticles([])
     setError(null)
     setNotice('')
 
-    Promise.all([listArticles(), listAccounts()])
-      .then(([articleItems, accountItems]) => {
+    Promise.all([listArticles(agentRecordID), listAccounts(), listCurrentAgents()])
+      .then(([articleItems, accountItems, agentItems]) => {
         if (!active) return
         setArticles(articleItems)
         setAccounts(accountItems)
+        setAgents(agentItems)
       })
       .catch((err: unknown) => {
         if (!active) return
@@ -124,7 +142,7 @@ function useArticles() {
     return () => {
       active = false
     }
-  }, [version])
+  }, [agentRecordID, version])
 
   async function remove(article: Article) {
     const confirmed = window.confirm(deleteConfirmText(article))
@@ -161,10 +179,10 @@ function useArticles() {
     }
   }
 
-  return { articles, accounts, loading, error, notice, publishingID, reload: () => setVersion((value) => value + 1), remove, publish }
+  return { articles, accounts, agents, loading, error, notice, publishingID, reload: () => setVersion((value) => value + 1), remove, publish }
 }
 
-function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publishingID }: { accountsByID: Map<number, Account>; articles: Article[]; onDelete: (article: Article) => void; onEdit: (id: number) => void; onPublish: (article: Article) => void; publishingID: number | null }) {
+function ArticleList({ accountsByID, agentsByID, articles, onDelete, onEdit, onPublish, publishingID }: { accountsByID: Map<number, Account>; agentsByID: Map<string, AgentSummary>; articles: Article[]; onDelete: (article: Article) => void; onEdit: (id: number) => void; onPublish: (article: Article) => void; publishingID: number | null }) {
   if (articles.length === 0) return null
 
   return (
@@ -172,6 +190,7 @@ function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publ
       {articles.map((article) => {
         const tone = statusTone(article.status)
         const account = accountsByID.get(article.authorizer_id)
+        const creatingAgent = agentsByID.get(article.created_by_agent_id)
         return (
           <ArticleCard key={article.id}>
             <StatusStrip tone={tone} />
@@ -185,6 +204,7 @@ function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publ
               </ArticleHead>
               <ArticleFoot>
                 <FootMeta><AccountDot />{accountDisplayName(account, article.authorizer_id)}</FootMeta>
+                <FootMeta title={article.created_by_agent_id || undefined}><AgentIcon />{agentDisplayName(creatingAgent, article.created_by_agent_id)}</FootMeta>
                 <FootMeta><UserIcon />{article.author || '—'}</FootMeta>
                 <FootMeta><KeyGlyph />{article.authorizer_id}</FootMeta>
                 <FootMeta><ClockIcon />{formatTime(article.updated_at)}</FootMeta>
@@ -202,6 +222,12 @@ function ArticleList({ accountsByID, articles, onDelete, onEdit, onPublish, publ
       })}
     </ArticleCards>
   )
+}
+
+function agentDisplayName(agent: AgentSummary | undefined, agentRecordID: string) {
+  if (agent) return agent.name
+  if (agentRecordID) return agentRecordID
+  return '网页用户 / 旧文章'
 }
 
 function canPublishArticle(article: Article) {
@@ -406,6 +432,18 @@ const AccountFilterBar = styled.div`
   flex-wrap: wrap;
 `
 
+const FilterControl = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.sm};
+  min-width: min(100%, 320px);
+  flex-wrap: wrap;
+
+  select {
+    flex: 1;
+  }
+`
+
 const AccountFilterLabel = styled.label`
   color: ${({ theme }) => theme.colors.text};
   font-size: ${({ theme }) => theme.typeScale.small};
@@ -484,6 +522,11 @@ const ArticleBody = styled.div`
   padding: ${({ theme }) => theme.space.lg} ${({ theme }) => theme.space.xl};
   min-width: 0;
   flex: 1;
+
+  @media (max-width: 640px) {
+    gap: ${({ theme }) => theme.space.md};
+    padding: ${({ theme }) => theme.space.lg};
+  }
 `
 
 const ArticleHead = styled.div`
@@ -491,6 +534,12 @@ const ArticleHead = styled.div`
   align-items: flex-start;
   justify-content: space-between;
   gap: ${({ theme }) => theme.space.lg};
+  min-width: 0;
+
+  @media (max-width: 640px) {
+    flex-wrap: wrap;
+    gap: ${({ theme }) => theme.space.sm};
+  }
 `
 
 const ArticleText = styled.div`
@@ -518,6 +567,11 @@ const ArticleFoot = styled.div`
   align-items: center;
   flex-wrap: wrap;
   gap: ${({ theme }) => theme.space.lg};
+  min-width: 0;
+
+  @media (max-width: 640px) {
+    gap: ${({ theme }) => theme.space.sm} ${({ theme }) => theme.space.md};
+  }
 `
 
 const FootMeta = styled.span`
@@ -526,6 +580,7 @@ const FootMeta = styled.span`
   gap: ${({ theme }) => theme.space.xs};
   color: ${({ theme }) => theme.colors.textMuted};
   font-size: ${({ theme }) => theme.typeScale.small};
+  min-width: 0;
 
   svg {
     color: ${({ theme }) => theme.colors.textFaint};
@@ -537,11 +592,18 @@ const RowActions = styled.div`
   flex-wrap: wrap;
   gap: ${({ theme }) => theme.space.sm};
   margin-left: auto;
+  min-width: 0;
 
   button {
     display: inline-flex;
     align-items: center;
     gap: ${({ theme }) => theme.space.xs};
+  }
+
+  @media (max-width: 640px) {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
   }
 `
 

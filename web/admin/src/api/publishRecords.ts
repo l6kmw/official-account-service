@@ -12,6 +12,7 @@ export type PublishRecord = {
   status: PublishStatus
   error_code: string
   error_message: string
+  article_created_by_agent_id: string
   submitted_at: string
   finished_at: string
   created_at: string
@@ -22,8 +23,9 @@ type PublishRecordListResponse = {
   items: PublishRecord[]
 }
 
-export async function listPublishRecords(): Promise<PublishRecord[]> {
-	const response = await getJSON<PublishRecordListResponse>('/api/v1/publish-records')
+export async function listPublishRecords(agentRecordID = ''): Promise<PublishRecord[]> {
+  const query = agentRecordID.trim() ? `?agent_record_id=${encodeURIComponent(agentRecordID.trim())}` : ''
+  const response = await getJSON<PublishRecordListResponse>(`/api/v1/publish-records${query}`)
   return response.items
 }
 

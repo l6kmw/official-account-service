@@ -1,6 +1,6 @@
 import { adminConfig } from '../config'
 
-export type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'forbidden' | 'conflict' | 'rate_limited' | 'not_found' | 'not_implemented' | 'internal_error'
+export type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'forbidden' | 'conflict' | 'article_version_conflict' | 'rate_limited' | 'not_found' | 'not_implemented' | 'internal_error'
 
 type APIErrorBody = {
   error?: APIErrorCode
@@ -146,6 +146,8 @@ function toUserMessage(code: APIErrorCode): string {
       return '当前用户没有执行此操作的权限。'
     case 'conflict':
       return '该资源已属于其他用户。'
+    case 'article_version_conflict':
+      return '文章已被其他 Agent 更新。当前输入仍保留，请读取最新版本并合并后重试。'
     case 'rate_limited':
       return '登录尝试过于频繁，请稍后再试。'
     case 'not_found':

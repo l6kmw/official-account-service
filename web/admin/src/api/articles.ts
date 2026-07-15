@@ -13,6 +13,9 @@ export type Article = {
   content_html: string
   cover_media_asset_id: number
   status: ArticleStatus
+  created_by_agent_id: string
+  updated_by_agent_id: string
+  version: number
   created_at: string
   updated_at: string
 }
@@ -30,8 +33,9 @@ type ArticleListResponse = {
   items: Article[]
 }
 
-export async function listArticles(): Promise<Article[]> {
-	const response = await getJSON<ArticleListResponse>('/api/v1/articles')
+export async function listArticles(agentRecordID = ''): Promise<Article[]> {
+  const query = agentRecordID.trim() ? `?agent_record_id=${encodeURIComponent(agentRecordID.trim())}` : ''
+  const response = await getJSON<ArticleListResponse>(`/api/v1/articles${query}`)
   return response.items
 }
 
@@ -49,8 +53,8 @@ export function createArticle(input: ArticleFormInput): Promise<Article> {
 	})
 }
 
-export function updateArticle(id: number, input: ArticleFormInput): Promise<Article> {
-	return putJSON<Article>(`/api/v1/articles/${id}`, input)
+export function updateArticle(id: number, input: ArticleFormInput, version: number): Promise<Article> {
+  return putJSON<Article>(`/api/v1/articles/${id}`, { ...input, version })
 }
 
 export function deleteArticle(id: number): Promise<void> {
