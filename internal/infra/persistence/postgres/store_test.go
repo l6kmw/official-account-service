@@ -276,6 +276,11 @@ func TestStoreArticleAndAccountIntegration(t *testing.T) {
 	_, err = store.Get(ctx, tenantID, created.ID)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, article.ErrNotFound))
+	agentRecords, err = store.ListPublishRecordsByAgent(ctx, tenantID, agentA.ID)
+	require.NoError(t, err)
+	require.Len(t, agentRecords, 1)
+	require.Equal(t, record.ID, agentRecords[0].ID)
+	require.Equal(t, agentA.ID, agentRecords[0].ArticleCreatedByAgentID)
 }
 
 func runMigrations(t *testing.T, store *Store) {
@@ -295,6 +300,7 @@ func runMigrations(t *testing.T, store *Store) {
 		"../../../../migrations/012_user_api_token.sql",
 		"../../../../migrations/013_multi_agent_token.sql",
 		"../../../../migrations/014_article_agent_audit.sql",
+		"../../../../migrations/015_publish_record_agent_attribution.sql",
 	} {
 		sqlBytes, err := os.ReadFile(path)
 		require.NoError(t, err)

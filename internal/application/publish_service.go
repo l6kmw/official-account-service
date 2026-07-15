@@ -332,6 +332,7 @@ func (s *PublishService) CreatePublishRecord(ctx context.Context, input CreatePu
 	record, err := s.records.CreatePublishRecord(ctx, input.TenantID, publish.Record{
 		TenantID: input.TenantID, AuthorizerID: draft.AuthorizerID, ArticleID: draft.ID,
 		WeChatPublishID: input.WeChatPublishID, Status: publish.StatusPublishing, SubmittedAt: now,
+		ArticleCreatedByAgentID: draft.CreatedByAgentID,
 	})
 	if err != nil {
 		return publish.Record{}, fmt.Errorf("create publish record: %w", err)

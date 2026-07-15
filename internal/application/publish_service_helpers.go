@@ -44,6 +44,7 @@ func (s *PublishService) createPublishIntent(ctx context.Context, tenantID strin
 	record, err := s.records.CreatePublishRecord(ctx, tenantID, publish.Record{
 		TenantID: tenantID, AuthorizerID: draft.AuthorizerID, ArticleID: draft.ID,
 		Status: publish.StatusPublishing, SubmittedAt: now,
+		ArticleCreatedByAgentID: draft.CreatedByAgentID,
 	})
 	if errors.Is(err, publish.ErrPublishInProgress) {
 		pending, ok, pendingErr := s.pendingPublishRecord(ctx, tenantID, draft.ID)

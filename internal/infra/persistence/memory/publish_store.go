@@ -23,6 +23,9 @@ func (s *Store) CreatePublishRecord(_ context.Context, tenantID string, record p
 	now := s.now()
 	record.ID = s.nextRecordID
 	record.TenantID = tenantID
+	if draft, ok := s.articles[record.ArticleID]; ok && draft.TenantID == tenantID {
+		record.ArticleCreatedByAgentID = draft.CreatedByAgentID
+	}
 	record.CreatedAt = now
 	record.UpdatedAt = now
 	s.publishRecords[record.ID] = record
@@ -100,9 +103,9 @@ func (s *Store) ListPublishRecordsByAgent(_ context.Context, tenantID string, ag
 	defer s.mu.RUnlock()
 	items := make([]publish.Record, 0)
 	for _, record := range s.publishRecords {
-		draft, ok := s.articles[record.ArticleID]
-		if record.TenantID == tenantID && ok && draft.TenantID == tenantID && draft.CreatedByAgentID == agentRecordID {
-			items = append(items, s.withArticleAgent(record))
+		record = s.withArticleAgent(record)
+		if record.TenantID == tenantID && record.ArticleCreatedByAgentID == agentRecordID {
+			items = append(items, record)
 		}
 	}
 	sortPublishRecords(items)
@@ -131,6 +134,9 @@ func (s *Store) UpdatePublishRecordStatus(_ context.Context, tenantID string, re
 }
 
 func (s *Store) withArticleAgent(record publish.Record) publish.Record {
+	if record.ArticleCreatedByAgentID != "" {
+		return record
+	}
 	draft, ok := s.articles[record.ArticleID]
 	if ok && draft.TenantID == record.TenantID {
 		record.ArticleCreatedByAgentID = draft.CreatedByAgentID

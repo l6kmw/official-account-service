@@ -142,6 +142,12 @@ func TestStoreFiltersArticlesPublishesAndAuditByAgent(t *testing.T) {
 	require.Len(t, records, 1)
 	require.Equal(t, recordA.ID, records[0].ID)
 	require.Equal(t, "agent-a", records[0].ArticleCreatedByAgentID)
+	require.NoError(t, store.Delete(ctx, "user-1", draftA.ID))
+	records, err = store.ListPublishRecordsByAgent(ctx, "user-1", "agent-a")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, recordA.ID, records[0].ID)
+	require.Equal(t, "agent-a", records[0].ArticleCreatedByAgentID)
 
 	_, err = store.Append(ctx, agentaudit.Entry{
 		UserID: "user-1", AgentRecordID: "agent-a", Action: agentaudit.ActionCreateArticle,
