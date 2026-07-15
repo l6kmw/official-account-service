@@ -163,6 +163,48 @@ func TestStreamableHTTPClientListsToolsAndCallsOfficialAccountTools(t *testing.T
 	require.NotNil(t, accounts.StructuredContent)
 }
 
+func TestStreamableHTTPUserTokenBindsToolCallsToAuthenticatedUser(t *testing.T) {
+	const userToken = "oat_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer "+userToken, r.Header.Get("Authorization"))
+		require.Empty(t, r.Header.Get("X-Admin-API-Key"))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/admin/session":
+			_, _ = w.Write([]byte(`{"authenticated":true,"user_id":"user-2","username":"writer","role":"user"}`))
+		case "/api/v1/accounts":
+			_, _ = w.Write([]byte(`{"items":[{"id":2,"tenant_id":"user-2","app_id":"wx-user-2","name":"Writer","status":"active"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	client, err := agentmcp.NewClient(agentmcp.Config{
+		BaseURL: apiServer.URL, TenantID: "tenant-1", AdminAPIKey: "admin-key",
+	})
+	require.NoError(t, err)
+	mcpHTTPServer := httptest.NewServer(newStreamableHTTPMux(agentmcp.NewServer(client, agentmcp.ServerConfig{}), streamableHTTPConfig{
+		Path: "/mcp", Token: "legacy-mcp-token", Verifier: userAwareTokenVerifier(client, "legacy-mcp-token"),
+	}))
+	defer mcpHTTPServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "user-token-test", Version: "0.1.0"}, nil)
+	session, err := mcpClient.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint: mcpHTTPServer.URL + "/mcp", DisableStandaloneSSE: true,
+		OAuthHandler: bearerTokenHandler{token: userToken}, MaxRetries: -1,
+	}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	accounts, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "official_account_list_accounts", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, accounts.IsError)
+	require.Contains(t, accounts.StructuredContent, "items")
+}
+
 type bearerTokenHandler struct {
 	token string
 }

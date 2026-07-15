@@ -75,6 +75,7 @@ func run(ctx context.Context, configPath string) error {
 			return fmt.Errorf("OFFICIAL_ACCOUNT_MCP_TOKEN or mcp.token must be set for %s transport", httpMCPTransport)
 		}
 		streamableConfig.Addr = addr
+		streamableConfig.Verifier = userAwareTokenVerifier(client, streamableConfig.Token)
 		return runStreamableHTTP(ctx, server, streamableConfig)
 	default:
 		return fmt.Errorf("unsupported OFFICIAL_ACCOUNT_MCP_TRANSPORT %q", transport)
@@ -104,9 +105,10 @@ func mcpStreamableHTTPConfig(configPath string) (streamableHTTPConfig, error) {
 }
 
 type streamableHTTPConfig struct {
-	Addr  string
-	Path  string
-	Token string
+	Addr     string
+	Path     string
+	Token    string
+	Verifier auth.TokenVerifier
 }
 
 func runStreamableHTTP(ctx context.Context, server *mcp.Server, cfg streamableHTTPConfig) error {
@@ -148,13 +150,41 @@ func newStreamableHTTPMux(server *mcp.Server, cfg streamableHTTPConfig) http.Han
 		JSONResponse:               true,
 		DisableLocalhostProtection: true,
 	})
-	protected := normalizeMCPAuthHeader(auth.RequireBearerToken(staticTokenVerifier(cfg.Token), nil)(streamable))
+	verifier := cfg.Verifier
+	if verifier == nil {
+		verifier = staticTokenVerifier(cfg.Token)
+	}
+	protected := normalizeMCPAuthHeader(auth.RequireBearerToken(verifier, nil)(streamable))
 
 	mux := http.NewServeMux()
 	mux.Handle(path, protected)
 	mux.HandleFunc(path+"/healthz", healthz)
 	mux.HandleFunc("/healthz", healthz)
 	return mux
+}
+
+func userAwareTokenVerifier(client *agentmcp.Client, staticToken string) auth.TokenVerifier {
+	staticVerifier := staticTokenVerifier(staticToken)
+	return func(ctx context.Context, token string, req *http.Request) (*auth.TokenInfo, error) {
+		if info, err := staticVerifier(ctx, token, req); err == nil {
+			return info, nil
+		}
+		if client == nil || !strings.HasPrefix(token, "oat_") {
+			return nil, auth.ErrInvalidToken
+		}
+		user, err := client.ValidateAPIToken(ctx, token)
+		if err != nil {
+			return nil, auth.ErrInvalidToken
+		}
+		return &auth.TokenInfo{
+			Scopes:     []string{"official-account:mcp"},
+			Expiration: time.Now().Add(5 * time.Minute),
+			UserID:     user.UserID,
+			Extra: map[string]any{
+				agentmcp.CredentialKindExtraKey: agentmcp.UserAPICredentialKind,
+			},
+		}, nil
+	}
 }
 
 func staticTokenVerifier(expected string) auth.TokenVerifier {

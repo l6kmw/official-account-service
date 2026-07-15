@@ -92,7 +92,7 @@ func newAdminSessionManager(cfg adminSessionConfig, identities identityAuthentic
 	}
 }
 
-func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, adminAPIKey string, apiUserID string) {
+func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, identities *application.IdentityService, adminAPIKey string, apiUserID string) {
 	r.GET("/admin/session", func(c *gin.Context) {
 		authEnabled := strings.TrimSpace(adminAPIKey) != "" || (sessions != nil && sessions.enabled())
 		response := adminSessionResponse{
@@ -106,6 +106,16 @@ func registerAdminSessionRoutes(r gin.IRouter, sessions *adminSessionManager, ad
 			response.Role = string(identity.RoleAdmin)
 			c.JSON(http.StatusOK, response)
 			return
+		}
+		if identities != nil {
+			if user, err := identities.AuthenticateAPIToken(c.Request.Context(), requestAPIToken(c)); err == nil {
+				response.Authenticated = true
+				response.Username = user.Username
+				response.UserID = user.ID
+				response.Role = string(user.Role)
+				c.JSON(http.StatusOK, response)
+				return
+			}
 		}
 		if sessions != nil {
 			if session, ok := sessions.sessionFromRequest(c); ok {

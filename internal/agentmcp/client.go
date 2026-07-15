@@ -90,6 +90,22 @@ func NewClient(cfg Config) (*Client, error) {
 // ErrInvalidConfig indicates invalid MCP adapter configuration.
 var ErrInvalidConfig = errors.New("invalid mcp adapter config")
 
+type apiTokenContextKey struct{}
+
+// Credential metadata keys are shared with the Streamable HTTP token verifier.
+const (
+	CredentialKindExtraKey = "credential_kind"
+	UserAPICredentialKind  = "user_api_token"
+)
+
+// AuthenticatedUser is the API identity resolved for one MCP credential.
+type AuthenticatedUser struct {
+	Authenticated bool   `json:"authenticated"`
+	Username      string `json:"username"`
+	UserID        string `json:"user_id"`
+	Role          string `json:"role"`
+}
+
 type Account struct {
 	ID           int64     `json:"id"`
 	TenantID     string    `json:"tenant_id"`
@@ -597,9 +613,33 @@ func (c *Client) do(req *http.Request, out any, wantStatus int) error {
 func (c *Client) addHeaders(req *http.Request) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Tenant-ID", c.tenantID)
-	if c.adminAPIKey != "" {
+	if token, _ := req.Context().Value(apiTokenContextKey{}).(string); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if c.adminAPIKey != "" {
 		req.Header.Set("X-Admin-API-Key", c.adminAPIKey)
 	}
+}
+
+// ValidateAPIToken resolves a per-user token through the API without using the configured admin key.
+func (c *Client) ValidateAPIToken(ctx context.Context, token string) (AuthenticatedUser, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return AuthenticatedUser{}, fmt.Errorf("validate api token: %w", ErrInvalidConfig)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/api/v1/admin/session"), nil)
+	if err != nil {
+		return AuthenticatedUser{}, fmt.Errorf("create api token validation request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	var user AuthenticatedUser
+	if err := c.do(req, &user, http.StatusOK); err != nil {
+		return AuthenticatedUser{}, err
+	}
+	if !user.Authenticated || strings.TrimSpace(user.UserID) == "" {
+		return AuthenticatedUser{}, fmt.Errorf("api token is not authenticated")
+	}
+	return user, nil
 }
 
 func (c *Client) url(path string) string {

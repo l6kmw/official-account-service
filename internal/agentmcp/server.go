@@ -26,6 +26,7 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 		Title:   "Official Account Service",
 		Version: "0.1.0",
 	}, nil)
+	server.AddReceivingMiddleware(apiTokenContextMiddleware)
 	remoteImageHTTPClient := newRemoteImageHTTPClient()
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -279,6 +280,27 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	return server
+}
+
+func apiTokenContextMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		extra := req.GetExtra()
+		if extra != nil && extra.TokenInfo != nil && extra.TokenInfo.Extra != nil && extra.TokenInfo.Extra[CredentialKindExtraKey] == UserAPICredentialKind {
+			if token := bearerTokenFromHeader(extra.Header.Get("Authorization")); token != "" {
+				ctx = context.WithValue(ctx, apiTokenContextKey{}, token)
+			}
+		}
+		return next(ctx, method, req)
+	}
+}
+
+func bearerTokenFromHeader(header string) string {
+	const prefix = "Bearer "
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(header, prefix))
 }
 
 type listAccountsInput struct{}

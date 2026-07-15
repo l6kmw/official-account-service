@@ -70,9 +70,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerWechatCallbackRoutes(r, deps.Callbacks)
 	registerAuthorizationCallbackRoutes(v1, deps.Authorization)
 	adminSessions := newAdminSessionManager(adminSessionConfig{Secret: deps.AdminSessionSecret}, deps.Identity, logger)
-	registerAdminSessionRoutes(v1, adminSessions, deps.AdminAPIKey, deps.AdminUserID)
+	registerAdminSessionRoutes(v1, adminSessions, deps.Identity, deps.AdminAPIKey, deps.AdminUserID)
 	adminV1 := v1.Group("")
-	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, deps.AdminUserID, adminSessions))
+	adminV1.Use(requireAdminAuth(deps.AdminAPIKey, deps.AdminUserID, deps.Identity, adminSessions))
 	registerAuthorizationURLRoutes(adminV1, deps.Authorization)
 	registerUserRoutes(adminV1, deps.Identity)
 	registerAccountRoutes(adminV1, deps.Accounts)
@@ -100,7 +100,7 @@ func limitRequestBody(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-func requireAdminAuth(expectedAPIKey string, apiUserID string, sessions *adminSessionManager) gin.HandlerFunc {
+func requireAdminAuth(expectedAPIKey string, apiUserID string, identities *application.IdentityService, sessions *adminSessionManager) gin.HandlerFunc {
 	expectedAPIKey = strings.TrimSpace(expectedAPIKey)
 	apiUserID = strings.TrimSpace(apiUserID)
 	authEnabled := expectedAPIKey != "" || (sessions != nil && sessions.enabled())
@@ -122,6 +122,17 @@ func requireAdminAuth(expectedAPIKey string, apiUserID string, sessions *adminSe
 			c.Next()
 			return
 		}
+		if identities != nil {
+			if token := requestAPIToken(c); token != "" {
+				user, err := identities.AuthenticateAPIToken(c.Request.Context(), token)
+				if err == nil {
+					c.Set(currentUserIDContextKey, user.ID)
+					c.Set(currentUserRoleContextKey, string(user.Role))
+					c.Next()
+					return
+				}
+			}
+		}
 		if sessions != nil {
 			session, ok := sessions.sessionFromRequest(c)
 			if ok && sessions.validCSRF(c, session) {
@@ -136,15 +147,20 @@ func requireAdminAuth(expectedAPIKey string, apiUserID string, sessions *adminSe
 	}
 }
 
+func requestAPIToken(c *gin.Context) string {
+	actual := strings.TrimSpace(c.GetHeader("X-Admin-API-Key"))
+	if actual == "" {
+		actual = bearerToken(c.GetHeader("Authorization"))
+	}
+	return actual
+}
+
 func isValidAdminAPIKey(c *gin.Context, expected string) bool {
 	expected = strings.TrimSpace(expected)
 	if expected == "" {
 		return false
 	}
-	actual := strings.TrimSpace(c.GetHeader("X-Admin-API-Key"))
-	if actual == "" {
-		actual = bearerToken(c.GetHeader("Authorization"))
-	}
+	actual := requestAPIToken(c)
 	return constantTimeStringEqual(actual, expected)
 }
 

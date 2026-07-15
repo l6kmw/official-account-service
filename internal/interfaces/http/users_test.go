@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"official-account-service/internal/application"
+	"official-account-service/internal/domain/authorization"
 	"official-account-service/internal/infra/persistence/memory"
 )
 
@@ -17,7 +19,7 @@ func TestAdminCreatesUserWithoutExposingPasswordHash(t *testing.T) {
 	identities := application.NewIdentityService(store)
 	router := NewRouter(Dependencies{
 		Logger: zap.NewNop(), AdminAPIKey: "admin-key", AdminUserID: "tenant-1",
-		AdminSessionSecret: "test-session-secret", Identity: identities,
+		AdminSessionSecret: "test-session-secret", Identity: identities, Accounts: application.NewAccountService(store),
 	})
 
 	created := doJSONWithAdminKey(t, router, http.MethodPost, "/api/v1/admin/users", `{"username":"writer","password":"strong-password-123"}`, "spoofed-user", "admin-key")
@@ -48,10 +50,27 @@ func TestAdminCreatesUserWithoutExposingPasswordHash(t *testing.T) {
 	require.NoError(t, json.Unmarshal(generated.Body.Bytes(), &credential))
 	require.Contains(t, credential.Token, "oat_")
 	require.True(t, credential.User.APITokenConfigured)
+	_, err := store.CreateAccount(context.Background(), user.ID, authorization.Account{AppID: "wx-writer", Name: "writer account", Status: authorization.AccountStatusActive})
+	require.NoError(t, err)
+
+	tokenSession := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/admin/session", ``, "tenant-1", credential.Token)
+	require.Equal(t, http.StatusOK, tokenSession.Code)
+	var tokenSessionBody adminSessionResponse
+	require.NoError(t, json.Unmarshal(tokenSession.Body.Bytes(), &tokenSessionBody))
+	require.True(t, tokenSessionBody.Authenticated)
+	require.Equal(t, user.ID, tokenSessionBody.UserID)
+
+	accounts := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/accounts", ``, "tenant-1", credential.Token)
+	require.Equal(t, http.StatusOK, accounts.Code)
+	require.Contains(t, accounts.Body.String(), "wx-writer")
+	require.NotContains(t, accounts.Body.String(), "tenant-1\"")
 
 	revoked := doJSONWithAdminKey(t, router, http.MethodDelete, "/api/v1/admin/users/"+user.ID+"/api-token", ``, "spoofed-user", "admin-key")
 	require.Equal(t, http.StatusOK, revoked.Code)
 	var revokedUser userResponse
 	require.NoError(t, json.Unmarshal(revoked.Body.Bytes(), &revokedUser))
 	require.False(t, revokedUser.APITokenConfigured)
+
+	afterRevoke := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/accounts", ``, user.ID, credential.Token)
+	require.Equal(t, http.StatusUnauthorized, afterRevoke.Code)
 }
