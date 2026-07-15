@@ -5,8 +5,6 @@ import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { adminConfig, buildWechatOpenPlatformURLs, normalizePublicBaseURL } from '../config'
 
-const tenantID = adminConfig.tenantID
-
 const yamlItems = [
   ['wechat.component_app_id', 'Component AppID', '待确认'],
   ['wechat.component_app_secret', 'Component AppSecret', '只显示配置状态，不显示值'],
@@ -35,7 +33,7 @@ export function WechatSetupPage() {
   const [componentAppID, setComponentAppID] = useState(adminConfig.componentAppID)
   const [authorizationEntryURL, setAuthorizationEntryURL] = useState('')
   const [error, setError] = useState('')
-  const urls = useMemo(() => buildWechatOpenPlatformURLs({ publicBaseURL: baseURL, componentAppID, tenantID }), [baseURL, componentAppID])
+  const urls = useMemo(() => buildWechatOpenPlatformURLs({ publicBaseURL: baseURL, componentAppID }), [baseURL, componentAppID])
 
   function openAuthorizationEntry() {
     const publicBaseURL = normalizePublicBaseURL(baseURL)
@@ -51,7 +49,7 @@ export function WechatSetupPage() {
     setAuthorizationEntryURL('')
 
     try {
-      const nextEntryURL = buildWechatOpenPlatformURLs({ publicBaseURL, componentAppID, tenantID }).authorizationEntry
+      const nextEntryURL = buildWechatOpenPlatformURLs({ publicBaseURL, componentAppID }).authorizationEntry
       setAuthorizationEntryURL(nextEntryURL)
       window.open(nextEntryURL, '_blank', 'noopener,noreferrer')
     } catch (err: unknown) {

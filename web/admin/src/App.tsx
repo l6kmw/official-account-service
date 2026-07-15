@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import styled from '@emotion/styled'
-import { getAdminSession, logoutAdmin } from './api/auth'
+import { getAdminSession, logoutAdmin, type AdminSessionStatus } from './api/auth'
 import { setAdminCSRFToken } from './api/client'
 import { AppShell, type PageID } from './components/AppShell'
 import { adminConfig } from './config'
@@ -12,6 +12,7 @@ import { LoginPage } from './pages/LoginPage'
 import { MCPConfigPage } from './pages/MCPConfigPage'
 import { PublishRecordsPage } from './pages/PublishRecordsPage'
 import { WechatSetupPage } from './pages/WechatSetupPage'
+import { UsersPage } from './pages/UsersPage'
 
 type View =
   | { page: 'dashboard' }
@@ -20,6 +21,7 @@ type View =
   | { page: 'publishes' }
   | { page: 'wechat-setup' }
   | { page: 'mcp-config' }
+  | { page: 'users' }
   | { page: 'article-new' }
   | { page: 'article-edit'; id: number }
 
@@ -29,7 +31,7 @@ type NavigateOptions = {
 
 type AuthState =
   | { checking: true }
-  | { checking: false; authenticated: true; loginEnabled: boolean }
+  | { checking: false; authenticated: true; loginEnabled: boolean; role: 'admin' | 'user' }
   | { checking: false; authenticated: false; loginEnabled: boolean }
 
 const discardEditorChangesMessage = '文章有未保存改动，确定离开吗？'
@@ -40,7 +42,11 @@ export function App() {
   const [authState, setAuthState] = useState<AuthState>({ checking: true })
   const viewRef = useRef(view)
   const editorDirtyRef = useRef(editorDirty)
-  const currentPage: PageID = view.page === 'article-new' || view.page === 'article-edit' ? 'articles' : view.page
+  const currentPage: PageID = view.page === 'article-new' || view.page === 'article-edit'
+    ? 'articles'
+    : view.page === 'users' && !authState.checking && authState.authenticated && authState.role !== 'admin'
+      ? 'dashboard'
+      : view.page
 
   useEffect(() => {
     viewRef.current = view
@@ -84,7 +90,7 @@ export function App() {
   useEffect(() => {
     let active = true
     if (adminConfig.adminAPIKey) {
-      setAuthState({ checking: false, authenticated: true, loginEnabled: false })
+      setAuthState({ checking: false, authenticated: true, loginEnabled: false, role: 'admin' })
       return () => {
         active = false
       }
@@ -93,11 +99,17 @@ export function App() {
     getAdminSession()
       .then((session) => {
         if (!active) return
-        setAuthState({
-          checking: false,
-          authenticated: session.authenticated || !session.auth_enabled,
-          loginEnabled: session.login_enabled
-        })
+        const authenticated = session.authenticated || !session.auth_enabled
+        if (authenticated) {
+          setAuthState({
+            checking: false,
+            authenticated: true,
+            loginEnabled: session.login_enabled,
+            role: session.role ?? (session.auth_enabled ? 'user' : 'admin')
+          })
+        } else {
+          setAuthState({ checking: false, authenticated: false, loginEnabled: session.login_enabled })
+        }
       })
       .catch(() => {
         if (active) setAuthState({ checking: false, authenticated: false, loginEnabled: true })
@@ -131,8 +143,8 @@ export function App() {
     window.location.hash = nextHash
   }, [])
 
-  const handleAuthenticated = useCallback(() => {
-    setAuthState({ checking: false, authenticated: true, loginEnabled: true })
+  const handleAuthenticated = useCallback((session: AdminSessionStatus) => {
+    setAuthState({ checking: false, authenticated: true, loginEnabled: true, role: session.role ?? 'user' })
   }, [])
 
   const handleLogout = useCallback(() => {
@@ -152,12 +164,14 @@ export function App() {
   }
 
   return (
-    <AppShell currentPage={currentPage} onLogout={authState.loginEnabled ? handleLogout : undefined} onNavigate={(page) => navigate({ page })}>
+    <AppShell currentPage={currentPage} role={authState.role} onLogout={authState.loginEnabled ? handleLogout : undefined} onNavigate={(page) => navigate({ page })}>
       {view.page === 'dashboard' ? <DashboardPage /> : null}
       {view.page === 'accounts' ? <AccountsPage /> : null}
       {view.page === 'publishes' ? <PublishRecordsPage /> : null}
       {view.page === 'wechat-setup' ? <WechatSetupPage /> : null}
       {view.page === 'mcp-config' ? <MCPConfigPage /> : null}
+      {view.page === 'users' && authState.role === 'admin' ? <UsersPage /> : null}
+      {view.page === 'users' && authState.role !== 'admin' ? <DashboardPage /> : null}
       {view.page === 'articles' ? (
         <ArticlesPage
           onCreate={() => navigate({ page: 'article-new' })}
@@ -203,6 +217,8 @@ function parseHashView(hash: string): View {
       return { page: 'wechat-setup' }
     case '/mcp-config':
       return { page: 'mcp-config' }
+    case '/users':
+      return { page: 'users' }
   }
 
   const editMatch = path.match(/^\/articles\/(\d+)\/edit$/)
@@ -240,6 +256,8 @@ function viewToHash(view: View) {
       return '#/wechat-setup'
     case 'mcp-config':
       return '#/mcp-config'
+    case 'users':
+      return '#/users'
   }
 }
 

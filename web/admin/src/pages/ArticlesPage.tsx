@@ -6,10 +6,7 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
-import { adminConfig } from '../config'
 import { accountByID, accountDisplayName, accountOptionLabel } from '../utils/accounts'
-
-const tenantID = adminConfig.tenantID
 
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 const toneColor: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'danger', info: 'info', muted: 'textMuted' }
@@ -39,7 +36,7 @@ const FILTER_TABS: { key: FilterKey; label: string }[] = [
 ]
 
 export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdit: (id: number) => void }) {
-  const { articles, accounts, loading, error, notice, publishingID, reload, remove, publish } = useArticles(tenantID)
+  const { articles, accounts, loading, error, notice, publishingID, reload, remove, publish } = useArticles()
   const [filter, setFilter] = useState<FilterKey>('all')
   const [accountFilter, setAccountFilter] = useState('all')
   const accountsByID = accountByID(accounts)
@@ -53,7 +50,7 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
         <HeaderLeft>
           <Eyebrow>Articles</Eyebrow>
           <Title>文章列表</Title>
-          <Description>查看租户下的公众号文章草稿、发布状态和最近更新时间。</Description>
+          <Description>查看当前用户的公众号文章草稿、发布状态和最近更新时间。</Description>
         </HeaderLeft>
         <Button onClick={onCreate}><PlusIcon />新建文章</Button>
       </Header>
@@ -95,7 +92,7 @@ export function ArticlesPage({ onCreate, onEdit }: { onCreate: () => void; onEdi
   )
 }
 
-function useArticles(currentTenantID: string) {
+function useArticles() {
   const [articles, setArticles] = useState<Article[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
@@ -110,7 +107,7 @@ function useArticles(currentTenantID: string) {
     setError(null)
     setNotice('')
 
-    Promise.all([listArticles(currentTenantID), listAccounts(currentTenantID)])
+    Promise.all([listArticles(), listAccounts()])
       .then(([articleItems, accountItems]) => {
         if (!active) return
         setArticles(articleItems)
@@ -127,7 +124,7 @@ function useArticles(currentTenantID: string) {
     return () => {
       active = false
     }
-  }, [currentTenantID, version])
+  }, [version])
 
   async function remove(article: Article) {
     const confirmed = window.confirm(deleteConfirmText(article))
@@ -135,7 +132,7 @@ function useArticles(currentTenantID: string) {
 
     try {
       setError(null)
-      await deleteArticle(article.id, currentTenantID)
+      await deleteArticle(article.id)
       setArticles((items) => items.filter((item) => item.id !== article.id))
       setNotice(article.status === 'published' ? `「${article.title}」已删除，本地记录和公众号发布内容已同步处理。` : `「${article.title}」已删除。`)
     } catch (err: unknown) {
@@ -154,7 +151,7 @@ function useArticles(currentTenantID: string) {
       setError(null)
       setNotice('')
       setPublishingID(article.id)
-      await publishArticle(article.id, currentTenantID)
+      await publishArticle(article.id)
       setArticles((items) => items.map((item) => (item.id === article.id ? { ...item, status: 'publishing' } : item)))
       setNotice(article.status === 'published' ? `「${article.title}」的修订版已提交发布，成功后会自动删除上一版。` : `「${article.title}」已提交发布。`)
     } catch (err: unknown) {

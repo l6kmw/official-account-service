@@ -22,19 +22,19 @@ type PublishRecordListResponse = {
   items: PublishRecord[]
 }
 
-export async function listPublishRecords(tenantID?: string): Promise<PublishRecord[]> {
-  const response = await getJSON<PublishRecordListResponse>('/api/v1/publish-records', tenantID)
+export async function listPublishRecords(): Promise<PublishRecord[]> {
+	const response = await getJSON<PublishRecordListResponse>('/api/v1/publish-records')
   return response.items
 }
 
-export function getPublishRecord(id: number, tenantID?: string): Promise<PublishRecord> {
-  return getJSON<PublishRecord>(`/api/v1/publish-records/${id}`, tenantID)
+export function getPublishRecord(id: number): Promise<PublishRecord> {
+	return getJSON<PublishRecord>(`/api/v1/publish-records/${id}`)
 }
 
-export function syncPublishRecordStatus(id: number, tenantID?: string): Promise<PublishRecord> {
-  return postJSON<PublishRecord>(`/api/v1/publish-records/${id}/sync-status`, {}, tenantID)
+export function syncPublishRecordStatus(id: number): Promise<PublishRecord> {
+	return postJSON<PublishRecord>(`/api/v1/publish-records/${id}/sync-status`, {})
 }
 
-export function deletePublishedRecord(id: number, tenantID?: string): Promise<PublishRecord> {
-  return postJSON<PublishRecord>(`/api/v1/publish-records/${id}/delete-published`, {}, tenantID)
+export function deletePublishedRecord(id: number): Promise<PublishRecord> {
+	return postJSON<PublishRecord>(`/api/v1/publish-records/${id}/delete-published`, {})
 }

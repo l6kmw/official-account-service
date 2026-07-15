@@ -87,7 +87,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerMCPConfigRoutes(adminV1, mcpConfig{
 		Token: deps.MCPToken,
 		Path:  deps.MCPPath,
-	})
+	}, deps.Identity, deps.AdminUserID)
 	return r
 }
 

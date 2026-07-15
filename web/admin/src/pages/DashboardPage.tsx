@@ -5,9 +5,6 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
-import { adminConfig } from '../config'
-
-const tenantID = adminConfig.tenantID
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 const toneColor: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'danger', info: 'info', muted: 'textMuted' }
 const toneSoft: Record<Tone, string> = { success: 'successSoft', warning: 'warningSoft', danger: 'dangerSoft', info: 'infoSoft', muted: 'surfaceMuted' }
@@ -24,7 +21,7 @@ function MetricIcon({ index }: { index: number }) {
 }
 
 export function DashboardPage() {
-  const { stats, loading, error, reload } = useDashboardStats(tenantID)
+  const { stats, loading, error, reload } = useDashboardStats()
   const empty = stats ? isEmptyStats(stats) : false
   const hour = new Date().getHours()
   const greeting = hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'
@@ -101,7 +98,7 @@ export function DashboardPage() {
   )
 }
 
-function useDashboardStats(currentTenantID: string) {
+function useDashboardStats() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -110,9 +107,9 @@ function useDashboardStats(currentTenantID: string) {
     let active = true
     setLoading(true)
     setError('')
-    getDashboardStats(currentTenantID).then((data) => { if (active) setStats(data) }).catch((err: unknown) => { if (active) setError(getErrorMessage(err)) }).finally(() => { if (active) setLoading(false) })
+    getDashboardStats().then((data) => { if (active) setStats(data) }).catch((err: unknown) => { if (active) setError(getErrorMessage(err)) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [currentTenantID, version])
+  }, [version])
   return { stats, loading, error, reload: () => setVersion((v) => v + 1) }
 }
 

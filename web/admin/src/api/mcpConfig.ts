@@ -4,8 +4,10 @@ export type MCPConnectionConfig = {
   transport: string
   path: string
   header_name: string
-  token: string
-  configured: boolean
+	token: string
+	token_hint?: string
+	configured: boolean
+	revealable: boolean
 }
 
 export function getMCPConfig() {

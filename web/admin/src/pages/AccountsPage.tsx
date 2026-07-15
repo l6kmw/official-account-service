@@ -7,8 +7,6 @@ import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { adminConfig, buildAuthorizationEntryURL, normalizePublicBaseURL } from '../config'
 
-const tenantID = adminConfig.tenantID
-
 const svgAttrs = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
 function RefreshIcon() { return <svg {...svgAttrs} width="16" height="16"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg> }
@@ -20,7 +18,7 @@ function UsersLargeIcon() { return <svg {...svgAttrs} width="64" height="64"><pa
 function AlertIcon() { return <svg {...svgAttrs} width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg> }
 
 export function AccountsPage() {
-  const { accounts, loading, error, reload } = useAccounts(tenantID)
+  const { accounts, loading, error, reload } = useAccounts()
   const [showAuthorizePanel, setShowAuthorizePanel] = useState(false)
 
   return (
@@ -46,7 +44,6 @@ export function AccountsPage() {
         <AccountSection>
           <SectionToolbar>
             <Summary>{loading ? '正在加载账号…' : `共 ${accounts.length} 个授权账号`}</Summary>
-            <StatusBadge tone="info">{tenantID}</StatusBadge>
           </SectionToolbar>
           {loading ? <LoadingGrid /> : <AccountGrid accounts={accounts} />}
         </AccountSection>
@@ -55,7 +52,7 @@ export function AccountsPage() {
   )
 }
 
-function useAccounts(currentTenantID: string) {
+function useAccounts() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -66,7 +63,7 @@ function useAccounts(currentTenantID: string) {
     setLoading(true)
     setError('')
 
-    listAccounts(currentTenantID)
+    listAccounts()
       .then((items) => {
         if (!active) return
         setAccounts(items)
@@ -82,7 +79,7 @@ function useAccounts(currentTenantID: string) {
     return () => {
       active = false
     }
-  }, [currentTenantID, version])
+  }, [version])
 
   return { accounts, loading, error, reload: () => setVersion((value) => value + 1) }
 }
@@ -109,7 +106,7 @@ function AuthorizePanel() {
     setEntryURL('')
 
     try {
-      const nextEntryURL = buildAuthorizationEntryURL({ publicBaseURL, componentAppID, tenantID })
+      const nextEntryURL = buildAuthorizationEntryURL({ publicBaseURL, componentAppID })
       setEntryURL(nextEntryURL)
       window.open(nextEntryURL, '_blank', 'noopener,noreferrer')
     } catch (err: unknown) {

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import styled from '@emotion/styled'
 
-export type PageID = 'dashboard' | 'accounts' | 'articles' | 'publishes' | 'wechat-setup' | 'mcp-config'
+export type PageID = 'dashboard' | 'accounts' | 'articles' | 'publishes' | 'wechat-setup' | 'mcp-config' | 'users'
 
 function NavIcon({ id }: { id: PageID }) {
   const common = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -18,6 +18,8 @@ function NavIcon({ id }: { id: PageID }) {
       return (<svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>)
     case 'mcp-config':
       return (<svg {...common}><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M9 9h6v6H9z" /><path d="M9 1v3" /><path d="M15 1v3" /><path d="M9 20v3" /><path d="M15 20v3" /><path d="M20 9h3" /><path d="M20 15h3" /><path d="M1 9h3" /><path d="M1 15h3" /></svg>)
+    case 'users':
+      return (<svg {...common}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6" /><path d="M22 11h-6" /></svg>)
   }
 }
 
@@ -35,10 +37,12 @@ const navItems: Array<{ id: PageID; label: string }> = [
   { id: 'articles', label: '文章' },
   { id: 'publishes', label: '发布记录' },
   { id: 'wechat-setup', label: '微信配置' },
-  { id: 'mcp-config', label: 'MCP 配置' }
+  { id: 'mcp-config', label: 'MCP 配置' },
+  { id: 'users', label: '用户管理' }
 ]
 
-export function AppShell({ children, currentPage, onNavigate, onLogout }: { children: ReactNode; currentPage: PageID; onNavigate: (page: PageID) => void; onLogout?: () => void }) {
+export function AppShell({ children, currentPage, onNavigate, onLogout, role }: { children: ReactNode; currentPage: PageID; onNavigate: (page: PageID) => void; onLogout?: () => void; role: 'admin' | 'user' }) {
+  const visibleNavItems = role === 'admin' ? navItems : navItems.filter((item) => item.id !== 'users')
   return (
     <Shell>
       <SkipLink href="#main-content">跳到主内容</SkipLink>
@@ -55,7 +59,7 @@ export function AppShell({ children, currentPage, onNavigate, onLogout }: { chil
             {onLogout ? <LogoutButton onClick={onLogout} type="button">退出</LogoutButton> : null}
           </HeaderTop>
           <NavList aria-label="主导航">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <NavItem
                 aria-current={item.id === currentPage ? 'page' : undefined}
                 key={item.id}

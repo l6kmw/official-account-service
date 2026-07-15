@@ -1,13 +1,13 @@
 import { FormEvent, useState } from 'react'
 import styled from '@emotion/styled'
-import { loginAdmin } from '../api/auth'
+import { loginAdmin, type AdminSessionStatus } from '../api/auth'
 import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 
 type LoginPageProps = {
   loginEnabled: boolean
-  onAuthenticated: () => void
+	onAuthenticated: (session: AdminSessionStatus) => void
 }
 
 const iconAttrs = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -34,7 +34,7 @@ export function LoginPage({ loginEnabled, onAuthenticated }: LoginPageProps) {
     try {
       const session = await loginAdmin(username, password)
       if (session.authenticated) {
-        onAuthenticated()
+		onAuthenticated(session)
         return
       }
       setError('登录未完成，请确认账号密码后重试。')

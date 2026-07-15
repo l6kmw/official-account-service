@@ -22,17 +22,17 @@ type MaterialListResponse = {
   items: MaterialAsset[]
 }
 
-export async function listMaterials(articleID: number, tenantID?: string): Promise<MaterialAsset[]> {
-  const response = await getJSON<MaterialListResponse>(`/api/v1/materials?article_id=${articleID}`, tenantID)
+export async function listMaterials(articleID: number): Promise<MaterialAsset[]> {
+	const response = await getJSON<MaterialListResponse>(`/api/v1/materials?article_id=${articleID}`)
   return response.items
 }
 
-export function uploadInlineImage(input: UploadInput, tenantID?: string): Promise<MaterialAsset> {
-  return postForm<MaterialAsset>('/api/v1/materials/inline-images', toFormData(input), tenantID)
+export function uploadInlineImage(input: UploadInput): Promise<MaterialAsset> {
+	return postForm<MaterialAsset>('/api/v1/materials/inline-images', toFormData(input))
 }
 
-export function uploadCover(input: UploadInput, tenantID?: string): Promise<MaterialAsset> {
-  return postForm<MaterialAsset>('/api/v1/materials/covers', toFormData(input), tenantID)
+export function uploadCover(input: UploadInput): Promise<MaterialAsset> {
+	return postForm<MaterialAsset>('/api/v1/materials/covers', toFormData(input))
 }
 
 function toFormData(input: UploadInput) {

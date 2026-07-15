@@ -16,6 +16,6 @@ export type DashboardStats = {
   failed_publish_total: number
 }
 
-export function getDashboardStats(tenantID?: string): Promise<DashboardStats> {
-  return getJSON<DashboardStats>('/api/v1/dashboard/stats', tenantID)
+export function getDashboardStats(): Promise<DashboardStats> {
+	return getJSON<DashboardStats>('/api/v1/dashboard/stats')
 }

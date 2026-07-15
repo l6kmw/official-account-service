@@ -7,10 +7,7 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
-import { adminConfig } from '../config'
 import { accountByID, accountDisplayName, accountOptionLabel } from '../utils/accounts'
-
-const tenantID = adminConfig.tenantID
 const emptyForm: ArticleFormInput = {
   authorizer_id: 0,
   title: '',
@@ -121,7 +118,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     let active = true
     setAccountsLoading(true)
 
-    listAccounts(tenantID)
+    listAccounts()
       .then((items) => {
         if (!active) return
         setAccounts(items)
@@ -149,7 +146,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setLoading(true)
     setError('')
 
-    getArticle(articleID, tenantID)
+    getArticle(articleID)
       .then((article) => {
         if (!active) return
         setLoaded(article)
@@ -187,7 +184,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
     setMaterialsLoading(true)
     setMaterialsError('')
 
-    listMaterials(articleID, tenantID)
+    listMaterials(articleID)
       .then((items) => {
         if (active) setMaterials(items)
       })
@@ -274,7 +271,7 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
 
     try {
       if (targetArticleID === undefined) {
-        const created = await createArticle(form, tenantID)
+        const created = await createArticle(form)
         targetArticleID = created.id
         createdDraft = true
         setWorkingArticleID(created.id)
@@ -284,24 +281,24 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
       }
 
       if (kind === 'inline') {
-        const asset = await uploadInlineImage({ authorizerID: form.authorizer_id, articleID: targetArticleID, file }, tenantID)
+        const asset = await uploadInlineImage({ authorizerID: form.authorizer_id, articleID: targetArticleID, file })
         uploaded = true
         setMaterials((items) => [...items, asset])
         const nextForm = { ...form, content_html: `${form.content_html}\n<p><img src="${asset.wechat_url}" alt="" /></p>` }
         setForm(nextForm)
         setDirty(true)
-        const updated = await updateArticle(targetArticleID, nextForm, tenantID)
+        const updated = await updateArticle(targetArticleID, nextForm)
         setLoaded(updated)
         setDirty(false)
         setSavedMessage(createdDraft ? '草稿已创建，正文图片已上传并保存。' : '正文图片已上传并保存。')
       } else {
-        const asset = await uploadCover({ authorizerID: form.authorizer_id, articleID: targetArticleID, file }, tenantID)
+        const asset = await uploadCover({ authorizerID: form.authorizer_id, articleID: targetArticleID, file })
         uploaded = true
         setMaterials((items) => [...items, asset])
         const nextForm = { ...form, cover_media_asset_id: asset.id }
         setForm(nextForm)
         setDirty(true)
-        const updated = await updateArticle(targetArticleID, nextForm, tenantID)
+        const updated = await updateArticle(targetArticleID, nextForm)
         setLoaded(updated)
         setDirty(false)
         setSavedMessage(createdDraft ? '草稿已创建，封面已上传并保存。' : '封面已上传并保存。')
@@ -329,10 +326,10 @@ export function ArticleEditorPage({ articleID, onBack, onDirtyChange }: { articl
 
     try {
       if (workingArticleID !== undefined) {
-        const updated = await updateArticle(workingArticleID, form, tenantID)
+        const updated = await updateArticle(workingArticleID, form)
         setLoaded(updated)
       } else {
-        const created = await createArticle(form, tenantID)
+        const created = await createArticle(form)
         setWorkingArticleID(created.id)
         setLoaded(created)
         replaceArticleEditHash(created.id)

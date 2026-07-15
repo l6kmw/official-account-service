@@ -18,7 +18,7 @@ function ServerIcon() { return <svg {...svgAttrs} width="18" height="18"><rect x
 function EyeIcon() { return <svg {...svgAttrs} width="17" height="17"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg> }
 function EyeOffIcon() { return <svg {...svgAttrs} width="17" height="17"><path d="m2 2 20 20" /><path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58" /><path d="M9.88 4.24A9.8 9.8 0 0 1 12 4c6.5 0 10 8 10 8a18.5 18.5 0 0 1-3.1 4.44" /><path d="M6.61 6.61C3.63 8.62 2 12 2 12s3.5 8 10 8a9.6 9.6 0 0 0 5.39-1.61" /></svg> }
 
-const tokenPlaceholder = '<OFFICIAL_ACCOUNT_MCP_TOKEN>'
+const tokenPlaceholder = '<USER_MCP_TOKEN>'
 const defaultMCPPath = '/mcp'
 
 export function MCPConfigPage() {
@@ -30,14 +30,15 @@ export function MCPConfigPage() {
   const baseURL = useMemo(resolveDisplayBaseURL, [])
   const endpointPath = config?.path || defaultMCPPath
   const token = config?.token || ''
+  const tokenHint = config?.token_hint || ''
   const tokenValue = token || tokenPlaceholder
   const headerName = config?.header_name || 'Authorization'
   const transport = config?.transport || 'streamable-http'
-  const displayToken = token ? tokenVisible ? token : maskToken(token) : tokenPlaceholder
+  const displayToken = token ? tokenVisible ? token : maskToken(token) : tokenHint || tokenPlaceholder
   const headerValue = buildHeaderValue(headerName, tokenValue)
   const endpointURL = useMemo(() => new URL(endpointPath, `${baseURL}/`).toString(), [baseURL, endpointPath])
   const healthURL = useMemo(() => new URL(`${endpointPath}/healthz`, `${baseURL}/`).toString(), [baseURL, endpointPath])
-  const visibleTokenValue = token ? tokenVisible ? token : maskToken(token) : tokenPlaceholder
+  const visibleTokenValue = token ? tokenVisible ? token : maskToken(token) : tokenHint || tokenPlaceholder
   const visibleHeaderValue = buildHeaderValue(headerName, visibleTokenValue)
   const jsonConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, visibleHeaderValue), [endpointURL, headerName, visibleHeaderValue])
   const copyableJSONConfig = useMemo(() => buildMCPJSONConfig(endpointURL, headerName, headerValue), [endpointURL, headerName, headerValue])
@@ -75,7 +76,7 @@ export function MCPConfigPage() {
         <HeaderText>
           <Eyebrow>MCP endpoint</Eyebrow>
           <Title>Agent 连接配置</Title>
-          <Description>远程 MCP 已通过 HTTPS 暴露；访问令牌来自服务端 config.yaml，默认遮罩展示。</Description>
+          <Description>远程 MCP 通过 HTTPS 连接，并按当前登录用户隔离公众号、文章、素材和发布记录。</Description>
         </HeaderText>
         <StatusBadge tone={config?.configured ? 'success' : 'warning'}>{config?.configured ? '已配置 token' : loading ? '读取中' : '待配置 token'}</StatusBadge>
       </Header>
@@ -127,11 +128,11 @@ export function MCPConfigPage() {
             <PanelIcon $tone="warning"><ShieldIcon /></PanelIcon>
             <div>
               <PanelTitle>令牌展示</PanelTitle>
-              <PanelDesc>来自 config.yaml 的 mcp.token。</PanelDesc>
+              <PanelDesc>{config?.revealable ? '兼容管理员 token，可在当前页面查看。' : '用户 token 只在管理员生成时返回一次。'}</PanelDesc>
             </div>
           </PanelHead>
           <SecretPanel>
-            <SecretValue $empty={!token}>{loading ? '读取中…' : displayToken}</SecretValue>
+            <SecretValue $empty={!config?.configured}>{loading ? '读取中…' : displayToken}</SecretValue>
             <SecretActions>
               <IconButton type="button" onClick={() => setTokenVisible((value) => !value)} disabled={!token || loading} aria-label={tokenVisible ? '隐藏 MCP token' : '显示 MCP token'}>
                 {tokenVisible ? <EyeOffIcon /> : <EyeIcon />}
@@ -141,9 +142,9 @@ export function MCPConfigPage() {
           </SecretPanel>
           {error ? <ErrorText role="alert">{error}</ErrorText> : null}
           <SecurityList>
-            <SecurityItem><TerminalIcon />不要选择 OAuth 登录流。</SecurityItem>
-            <SecurityItem><ShieldIcon />不要把后台 admin API key 填给 agent。</SecurityItem>
-            <SecurityItem><KeyIcon />请求头使用 Authorization: Bearer MCP token。</SecurityItem>
+            <SecurityItem><TerminalIcon />客户端选择 Streamable HTTP。</SecurityItem>
+            <SecurityItem><ShieldIcon />不要把管理员密码或全局 API key 填给 agent。</SecurityItem>
+            <SecurityItem><KeyIcon />请求头使用 Authorization: Bearer 用户 token。</SecurityItem>
           </SecurityList>
         </ConfigPanel>
       </ConfigGrid>
@@ -153,7 +154,7 @@ export function MCPConfigPage() {
           <PanelIcon><TerminalIcon /></PanelIcon>
           <div>
             <PanelTitle>JSON 配置模板</PanelTitle>
-            <PanelDesc>{token ? '已使用当前 MCP token 生成，可直接复制到 agent。' : '配置 mcp.token 后这里会生成可用模板。'}</PanelDesc>
+            <PanelDesc>{token ? '已使用当前 token 生成，可直接复制到 agent。' : config?.configured ? 'token 已配置；需要明文时请联系管理员重新生成。' : '请先由管理员为当前用户生成 token。'}</PanelDesc>
           </div>
         </PanelHead>
         <CodeBlock>{jsonConfig}</CodeBlock>

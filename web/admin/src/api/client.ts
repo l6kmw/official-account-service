@@ -1,7 +1,5 @@
 import { adminConfig } from '../config'
 
-export const DEFAULT_TENANT_ID = adminConfig.tenantID
-
 export type APIErrorCode = 'invalid_request' | 'request_too_large' | 'unauthorized' | 'forbidden' | 'conflict' | 'rate_limited' | 'not_found' | 'not_implemented' | 'internal_error'
 
 type APIErrorBody = {
@@ -20,32 +18,36 @@ export class APIError extends Error {
   }
 }
 
-export async function getJSON<T>(path: string, tenantID = DEFAULT_TENANT_ID): Promise<T> {
-  const response = await request(path, { method: 'GET', tenantID })
+export async function getJSON<T>(path: string): Promise<T> {
+  const response = await request(path, { method: 'GET' })
   return response.json() as Promise<T>
 }
 
-export async function postJSON<T>(path: string, body: unknown, tenantID = DEFAULT_TENANT_ID): Promise<T> {
-  const response = await request(path, { method: 'POST', tenantID, body })
+export async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  const response = await request(path, { method: 'POST', body })
   return response.json() as Promise<T>
 }
 
-export async function putJSON<T>(path: string, body: unknown, tenantID = DEFAULT_TENANT_ID): Promise<T> {
-  const response = await request(path, { method: 'PUT', tenantID, body })
+export async function putJSON<T>(path: string, body: unknown): Promise<T> {
+  const response = await request(path, { method: 'PUT', body })
   return response.json() as Promise<T>
 }
 
-export async function deleteJSON(path: string, tenantID = DEFAULT_TENANT_ID): Promise<void> {
-  await request(path, { method: 'DELETE', tenantID })
+export async function deleteJSON(path: string): Promise<void> {
+  await request(path, { method: 'DELETE' })
 }
 
-export async function postForm<T>(path: string, body: FormData, tenantID = DEFAULT_TENANT_ID): Promise<T> {
+export async function deleteJSONWithResponse<T>(path: string): Promise<T> {
+  const response = await request(path, { method: 'DELETE' })
+  return response.json() as Promise<T>
+}
+
+export async function postForm<T>(path: string, body: FormData): Promise<T> {
   const response = await fetch(toRequestURL(path), {
     method: 'POST',
     credentials: 'same-origin',
     headers: {
       Accept: 'application/json',
-      'X-Tenant-ID': tenantID,
       ...adminAuthHeaders()
     },
     body
@@ -62,10 +64,9 @@ export async function postForm<T>(path: string, body: FormData, tenantID = DEFAU
   return response.json() as Promise<T>
 }
 
-async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; tenantID: string; body?: unknown }): Promise<Response> {
+async function request(path: string, options: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown }): Promise<Response> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    'X-Tenant-ID': options.tenantID,
     ...adminAuthHeaders()
   }
 
@@ -130,16 +131,16 @@ async function readErrorBody(response: Response): Promise<APIErrorBody> {
 
 function toUserMessage(code: APIErrorCode): string {
   switch (code) {
-	case 'invalid_request':
-		return '请求参数不完整，请检查输入内容。'
+    case 'invalid_request':
+      return '请求参数不完整，请检查输入内容。'
     case 'request_too_large':
       return '请求内容过大，请压缩图片或减少正文内容后重试。'
-	case 'unauthorized':
-		return '登录已失效，请重新登录后继续操作。'
-	case 'forbidden':
-		return '当前用户没有执行此操作的权限。'
-	case 'conflict':
-		return '该资源已属于其他用户。'
+    case 'unauthorized':
+      return '登录已失效，请重新登录后继续操作。'
+    case 'forbidden':
+      return '当前用户没有执行此操作的权限。'
+    case 'conflict':
+      return '该资源已属于其他用户。'
     case 'rate_limited':
       return '登录尝试过于频繁，请稍后再试。'
     case 'not_found':

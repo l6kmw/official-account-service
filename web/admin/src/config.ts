@@ -1,5 +1,4 @@
 type AdminConfig = {
-  tenantID: string
   publicBaseURL: string
   componentAppID: string
   adminAPIKey: string
@@ -12,7 +11,6 @@ declare global {
 }
 
 const defaultAdminConfig: AdminConfig = {
-  tenantID: 'tenant-1',
   publicBaseURL: 'https://example.com',
   componentAppID: 'wx0000000000000000',
   adminAPIKey: ''
@@ -22,7 +20,6 @@ export const adminConfig: AdminConfig = resolveAdminConfig(window.__OFFICIAL_ACC
 
 function resolveAdminConfig(runtimeConfig: Partial<AdminConfig> | undefined): AdminConfig {
   return {
-    tenantID: nonEmpty(runtimeConfig?.tenantID) || defaultAdminConfig.tenantID,
     publicBaseURL: normalizePublicBaseURL(runtimeConfig?.publicBaseURL ?? '') || defaultAdminConfig.publicBaseURL,
     componentAppID: nonEmpty(runtimeConfig?.componentAppID) || defaultAdminConfig.componentAppID,
     adminAPIKey: nonEmpty(runtimeConfig?.adminAPIKey)
@@ -40,21 +37,19 @@ export function normalizePublicBaseURL(value: string) {
   return `https://${trimmed}`
 }
 
-export function buildAuthorizationEntryURL(input: { publicBaseURL: string; componentAppID: string; tenantID?: string }) {
+export function buildAuthorizationEntryURL(input: { publicBaseURL: string; componentAppID: string }) {
   const url = new URL('/wechat-authorize.html', `${input.publicBaseURL}/`)
   url.searchParams.set('component_appid', input.componentAppID.trim())
   return url.toString()
 }
 
-export function buildWechatOpenPlatformURLs(input: { publicBaseURL: string; componentAppID: string; tenantID?: string }) {
+export function buildWechatOpenPlatformURLs(input: { publicBaseURL: string; componentAppID: string }) {
   const base = normalizePublicBaseURL(input.publicBaseURL) || adminConfig.publicBaseURL
   const componentAppID = input.componentAppID.trim() || '你的ComponentAppID'
-  const tenantID = input.tenantID ?? adminConfig.tenantID
-
   return {
     componentCallback: `${base}/wechat/component/callback`,
     authorizerCallback: `${base}/wechat/authorizer/$APPID$/callback`,
     authorizationCallback: `${base}/api/v1/wechat/authorization-callback`,
-    authorizationEntry: buildAuthorizationEntryURL({ publicBaseURL: base, componentAppID, tenantID })
+    authorizationEntry: buildAuthorizationEntryURL({ publicBaseURL: base, componentAppID })
   }
 }

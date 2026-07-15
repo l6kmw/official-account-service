@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"official-account-service/internal/application"
 )
 
 const defaultMCPConfigPath = "/mcp"
@@ -19,18 +21,37 @@ type mcpConfigResponse struct {
 	Path       string `json:"path"`
 	HeaderName string `json:"header_name"`
 	Token      string `json:"token"`
+	TokenHint  string `json:"token_hint,omitempty"`
 	Configured bool   `json:"configured"`
+	Revealable bool   `json:"revealable"`
 }
 
-func registerMCPConfigRoutes(r gin.IRouter, cfg mcpConfig) {
+func registerMCPConfigRoutes(r gin.IRouter, cfg mcpConfig, identities *application.IdentityService, adminUserID string) {
 	r.GET("/admin/mcp-config", func(c *gin.Context) {
-		token := strings.TrimSpace(cfg.Token)
+		userID := currentUserID(c)
+		token := ""
+		tokenHint := ""
+		configured := false
+		if userID != "" && userID == strings.TrimSpace(adminUserID) {
+			token = strings.TrimSpace(cfg.Token)
+			configured = token != ""
+		}
+		if token == "" && identities != nil {
+			user, err := identities.GetActiveUser(c.Request.Context(), userID)
+			if !writeServiceError(c, err) {
+				return
+			}
+			configured = user.APITokenHash != ""
+			tokenHint = user.APITokenHint
+		}
 		c.JSON(http.StatusOK, mcpConfigResponse{
 			Transport:  "streamable-http",
 			Path:       normalizeMCPConfigPath(cfg.Path),
 			HeaderName: "Authorization",
 			Token:      token,
-			Configured: token != "",
+			TokenHint:  tokenHint,
+			Configured: configured,
+			Revealable: token != "",
 		})
 	})
 }

@@ -5,9 +5,6 @@ import { getErrorMessage } from '../api/client'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
-import { adminConfig } from '../config'
-
-const tenantID = adminConfig.tenantID
 
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 const toneColor: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'danger', info: 'info', muted: 'textMuted' }
@@ -24,7 +21,7 @@ function TrashIcon() { return <svg {...svgAttrs} width="15" height="15"><polylin
 function InboxLargeIcon() { return <svg {...svgAttrs} width="64" height="64"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg> }
 
 export function PublishRecordsPage() {
-  const { records, selected, loading, syncingID, deletingID, error, select, reload, sync, deletePublished } = usePublishRecords(tenantID)
+  const { records, selected, loading, syncingID, deletingID, error, select, reload, sync, deletePublished } = usePublishRecords()
 
   return (
     <Page>
@@ -43,7 +40,6 @@ export function PublishRecordsPage() {
         <ListPanel>
           <Toolbar>
             <Summary>{loading ? '正在加载发布记录…' : `共 ${records.length} 条发布记录`}</Summary>
-            <StatusBadge tone="info">{tenantID}</StatusBadge>
           </Toolbar>
           {!loading && records.length === 0 ? <EmptyState /> : null}
           {loading ? <LoadingRows /> : <Timeline records={records} selectedID={selected?.id} onSelect={select} onSync={sync} onDeletePublished={deletePublished} syncingID={syncingID} deletingID={deletingID} />}
@@ -59,7 +55,7 @@ export function PublishRecordsPage() {
   )
 }
 
-function usePublishRecords(currentTenantID: string) {
+function usePublishRecords() {
   const [records, setRecords] = useState<PublishRecord[]>([])
   const [selected, setSelected] = useState<PublishRecord | null>(null)
   const [loading, setLoading] = useState(true)
@@ -73,7 +69,7 @@ function usePublishRecords(currentTenantID: string) {
     setLoading(true)
     setError('')
 
-    listPublishRecords(currentTenantID)
+    listPublishRecords()
       .then((items) => {
         if (!active) return
         setRecords(items)
@@ -93,12 +89,12 @@ function usePublishRecords(currentTenantID: string) {
     return () => {
       active = false
     }
-  }, [currentTenantID, version])
+  }, [version])
 
   async function select(id: number) {
     try {
       setError('')
-      const record = await getPublishRecord(id, currentTenantID)
+      const record = await getPublishRecord(id)
       setSelected(record)
       setRecords((items) => items.map((item) => (item.id === record.id ? record : item)))
     } catch (err: unknown) {
@@ -111,7 +107,7 @@ function usePublishRecords(currentTenantID: string) {
     try {
       setError('')
       setSyncingID(record.id)
-      const updated = await syncPublishRecordStatus(record.id, currentTenantID)
+      const updated = await syncPublishRecordStatus(record.id)
       setRecords((items) => items.map((item) => (item.id === updated.id ? updated : item)))
       setSelected(updated)
     } catch (err: unknown) {
@@ -129,7 +125,7 @@ function usePublishRecords(currentTenantID: string) {
     try {
       setError('')
       setDeletingID(record.id)
-      const updated = await deletePublishedRecord(record.id, currentTenantID)
+      const updated = await deletePublishedRecord(record.id)
       setRecords((items) => items.map((item) => (item.id === updated.id ? updated : item)))
       setSelected(updated)
     } catch (err: unknown) {

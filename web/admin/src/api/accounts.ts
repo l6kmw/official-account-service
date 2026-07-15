@@ -18,7 +18,7 @@ type AccountListResponse = {
   items: Account[]
 }
 
-export async function listAccounts(tenantID?: string): Promise<Account[]> {
-  const response = await getJSON<AccountListResponse>('/api/v1/accounts', tenantID)
+export async function listAccounts(): Promise<Account[]> {
+	const response = await getJSON<AccountListResponse>('/api/v1/accounts')
   return response.items
 }

@@ -30,33 +30,33 @@ type ArticleListResponse = {
   items: Article[]
 }
 
-export async function listArticles(tenantID?: string): Promise<Article[]> {
-  const response = await getJSON<ArticleListResponse>('/api/v1/articles', tenantID)
+export async function listArticles(): Promise<Article[]> {
+	const response = await getJSON<ArticleListResponse>('/api/v1/articles')
   return response.items
 }
 
-export function getArticle(id: number, tenantID?: string): Promise<Article> {
-  return getJSON<Article>(`/api/v1/articles/${id}`, tenantID)
+export function getArticle(id: number): Promise<Article> {
+	return getJSON<Article>(`/api/v1/articles/${id}`)
 }
 
-export function createArticle(input: ArticleFormInput, tenantID?: string): Promise<Article> {
+export function createArticle(input: ArticleFormInput): Promise<Article> {
   return postJSON<Article>('/api/v1/articles', {
     authorizer_id: input.authorizer_id,
     title: input.title,
     author: input.author,
     digest: input.digest,
     content_html: input.content_html
-  }, tenantID)
+	})
 }
 
-export function updateArticle(id: number, input: ArticleFormInput, tenantID?: string): Promise<Article> {
-  return putJSON<Article>(`/api/v1/articles/${id}`, input, tenantID)
+export function updateArticle(id: number, input: ArticleFormInput): Promise<Article> {
+	return putJSON<Article>(`/api/v1/articles/${id}`, input)
 }
 
-export function deleteArticle(id: number, tenantID?: string): Promise<void> {
-  return deleteJSON(`/api/v1/articles/${id}`, tenantID)
+export function deleteArticle(id: number): Promise<void> {
+	return deleteJSON(`/api/v1/articles/${id}`)
 }
 
-export function publishArticle(id: number, tenantID?: string): Promise<PublishRecord> {
-  return postJSON<PublishRecord>(`/api/v1/articles/${id}/publish`, {}, tenantID)
+export function publishArticle(id: number): Promise<PublishRecord> {
+	return postJSON<PublishRecord>(`/api/v1/articles/${id}/publish`, {})
 }

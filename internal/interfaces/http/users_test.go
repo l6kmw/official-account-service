@@ -19,7 +19,7 @@ func TestAdminCreatesUserWithoutExposingPasswordHash(t *testing.T) {
 	identities := application.NewIdentityService(store)
 	router := NewRouter(Dependencies{
 		Logger: zap.NewNop(), AdminAPIKey: "admin-key", AdminUserID: "tenant-1",
-		AdminSessionSecret: "test-session-secret", Identity: identities, Accounts: application.NewAccountService(store),
+		AdminSessionSecret: "test-session-secret", Identity: identities, Accounts: application.NewAccountService(store), MCPToken: "global-mcp-token",
 	})
 
 	created := doJSONWithAdminKey(t, router, http.MethodPost, "/api/v1/admin/users", `{"username":"writer","password":"strong-password-123"}`, "spoofed-user", "admin-key")
@@ -64,6 +64,16 @@ func TestAdminCreatesUserWithoutExposingPasswordHash(t *testing.T) {
 	require.Equal(t, http.StatusOK, accounts.Code)
 	require.Contains(t, accounts.Body.String(), "wx-writer")
 	require.NotContains(t, accounts.Body.String(), "tenant-1\"")
+
+	mcpConfig := doJSONWithBearer(t, router, http.MethodGet, "/api/v1/admin/mcp-config", ``, "tenant-1", credential.Token)
+	require.Equal(t, http.StatusOK, mcpConfig.Code)
+	var userMCPConfig mcpConfigResponse
+	require.NoError(t, json.Unmarshal(mcpConfig.Body.Bytes(), &userMCPConfig))
+	require.True(t, userMCPConfig.Configured)
+	require.False(t, userMCPConfig.Revealable)
+	require.Empty(t, userMCPConfig.Token)
+	require.NotEmpty(t, userMCPConfig.TokenHint)
+	require.NotContains(t, mcpConfig.Body.String(), "global-mcp-token")
 
 	revoked := doJSONWithAdminKey(t, router, http.MethodDelete, "/api/v1/admin/users/"+user.ID+"/api-token", ``, "spoofed-user", "admin-key")
 	require.Equal(t, http.StatusOK, revoked.Code)
