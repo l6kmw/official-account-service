@@ -32,6 +32,8 @@ type MaterialUploader struct {
 	retryBackoff time.Duration
 }
 
+var _ material.PermanentManager = (*MaterialUploader)(nil)
+
 // DisabledMaterialUploader is a placeholder until the real WeChat client is implemented.
 type DisabledMaterialUploader struct{}
 
@@ -87,6 +89,21 @@ func (u *MaterialUploader) UploadCover(ctx context.Context, authorizerAccessToke
 		return material.CoverUpload{}, fmt.Errorf("validate cover upload response: %w", material.ErrUploadFailed)
 	}
 	return material.CoverUpload{MediaID: response.MediaID}, nil
+}
+
+// ListPermanentImages returns one live page from the authorized account's permanent image library.
+func (u *MaterialUploader) ListPermanentImages(ctx context.Context, authorizerAccessToken string, offset int, count int) (material.PermanentImageBatch, error) {
+	if u == nil || u.httpClient == nil || strings.TrimSpace(authorizerAccessToken) == "" || offset < 0 || count < 1 || count > 20 {
+		return material.PermanentImageBatch{}, fmt.Errorf("validate permanent material list input: %w", material.ErrManagerUnavailable)
+	}
+	var response permanentMaterialListResponse
+	err := u.postMaterialJSON(ctx, "list_permanent_materials", "/material/batchget_material", authorizerAccessToken, permanentMaterialListRequest{
+		Type: "image", Offset: offset, Count: count,
+	}, &response)
+	if err != nil {
+		return material.PermanentImageBatch{}, err
+	}
+	return material.PermanentImageBatch{TotalCount: response.TotalCount, ItemCount: response.ItemCount, Items: response.Items}, nil
 }
 
 // UploadInlineImage returns an unavailable error for inline image uploads.
@@ -178,6 +195,57 @@ func (u *MaterialUploader) uploadOnce(ctx context.Context, operation string, pat
 	return nil
 }
 
+func (u *MaterialUploader) postMaterialJSON(ctx context.Context, operation string, path string, accessToken string, body any, out materialJSONResponse) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal %s request: %w", operation, material.ErrManagementFailed)
+	}
+	var lastErr error
+	for attempt := 0; attempt <= u.maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := sleepContext(ctx, u.retryBackoff); err != nil {
+				return fmt.Errorf("wait before retry %s: %w", operation, err)
+			}
+		}
+		lastErr = u.postMaterialJSONOnce(ctx, operation, path, accessToken, payload, out)
+		if lastErr == nil || !isRetryable(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
+}
+
+func (u *MaterialUploader) postMaterialJSONOnce(ctx context.Context, operation string, path string, accessToken string, payload []byte, out materialJSONResponse) error {
+	endpoint, err := u.endpoint(path, nil, accessToken)
+	if err != nil {
+		return fmt.Errorf("build %s endpoint: %w", operation, material.ErrManagementFailed)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create %s request: %w", operation, material.ErrManagementFailed)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return retryableError{err: fmt.Errorf("send %s request: %w", operation, material.ErrManagementFailed)}
+	}
+	defer resp.Body.Close()
+	responseBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if err != nil {
+		return fmt.Errorf("read %s response: %w", operation, material.ErrManagementFailed)
+	}
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return retryableError{err: fmt.Errorf("%s response status %d: %w", operation, resp.StatusCode, material.ErrManagementFailed)}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s response status %d: %w", operation, resp.StatusCode, material.ErrManagementFailed)
+	}
+	if err := json.Unmarshal(responseBytes, out); err != nil {
+		return fmt.Errorf("decode %s response: %w", operation, material.ErrManagementFailed)
+	}
+	return out.wechatError(operation)
+}
+
 func (u *MaterialUploader) endpoint(path string, query url.Values, accessToken string) (string, error) {
 	parsed, err := url.Parse(u.baseURL + path)
 	if err != nil {
@@ -201,6 +269,31 @@ type materialUploadResponse struct {
 	MediaID string `json:"media_id"`
 	ErrCode int    `json:"errcode"`
 	ErrMsg  string `json:"errmsg"`
+}
+
+type materialJSONResponse interface {
+	wechatError(operation string) error
+}
+
+type permanentMaterialListRequest struct {
+	Type   string `json:"type"`
+	Offset int    `json:"offset"`
+	Count  int    `json:"count"`
+}
+
+type permanentMaterialListResponse struct {
+	TotalCount int                       `json:"total_count"`
+	ItemCount  int                       `json:"item_count"`
+	Items      []material.PermanentImage `json:"item"`
+	ErrCode    int                       `json:"errcode"`
+	ErrMsg     string                    `json:"errmsg"`
+}
+
+func (r permanentMaterialListResponse) wechatError(operation string) error {
+	if r.ErrCode == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s errcode %d errmsg %q: %w", operation, r.ErrCode, r.ErrMsg, material.ErrManagementFailed)
 }
 
 func (r materialUploadResponse) wechatError(operation string) error {

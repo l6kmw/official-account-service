@@ -36,6 +36,7 @@ type Dependencies struct {
 	TaskQueues         *application.TaskQueueService
 	Dashboard          *application.DashboardService
 	OfficialContent    *application.OfficialContentService
+	PermanentMaterials *application.PermanentMaterialService
 	AdminAPIKey        string
 	AdminUsername      string
 	AdminPasswordHash  string
@@ -82,6 +83,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	registerTaskQueueRoutes(adminV1, deps.TaskQueues)
 	registerDashboardRoutes(adminV1, deps.Dashboard)
 	registerOfficialContentRoutes(adminV1, deps.OfficialContent)
+	registerPermanentMaterialRoutes(adminV1, deps.PermanentMaterials)
 	registerMCPConfigRoutes(adminV1, mcpConfig{
 		Token: deps.MCPToken,
 		Path:  deps.MCPPath,

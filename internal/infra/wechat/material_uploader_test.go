@@ -71,6 +71,28 @@ func TestMaterialUploaderUploadsCover(t *testing.T) {
 	require.Equal(t, "media-cover", result.MediaID)
 }
 
+func TestMaterialUploaderListsPermanentImages(t *testing.T) {
+	var body permanentMaterialListRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/material/batchget_material", r.URL.Path)
+		require.Equal(t, "authorizer-token", r.URL.Query().Get("access_token"))
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, err := w.Write([]byte(`{"total_count":3,"item_count":1,"item":[{"media_id":"media-1","name":"cover.png","update_time":1784000000,"url":"https://img/cover.png"}]}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	uploader, err := NewMaterialUploader(MaterialUploaderConfig{BaseURL: server.URL, MaxRetries: -1})
+	require.NoError(t, err)
+
+	result, err := uploader.ListPermanentImages(context.Background(), "authorizer-token", 1, 2)
+
+	require.NoError(t, err)
+	require.Equal(t, permanentMaterialListRequest{Type: "image", Offset: 1, Count: 2}, body)
+	require.Equal(t, 3, result.TotalCount)
+	require.Equal(t, 1, result.ItemCount)
+	require.Equal(t, "media-1", result.Items[0].MediaID)
+}
+
 func TestMaterialUploaderHandlesWeChatErrCodeWithoutLeakingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := w.Write([]byte(`{"errcode":40001,"errmsg":"invalid credential"}`))

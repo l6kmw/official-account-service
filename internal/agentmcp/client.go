@@ -143,6 +143,21 @@ type PublishedArticleList struct {
 	Items                []PublishedArticle `json:"items"`
 }
 
+type PermanentMaterial struct {
+	MediaID    string `json:"media_id"`
+	Name       string `json:"name"`
+	UpdateTime int64  `json:"update_time"`
+	URL        string `json:"url"`
+}
+
+type PermanentMaterialList struct {
+	TotalCount int                 `json:"total_count"`
+	ItemCount  int                 `json:"item_count"`
+	NextOffset int                 `json:"next_offset"`
+	HasMore    bool                `json:"has_more"`
+	Items      []PermanentMaterial `json:"items"`
+}
+
 type ArticleMetricsResult struct {
 	Date    string           `json:"date"`
 	Delayed bool             `json:"delayed"`
@@ -306,6 +321,19 @@ func (c *Client) ListPublishedArticles(ctx context.Context, authorizerID int64, 
 	path := fmt.Sprintf("/api/v1/accounts/%d/published-articles?%s", authorizerID, query.Encode())
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
 		return PublishedArticleList{}, err
+	}
+	return out, nil
+}
+
+// ListPermanentMaterials returns a live page from the authorized account's permanent image library.
+func (c *Client) ListPermanentMaterials(ctx context.Context, authorizerID int64, offset int, count int) (PermanentMaterialList, error) {
+	query := url.Values{}
+	query.Set("offset", fmt.Sprintf("%d", offset))
+	query.Set("count", fmt.Sprintf("%d", count))
+	var out PermanentMaterialList
+	path := fmt.Sprintf("/api/v1/accounts/%d/permanent-materials?%s", authorizerID, query.Encode())
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
+		return PermanentMaterialList{}, err
 	}
 	return out, nil
 }

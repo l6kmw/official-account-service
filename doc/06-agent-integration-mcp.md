@@ -123,6 +123,7 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 - `official_account_list_accounts`
 - `official_account_list_articles`
 - `official_account_list_published_articles`
+- `official_account_list_permanent_materials`
 - `official_account_get_article_metrics`
 - `official_account_list_article_comments`
 - `official_account_create_article`
@@ -148,6 +149,8 @@ agent 可以把 `qr_code_payload_url` 交给自己的 UI 生成二维码；如�
 `official_account_get_article_metrics` 按文章发表日期查询阅读、分享、爱心赞、拇指赞、评论数、收藏、赞赏、阅读后关注、完成率和来源明细。`date` 必须为 `YYYY-MM-DD`，一次只能查一天，最晚为昨天；微信只保留每篇文章发表后 30 天内的统计。
 
 `official_account_list_article_comments` 使用实时文章列表或统计结果中的 `msgid` 查询具体评论，支持当天文章、分页和普通/精选筛选。返回评论内容、精选状态和公众号回复，但不会向 Agent 暴露评论者 OpenID。
+
+`official_account_list_permanent_materials` 按 `authorizer_id` 实时读取该公众号的永久图片素材库，使用 `offset` / `count` 分页，单次最多 20 条。结果包含微信 `media_id`、素材名、更新时间和 URL；它与本地文章素材记录是两套数据，不会返回任何 access token。
 
 ## 线上 Agent 图片上传
 

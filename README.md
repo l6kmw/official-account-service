@@ -396,6 +396,7 @@ Header value: <MCP_TOKEN>
 - `official_account_list_accounts`
 - `official_account_get_authorization_entry`
 - `official_account_list_published_articles`
+- `official_account_list_permanent_materials`
 - `official_account_get_article_metrics`
 - `official_account_list_article_comments`
 - `official_account_create_article`
@@ -413,6 +414,8 @@ Header value: <MCP_TOKEN>
 - `official_account_delete_published_record`：只下线指定发布记录对应的微信内容，本地文章继续保留。
 
 查看公众号当前全部已发布文章时，使用 `official_account_list_published_articles`。它每次直接查询微信，不依赖本地文章或发布记录，因此也能看到在微信后台或其他工具发布的历史文章。`offset` / `count` 按微信消息分页，`count` 最大为 20；默认不返回正文 HTML 和已删除条目。文章结果中的 `msgid` 可直接用于查询评论，包括当天刚发布的文章。
+
+查看公众号永久图片素材时，使用 `official_account_list_permanent_materials`。它实时读取所选公众号的微信永久素材库，传 `authorizer_id`，并用 `offset` / `count` 分页，`count` 最大为 20。返回的 `media_id` 可用于识别微信侧素材，但文章的 `cover_media_asset_id` 仍应使用上传工具返回的本地 `asset.id`。
 
 查看阅读、分享、点赞、评论数、收藏等数据时，使用 `official_account_get_article_metrics`，传文章发表日期 `date=YYYY-MM-DD`。微信一次只允许查询一天，最晚只能查昨天，并且每篇文章只统计发表后 30 天内的数据。
 

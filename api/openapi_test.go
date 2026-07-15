@@ -32,6 +32,7 @@ func TestOpenAPIYAMLIsParseableAndCoversRoutes(t *testing.T) {
 		"/api/v1/accounts/{id}",
 		"/api/v1/accounts/{id}/token-status",
 		"/api/v1/accounts/{id}/published-articles",
+		"/api/v1/accounts/{id}/permanent-materials",
 		"/api/v1/accounts/{id}/article-metrics",
 		"/api/v1/accounts/{id}/article-comments",
 		"/api/v1/articles",

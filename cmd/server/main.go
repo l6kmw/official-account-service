@@ -86,6 +86,11 @@ func main() {
 		logger.Fatal("init official content service", logging.Error(err))
 	}
 	deps.OfficialContent = officialContentService
+	permanentMaterialService, err := buildPermanentMaterialService(cfg, tokenService)
+	if err != nil {
+		logger.Fatal("init permanent material service", logging.Error(err))
+	}
+	deps.PermanentMaterials = permanentMaterialService
 	router := httpapi.NewRouter(deps)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}
 
@@ -355,6 +360,17 @@ func buildOfficialContentService(cfg config.Config, tokens *application.TokenSer
 		return nil, fmt.Errorf("init wechat official content reader: %w", err)
 	}
 	return application.NewOfficialContentService(reader, tokens, cfg.WeChatComponentAppID), nil
+}
+
+func buildPermanentMaterialService(cfg config.Config, tokens *application.TokenService) (*application.PermanentMaterialService, error) {
+	if strings.TrimSpace(cfg.WeChatComponentAppID) == "" {
+		return application.NewPermanentMaterialService(nil, tokens, ""), nil
+	}
+	manager, err := wechat.NewMaterialUploader(wechat.MaterialUploaderConfig{BaseURL: cfg.WeChatAPIBaseURL})
+	if err != nil {
+		return nil, fmt.Errorf("init wechat permanent material manager: %w", err)
+	}
+	return application.NewPermanentMaterialService(manager, tokens, cfg.WeChatComponentAppID), nil
 }
 
 func buildCallbackService(cfg config.Config, store interface {

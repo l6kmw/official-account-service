@@ -58,6 +58,24 @@ func TestClientListsLivePublishedArticles(t *testing.T) {
 	require.Equal(t, 3, result.NextOffset)
 }
 
+func TestClientListsPermanentMaterials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/accounts/7/permanent-materials", r.URL.Path)
+		require.Equal(t, "2", r.URL.Query().Get("offset"))
+		require.Equal(t, "10", r.URL.Query().Get("count"))
+		_, _ = w.Write([]byte(`{"total_count":3,"item_count":1,"next_offset":3,"has_more":false,"items":[{"media_id":"media-1","name":"cover.png"}]}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{BaseURL: server.URL, TenantID: "tenant-test"})
+	require.NoError(t, err)
+
+	result, err := client.ListPermanentMaterials(context.Background(), 7, 2, 10)
+
+	require.NoError(t, err)
+	require.Equal(t, "media-1", result.Items[0].MediaID)
+	require.Equal(t, 3, result.NextOffset)
+}
+
 func TestClientGetsArticleMetrics(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/accounts/7/article-metrics", r.URL.Path)

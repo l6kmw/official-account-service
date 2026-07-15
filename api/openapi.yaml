@@ -98,6 +98,16 @@ paths:
         - {name: include_content, in: query, schema: {type: boolean, default: false}}
         - {name: include_deleted, in: query, schema: {type: boolean, default: false}}
       responses: {"200": {description: Live WeChat published article page, content: {application/json: {schema: {$ref: "#/components/schemas/PublishedArticleList"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
+  /api/v1/accounts/{id}/permanent-materials:
+    get:
+      tags: [Materials]
+      summary: List live WeChat permanent image materials
+      parameters:
+        - {$ref: "#/components/parameters/TenantID"}
+        - {$ref: "#/components/parameters/ID"}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: count, in: query, schema: {type: integer, minimum: 1, maximum: 20, default: 20}}
+      responses: {"200": {description: Live WeChat permanent image page, content: {application/json: {schema: {$ref: "#/components/schemas/PermanentMaterialList"}}}}, "400": {$ref: "#/components/responses/InvalidRequest"}, "501": {$ref: "#/components/responses/NotImplemented"}}
   /api/v1/accounts/{id}/article-metrics:
     get:
       tags: [Accounts]
@@ -290,6 +300,14 @@ components:
     MaterialAsset:
       type: object
       properties: {id: {type: integer, format: int64}, tenant_id: {type: string}, authorizer_id: {type: integer, format: int64}, article_id: {type: integer, format: int64}, usage: {type: string, enum: [inline_image, cover]}, local_url: {type: string}, wechat_url: {type: string}, media_id: {type: string}, created_at: {type: string, format: date-time}}
+    PermanentMaterialList:
+      type: object
+      required: [total_count, item_count, next_offset, has_more, items]
+      properties: {total_count: {type: integer}, item_count: {type: integer}, next_offset: {type: integer}, has_more: {type: boolean}, items: {type: array, items: {$ref: "#/components/schemas/PermanentMaterial"}}}
+    PermanentMaterial:
+      type: object
+      required: [media_id, name, update_time, url]
+      properties: {media_id: {type: string}, name: {type: string}, update_time: {type: integer, format: int64}, url: {type: string, format: uri}}
     PublishRecord:
       type: object
       properties: {id: {type: integer, format: int64}, tenant_id: {type: string}, authorizer_id: {type: integer, format: int64}, article_id: {type: integer, format: int64}, wechat_publish_id: {type: string}, wechat_article_id: {type: string}, status: {type: string, enum: [publishing, published, failed, deleted]}, error_code: {type: string}, error_message: {type: string}, submitted_at: {type: string, format: date-time}, finished_at: {type: string, format: date-time}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}}

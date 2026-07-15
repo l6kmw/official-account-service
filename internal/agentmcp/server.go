@@ -69,6 +69,22 @@ func NewServer(client *Client, cfg ServerConfig) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "official_account_list_permanent_materials",
+		Title:       "List WeChat permanent materials",
+		Description: "List permanent image materials directly from one authorized WeChat account. Required: authorizer_id. offset defaults to 0 and count defaults to 20; count must be 1-20. Returns media_id, name, update_time, and URL without exposing credentials.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listPermanentMaterialsToolInput) (*mcp.CallToolResult, any, error) {
+		count := input.Count
+		if count == 0 {
+			count = 20
+		}
+		result, err := client.ListPermanentMaterials(ctx, input.AuthorizerID, input.Offset, count)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "official_account_get_article_metrics",
 		Title:       "Get WeChat article metrics",
 		Description: "Get live cumulative metrics for all articles published on one date, including reads, shares, likes, comments, collections, rewards, conversions, completion rate, sources, and drop-off positions. Required: authorizer_id and date (YYYY-MM-DD). WeChat supports one publish date per call, from 2025-11-01 through yesterday, and metrics are limited to the first 30 days after publication.",
@@ -266,6 +282,12 @@ type listPublishedArticlesToolInput struct {
 type getArticleMetricsToolInput struct {
 	AuthorizerID int64  `json:"authorizer_id" jsonschema:"Required. Authorized official account id."`
 	Date         string `json:"date" jsonschema:"Required. Article publication date in YYYY-MM-DD format. Must be between 2025-11-01 and yesterday."`
+}
+
+type listPermanentMaterialsToolInput struct {
+	AuthorizerID int64 `json:"authorizer_id" jsonschema:"Required. Authorized official account id returned by official_account_list_accounts."`
+	Offset       int   `json:"offset,omitempty" jsonschema:"Permanent image offset. Defaults to 0."`
+	Count        int   `json:"count,omitempty" jsonschema:"Number of permanent images to fetch, 1-20. Defaults to 20."`
 }
 
 type listArticleCommentsToolInput struct {
