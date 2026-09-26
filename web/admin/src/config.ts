@@ -10,9 +10,14 @@ declare global {
   }
 }
 
+// Runtime config for the admin UI. Values here are browser-visible public config
+// only — never put AppSecret, EncodingAESKey, database credentials,
+// security.admin_api_key, mcp.token or any user token here.
+//
+// Override per deployment (e.g. edit this file in the served static dir).
 const defaultAdminConfig: AdminConfig = {
-  publicBaseURL: 'https://example.com',
-  componentAppID: 'wx0000000000000000',
+  publicBaseURL: '',
+  componentAppID: '',
   adminAPIKey: ''
 }
 

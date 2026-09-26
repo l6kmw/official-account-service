@@ -222,6 +222,8 @@ window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__ = {
 }
 ```
 
+> 仓库里的 `web/admin/public/admin-config.js` 默认留空，`web/admin/src/config.ts` 也不带任何默认域名或 AppID。首次部署前请按上表填入自己的值，或直接编辑已发布的静态目录里的 `admin-config.js`——它通过 `window.__OFFICIAL_ACCOUNT_ADMIN_CONFIG__` 在运行时覆盖前端默认值。
+
 这里不要填真实密钥。它只放浏览器可以看到的公开配置。
 
 ## 6. 启动 MCP 服务
@@ -543,6 +545,7 @@ POST /api/v1/publish-records/:id/delete-published
 
 - 不要提交 `config.yaml`、`config.docker.yaml`。
 - 不要把 AppSecret、EncodingAESKey、数据库密码、`security.admin_api_key`、`mcp.token` 或用户 token 写进 `admin-config.js`。
+- 不要把公网域名和真实 Component AppID 硬编码进 `web/admin/src/config.ts` 或 `web/admin/public/admin-config.js`；两者都从部署时的运行时配置注入。
 - 不要把 PostgreSQL 和 Redis 暴露到公网。
 - MCP 必须走 HTTPS；每个用户使用自己的高熵 token，不得多人共享。
 - 生产环境必须开启管理员登录或后台 API key。
